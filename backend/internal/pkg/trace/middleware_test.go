@@ -152,12 +152,21 @@ func TestMiddlewareWhitelistSkipsUnknownKey(t *testing.T) {
 
 func TestResolveSessionIDFallback(t *testing.T) {
 	body := []byte(`{"messages":[{"role":"user","content":"hello"}]}`)
-	a := resolveSessionID(body, 1)
-	b := resolveSessionID(body, 1)
+	c := &gin.Context{Request: httptest.NewRequest(http.MethodPost, "/v1/messages", nil)}
+	a := resolveSessionID(c, body, 1)
+	b := resolveSessionID(c, body, 1)
 	if a != b || !strings.HasPrefix(a, "anon-") {
 		t.Fatalf("fallback session unstable: %q vs %q", a, b)
 	}
-	if resolveSessionID(body, 2) == a {
+	if resolveSessionID(c, body, 2) == a {
 		t.Fatal("different api keys must produce different fallback sessions")
+	}
+}
+
+func TestResolveSessionIDHeader(t *testing.T) {
+	c := &gin.Context{Request: httptest.NewRequest(http.MethodPost, "/v1/chat/completions", nil)}
+	c.Request.Header.Set("X-Session-Id", "my-conv-42")
+	if got := resolveSessionID(c, []byte(`{"messages":[]}`), 1); got != "my-conv-42" {
+		t.Fatalf("header session = %q", got)
 	}
 }

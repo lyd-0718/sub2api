@@ -59,7 +59,7 @@ func LoadConfig() *Config {
 		QueueSize:    int(envInt64("TRACE_QUEUE_SIZE", 1024)),
 		Workers:      int(envInt64("TRACE_WORKERS", 2)),
 		SampleRate:   envFloat("TRACE_SAMPLE_RATE", 1.0),
-		Paths:        []string{"/v1/messages", "/messages"},
+		Paths:        []string{"/v1/messages", "/messages", "/v1/chat/completions", "/chat/completions"},
 	}
 	if v := strings.TrimSpace(os.Getenv("TRACE_PATHS")); v != "" {
 		cfg.Paths = strings.Split(v, ",")

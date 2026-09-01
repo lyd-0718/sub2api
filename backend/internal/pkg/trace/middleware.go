@@ -8,6 +8,7 @@ import (
 	"math/rand/v2"
 	"net/http"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -70,7 +71,7 @@ func handle(c *gin.Context, cfg *Config, s *sink) {
 	c.Request.ContentLength = int64(len(body))
 
 	rec := &record{
-		SessionID: resolveSessionID(body, apiKeyID),
+		SessionID: resolveSessionID(c, body, apiKeyID),
 		RequestID: requestID(c),
 		Model:     gjson.GetBytes(body, "model").String(),
 		Stream:    gjson.GetBytes(body, "stream").Bool(),
@@ -110,15 +111,22 @@ func readBody(r *http.Request, limit int64) ([]byte, bool) {
 	return data, false
 }
 
-// resolveSessionID 提取客户端会话标识。
-// 优先 Claude Code metadata.user_id 中的 session UUID（协议事实，非猜测）；
+// 优先 X-Session-Id 自定义头（自家客户端可显式指定）；
+// 其次 Claude Code metadata.user_id 中的 session UUID（协议事实，非猜测）；
 // 缺失时退化为 apiKeyID + 首条 user 消息内容的哈希：同一会话的首轮请求
 // 内容相同因此 hash 稳定，足以把同会话的轮次归并到一起。
-func resolveSessionID(body []byte, apiKeyID int64) string {
+func resolveSessionID(c *gin.Context, body []byte, apiKeyID int64) string {
+	if sid := strings.TrimSpace(c.GetHeader("X-Session-Id")); sid != "" {
+		return sid
+	}
 	if uid := gjson.GetBytes(body, "metadata.user_id").String(); uid != "" {
 		if parsed := service.ParseMetadataUserID(uid); parsed != nil && parsed.SessionID != "" {
 			return parsed.SessionID
 		}
+	}
+	// OpenAI 格式客户端：user 字段次之
+	if u := strings.TrimSpace(gjson.GetBytes(body, "user").String()); u != "" {
+		return "user-" + u
 	}
 	first := ""
 	if msg := gjson.GetBytes(body, "messages.0.content"); msg.Exists() {

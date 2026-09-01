@@ -54,10 +54,18 @@ func assemble(data []byte, truncated bool) *Response {
 	if len(trimmed) == 0 {
 		return resp
 	}
-	if trimmed[0] == '{' {
-		assembleJSON(trimmed, resp)
-	} else {
+		if trimmed[0] == '{' {
+		// 非流式：OpenAI chat.completion 带 choices，Anthropic message 带 type
+		if bytes.Contains(trimmed, []byte(`"choices"`)) {
+			assembleOpenAIJSON(trimmed, resp)
+		} else {
+			assembleJSON(trimmed, resp)
+		}
+	} else if bytes.Contains(trimmed, []byte("\nevent:")) || bytes.HasPrefix(trimmed, []byte("event:")) {
+		// Anthropic SSE 每事件带 event: 行；OpenAI SSE 只有 data: 行
 		assembleSSE(trimmed, resp)
+	} else {
+		assembleOpenAISSE(trimmed, resp)
 	}
 	if truncated {
 		resp.Complete = false
