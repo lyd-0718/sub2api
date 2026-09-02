@@ -27,10 +27,10 @@ type Block struct {
 
 // Usage 响应中观测到的 token 用量（仅随 trace 记录，与计费系统无关）。
 type Usage struct {
-	InputTokens          int `json:"input_tokens,omitempty"`
-	OutputTokens         int `json:"output_tokens,omitempty"`
-	CacheCreationTokens  int `json:"cache_creation_input_tokens,omitempty"`
-	CacheReadTokens      int `json:"cache_read_input_tokens,omitempty"`
+	InputTokens         int `json:"input_tokens,omitempty"`
+	OutputTokens        int `json:"output_tokens,omitempty"`
+	CacheCreationTokens int `json:"cache_creation_input_tokens,omitempty"`
+	CacheReadTokens     int `json:"cache_read_input_tokens,omitempty"`
 }
 
 // Response 一次请求重组后的完整响应。
@@ -56,7 +56,7 @@ func assemble(data []byte, truncated bool) *Response {
 	if len(trimmed) == 0 {
 		return resp
 	}
-		if trimmed[0] == '{' {
+	if trimmed[0] == '{' {
 		// 非流式按结构区分：chat.completion 带 choices，Responses 带 output 数组
 		if bytes.Contains(trimmed, []byte(`"choices"`)) {
 			assembleOpenAIJSON(trimmed, resp)
@@ -160,7 +160,7 @@ func assembleJSON(data []byte, resp *Response) {
 // error 事件记录后保持 complete=false。
 func assembleSSE(data []byte, resp *Response) {
 	type openBlock struct {
-		idx    int
+		idx     int
 		partial strings.Builder // tool_use 的 input_json_delta 累积
 	}
 	blocks := map[int]*Block{}

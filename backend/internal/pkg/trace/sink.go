@@ -13,20 +13,20 @@ import (
 
 // record 一轮请求的完整采集结果。
 type record struct {
-	Version     int             `json:"version"`
-	SessionID   string          `json:"session_id"`
-	RequestID   string          `json:"request_id"`
-	StartedAt   time.Time       `json:"started_at"`
-	DurationMs  int64           `json:"duration_ms"`
-	APIKeyID    int64           `json:"api_key_id,omitempty"`
-	UserID      int64           `json:"user_id,omitempty"`
-	GroupID     int64           `json:"group_id,omitempty"`
-	Model       string          `json:"model"`
-	Stream      bool            `json:"stream"`
-	HTTPStatus  int             `json:"http_status"`
-	Request     json.RawMessage `json:"request"`
-	RequestTrunc bool           `json:"request_truncated,omitempty"`
-	Response    *Response       `json:"response"`
+	Version      int             `json:"version"`
+	SessionID    string          `json:"session_id"`
+	RequestID    string          `json:"request_id"`
+	StartedAt    time.Time       `json:"started_at"`
+	DurationMs   int64           `json:"duration_ms"`
+	APIKeyID     int64           `json:"api_key_id,omitempty"`
+	UserID       int64           `json:"user_id,omitempty"`
+	GroupID      int64           `json:"group_id,omitempty"`
+	Model        string          `json:"model"`
+	Stream       bool            `json:"stream"`
+	HTTPStatus   int             `json:"http_status"`
+	Request      json.RawMessage `json:"request"`
+	RequestTrunc bool            `json:"request_truncated,omitempty"`
+	Response     *Response       `json:"response"`
 }
 
 // sink 异步落盘：请求路径只负责入队，磁盘 I/O 全在后台协程。
@@ -51,7 +51,6 @@ func newSink(cfg *Config) *sink {
 		cfg.Dir, cfg.Workers, cfg.QueueSize, cfg.SampleRate)
 	return s
 }
-
 
 func (s *sink) enqueue(rec *record) {
 	s.wg.Add(1)
@@ -101,6 +100,7 @@ func (s *sink) write(rec *record) error {
 	}
 	return gz.Close()
 }
+
 // wait 阻塞直到已入队记录全部落盘（测试与优雅退出用）。
 func (s *sink) wait() { s.wg.Wait() }
 

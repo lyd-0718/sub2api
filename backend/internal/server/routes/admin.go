@@ -36,6 +36,8 @@ func RegisterAdminRoutes(
 
 		// 仪表盘
 		registerDashboardRoutes(admin, h)
+		// 会话 Trace 管理 + 账号用量导出（二开）
+		registerTraceAdminRoutes(admin, h)
 
 		// 用户管理
 		registerUserManagementRoutes(admin, h)

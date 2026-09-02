@@ -43,6 +43,9 @@ type AdminHandlers struct {
 	Affiliate              *admin.AffiliateHandler
 	Compliance             *admin.ComplianceHandler
 	AuditLog               *admin.AuditLogHandler
+	// 二开：会话 trace 管理与账号用量导出（独立模块，不与官方计费耦合）
+	TraceAdmin         *admin.TraceAdminHandler
+	AccountUsageExport *admin.AccountUsageExportHandler
 }
 
 // Handlers contains all HTTP handlers

@@ -1,0 +1,193 @@
+/**
+ * 二开模块 API：会话 Trace 管理 + 账号用量导出
+ */
+import { apiClient } from './client'
+import type { ApiResponse } from '@/types'
+
+// ---------- 会话 Trace ----------
+
+export interface TraceSession {
+  date: string
+  session_id: string
+  turns: number
+  size_bytes: number
+  archived: boolean
+  first_at: string
+  last_at: string
+  model: string
+  api_key_id: number
+  api_key_name: string
+  user_id: number
+}
+
+export interface TraceStats {
+  today_turns: number
+  hot_bytes: number
+  archived_bytes: number
+  total_sessions: number
+}
+
+export interface TraceArchiveSettings {
+  enabled: boolean
+  time_of_day: string
+  keep_hot_days: number
+}
+
+export interface TraceArchiveResult {
+  date: string
+  sessions: number
+  turns: number
+  kept_originals: boolean
+  archived: string[]
+  skipped: string[]
+}
+
+export const traceAdminAPI = {
+  async sessions(params?: { date?: string; status?: string; session_id?: string; api_key_id?: number }) {
+    const query: Record<string, string | number> = {}
+    if (params?.date) query.date = params.date
+    if (params?.session_id) query.session_id = params.session_id
+    if (params?.api_key_id) query.api_key_id = params.api_key_id
+    if (params?.status === 'archived') query.archived = 'true'
+    if (params?.status === 'hot') query.archived = 'false'
+    const { data } = await apiClient.get<ApiResponse<{ items: TraceSession[]; total: number }>>(
+      '/admin/traces/sessions',
+      { params: query, timeout: 60000 }
+    )
+    return data.data
+  },
+
+  async stats() {
+    const { data } = await apiClient.get<ApiResponse<TraceStats>>('/admin/traces/stats')
+    return data.data
+  },
+
+  async archive(date: string) {
+    const { data } = await apiClient.post<ApiResponse<TraceArchiveResult>>(
+      '/admin/traces/archive',
+      { date },
+      { timeout: 300000 } // 大日期目录归档可能耗时数分钟
+    )
+    return data.data
+  },
+
+  async getSettings() {
+    const { data } = await apiClient.get<ApiResponse<TraceArchiveSettings>>('/admin/traces/settings')
+    return data.data
+  },
+
+  async saveSettings(settings: TraceArchiveSettings) {
+    const { data } = await apiClient.put<ApiResponse<TraceArchiveSettings>>('/admin/traces/settings', settings)
+    return data.data
+  },
+
+  /** 下载会话（热数据现场压缩，已归档直接取包）。前端 axios 带鉴权，blob 落地。 */
+  async download(date: string, sessionId: string, onProgress?: (percent: number) => void) {
+    const { data, headers } = await apiClient.get('/admin/traces/download', {
+      params: { date, session: sessionId },
+      responseType: 'blob',
+      timeout: 300000,
+      onDownloadProgress: (e) => {
+        if (onProgress && e.total) onProgress(Math.round((e.loaded / e.total) * 100))
+      }
+    })
+    const dispo = String(headers?.['content-disposition'] || '')
+    const m = dispo.match(/filename="?([^";]+)"?/)
+    const filename = m?.[1] || `trace_${date}_${sessionId}.tar.zst`
+    const url = URL.createObjectURL(data as Blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = filename
+    a.click()
+    URL.revokeObjectURL(url)
+  }
+}
+
+// ---------- 账号用量导出 ----------
+
+export interface AccountUsageRow {
+  account_id: number
+  account_name: string
+  period: string
+  model: string
+  requests: number
+  input_tokens: number
+  output_tokens: number
+  cache_read_tokens: number
+  cache_creation_tokens: number
+  cost: number
+  cost_known: boolean
+  currency: string
+}
+
+export interface ExportModelPricing {
+  input: number
+  output: number
+  cache_read: number
+}
+
+export interface ExportPricing {
+  currency: string
+  models: Record<string, ExportModelPricing>
+}
+
+export const accountUsageExportAPI = {
+  async usage(params: {
+    start: string
+    end: string
+    granularity: string
+    account_ids?: number[]
+  }) {
+    const { data } = await apiClient.get<
+      ApiResponse<{
+        items: AccountUsageRow[]
+        total: number
+        total_cost: number
+        cost_complete: boolean
+        currency: string
+      }>
+    >('/admin/account-usage-export', {
+      params: {
+        start: params.start,
+        end: params.end,
+        granularity: params.granularity,
+        account_ids: params.account_ids?.length ? params.account_ids.join(',') : undefined
+      },
+      timeout: 60000
+    })
+    return data.data
+  },
+
+  async downloadCSV(params: { start: string; end: string; granularity: string; account_ids?: number[] }) {
+    const { data } = await apiClient.get('/admin/account-usage-export', {
+      params: {
+        start: params.start,
+        end: params.end,
+        granularity: params.granularity,
+        account_ids: params.account_ids?.length ? params.account_ids.join(',') : undefined,
+        format: 'csv'
+      },
+      responseType: 'blob',
+      timeout: 120000
+    })
+    const filename = `account-usage_${params.start}_${params.end}.csv`
+    const url = URL.createObjectURL(data as Blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = filename
+    a.click()
+    URL.revokeObjectURL(url)
+  },
+
+  async getPricing() {
+    const { data } = await apiClient.get<
+      ApiResponse<{ pricing: ExportPricing; models_seen: Record<string, number> }>
+    >('/admin/export-pricing')
+    return data.data
+  },
+
+  async savePricing(pricing: ExportPricing) {
+    const { data } = await apiClient.put<ApiResponse<ExportPricing>>('/admin/export-pricing', pricing)
+    return data.data
+  }
+}

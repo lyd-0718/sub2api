@@ -1,0 +1,303 @@
+package service
+
+import (
+	"context"
+	"database/sql"
+	"encoding/csv"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"io"
+	"os"
+	"path/filepath"
+	"sort"
+	"strconv"
+	"strings"
+	"sync"
+	"time"
+)
+
+// ============================================================================
+// AccountUsageExportService 上游账号用量导出（报表用）。
+// 数据：usage_logs 聚合（account_id 维度），费用按"导出专用独立定价"计算，
+// 与系统计费的 PricingService 完全隔离（独立 JSON 文件存储）。
+// ============================================================================
+
+// ExportPricing 导出定价：币种 + 每模型三项单价（每百万 token）。
+type ExportPricing struct {
+	Currency string                        `json:"currency"` // CNY / USD / ...
+	Models   map[string]ExportModelPricing `json:"models"`
+}
+
+type ExportModelPricing struct {
+	Input     float64 `json:"input"`      // 输入 / 百万 tok
+	Output    float64 `json:"output"`     // 输出 / 百万 tok
+	CacheRead float64 `json:"cache_read"` // 缓存读取 / 百万 tok
+}
+
+func (p ExportModelPricing) set() bool {
+	return p.Input > 0 || p.Output > 0 || p.CacheRead > 0
+}
+
+// AccountUsageRow 导出/预览行：账号 × 周期 × 模型。
+type AccountUsageRow struct {
+	AccountID           int64   `json:"account_id"`
+	AccountName         string  `json:"account_name"`
+	Period              string  `json:"period"`
+	Model               string  `json:"model"`
+	Requests            int64   `json:"requests"`
+	InputTokens         int64   `json:"input_tokens"`
+	OutputTokens        int64   `json:"output_tokens"`
+	CacheReadTokens     int64   `json:"cache_read_tokens"`
+	CacheCreationTokens int64   `json:"cache_creation_tokens"`
+	Cost                float64 `json:"cost"`       // 独立定价核算
+	CostKnown           bool    `json:"cost_known"` // 该模型未定价时为 false
+	Currency            string  `json:"currency"`
+}
+
+type AccountUsageExportService struct {
+	sqlDB       *sql.DB
+	pricingPath string
+
+	pricingMu sync.RWMutex
+	pricing   ExportPricing
+}
+
+func NewAccountUsageExportService(sqlDB *sql.DB) *AccountUsageExportService {
+	dir := os.Getenv("TRACE_DIR")
+	if dir == "" {
+		dir = "data/traces"
+	}
+	s := &AccountUsageExportService{
+		sqlDB:       sqlDB,
+		pricingPath: filepath.Join(filepath.Dir(dir), "export-pricing.json"),
+		pricing:     ExportPricing{Currency: "CNY", Models: map[string]ExportModelPricing{}},
+	}
+	_ = s.loadPricing()
+	return s
+}
+
+// ---------- 定价 ----------
+
+func (s *AccountUsageExportService) GetPricing() ExportPricing {
+	s.pricingMu.RLock()
+	defer s.pricingMu.RUnlock()
+	return s.pricing
+}
+
+func (s *AccountUsageExportService) SavePricing(p ExportPricing) error {
+	if strings.TrimSpace(p.Currency) == "" {
+		return errors.New("currency 不能为空")
+	}
+	if p.Models == nil {
+		p.Models = map[string]ExportModelPricing{}
+	}
+	s.pricingMu.Lock()
+	s.pricing = p
+	s.pricingMu.Unlock()
+	data, err := json.MarshalIndent(p, "", "  ")
+	if err != nil {
+		return err
+	}
+	if err := os.MkdirAll(filepath.Dir(s.pricingPath), 0o755); err != nil {
+		return err
+	}
+	return os.WriteFile(s.pricingPath, data, 0o644)
+}
+
+func (s *AccountUsageExportService) loadPricing() error {
+	data, err := os.ReadFile(s.pricingPath)
+	if err != nil {
+		return err
+	}
+	var p ExportPricing
+	if err := json.Unmarshal(data, &p); err != nil {
+		return err
+	}
+	if p.Models == nil {
+		p.Models = map[string]ExportModelPricing{}
+	}
+	s.pricingMu.Lock()
+	s.pricing = p
+	s.pricingMu.Unlock()
+	return nil
+}
+
+// PricedModelsSeen 返回近 90 天实际出现过的模型及各模型调用次数（定价页自动列模型用）。
+func (s *AccountUsageExportService) PricedModelsSeen(ctx context.Context) (map[string]int64, error) {
+	rows, err := s.sqlDB.QueryContext(ctx,
+		`SELECT model, COUNT(*) FROM usage_logs
+		 WHERE created_at >= NOW() - INTERVAL '90 days'
+		 GROUP BY model ORDER BY 2 DESC`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := map[string]int64{}
+	for rows.Next() {
+		var m string
+		var c int64
+		if rows.Scan(&m, &c) == nil {
+			out[m] = c
+		}
+	}
+	return out, rows.Err()
+}
+
+// ---------- 聚合查询 ----------
+
+var exportGranularityFormat = map[string]string{
+	"day":   "YYYY-MM-DD",
+	"week":  "IYYY-IW",
+	"month": "YYYY-MM",
+}
+
+// Query 聚合 usage_logs。granularity: day|week|month|total；accountIDs 空 = 全部账号。
+// 成功口径沿用仓库约定（actual_cost > 0 为成功请求代理）。
+func (s *AccountUsageExportService) Query(ctx context.Context, start, end time.Time, granularity string, accountIDs []int64) ([]AccountUsageRow, error) {
+	bucketExpr := "'全部'"
+	if f, ok := exportGranularityFormat[granularity]; ok {
+		bucketExpr = fmt.Sprintf("TO_CHAR(ul.created_at, '%s')", f)
+	}
+
+	args := []any{start, end}
+	where := []string{"ul.created_at >= $1 AND ul.created_at < $2", "ul.actual_cost > 0"}
+	if len(accountIDs) > 0 {
+		ph := make([]string, len(accountIDs))
+		for i, id := range accountIDs {
+			ph[i] = fmt.Sprintf("$%d", i+3)
+			args = append(args, id)
+		}
+		where = append(where, fmt.Sprintf("ul.account_id IN (%s)", strings.Join(ph, ",")))
+	}
+
+	q := fmt.Sprintf(`
+SELECT ul.account_id,
+       COALESCE(NULLIF(a.name, ''), '账号#' || ul.account_id::text) AS account_name,
+       %s AS period,
+       ul.model,
+       COUNT(*) AS requests,
+       COALESCE(SUM(ul.input_tokens), 0),
+       COALESCE(SUM(ul.output_tokens), 0),
+       COALESCE(SUM(ul.cache_read_tokens), 0),
+       COALESCE(SUM(ul.cache_creation_tokens), 0)
+FROM usage_logs ul
+LEFT JOIN accounts a ON a.id = ul.account_id
+WHERE %s
+GROUP BY ul.account_id, a.name, period, ul.model
+ORDER BY account_name, period, requests DESC`, bucketExpr, strings.Join(where, " AND "))
+
+	rows, err := s.sqlDB.QueryContext(ctx, q, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	pricing := s.GetPricing()
+	out := []AccountUsageRow{}
+	for rows.Next() {
+		var r AccountUsageRow
+		if err := rows.Scan(&r.AccountID, &r.AccountName, &r.Period, &r.Model, &r.Requests,
+			&r.InputTokens, &r.OutputTokens, &r.CacheReadTokens, &r.CacheCreationTokens); err != nil {
+			return nil, err
+		}
+		r.Currency = pricing.Currency
+		if p, ok := pricing.Models[r.Model]; ok && p.set() {
+			r.CostKnown = true
+			// 缓存创建按输入价计（它本质就是输入），缓存读取用缓存价
+			r.Cost = float64(r.InputTokens+r.CacheCreationTokens)/1e6*p.Input +
+				float64(r.OutputTokens)/1e6*p.Output +
+				float64(r.CacheReadTokens)/1e6*p.CacheRead
+		}
+		out = append(out, r)
+	}
+	return out, rows.Err()
+}
+
+// ---------- CSV ----------
+
+// WriteCSV 导出 CSV（UTF-8 BOM，Excel 直开）。含合计行。
+func (s *AccountUsageExportService) WriteCSV(rows []AccountUsageRow, w io.Writer) error {
+	if _, err := w.Write([]byte("\xEF\xBB\xBF")); err != nil { // BOM
+		return err
+	}
+	cw := csv.NewWriter(w)
+	defer cw.Flush()
+
+	pricing := s.GetPricing()
+	cur := pricing.Currency
+	header := []string{"账号", "周期", "模型", "请求数",
+		"输入token", "输出token", "缓存读取token", "缓存写入token",
+		fmt.Sprintf("token费用(%s)", cur)}
+	if err := cw.Write(header); err != nil {
+		return err
+	}
+
+	var totReq, totIn, totOut, totCR, totCC int64
+	var totCost float64
+	allKnown := true
+	for _, r := range rows {
+		cost := "-"
+		if r.CostKnown {
+			cost = strconv.FormatFloat(r.Cost, 'f', 2, 64)
+		} else {
+			allKnown = false
+		}
+		rec := []string{r.AccountName, r.Period, r.Model,
+			strconv.FormatInt(r.Requests, 10),
+			strconv.FormatInt(r.InputTokens, 10),
+			strconv.FormatInt(r.OutputTokens, 10),
+			strconv.FormatInt(r.CacheReadTokens, 10),
+			strconv.FormatInt(r.CacheCreationTokens, 10),
+			cost}
+		if err := cw.Write(rec); err != nil {
+			return err
+		}
+		totReq += r.Requests
+		totIn += r.InputTokens
+		totOut += r.OutputTokens
+		totCR += r.CacheReadTokens
+		totCC += r.CacheCreationTokens
+		totCost += r.Cost
+	}
+	totalCost := "-"
+	if allKnown {
+		totalCost = strconv.FormatFloat(totCost, 'f', 2, 64)
+	}
+	return cw.Write([]string{"合计", "", "",
+		strconv.FormatInt(totReq, 10),
+		strconv.FormatInt(totIn, 10),
+		strconv.FormatInt(totOut, 10),
+		strconv.FormatInt(totCR, 10),
+		strconv.FormatInt(totCC, 10),
+		totalCost})
+}
+
+// ParseDateRange 解析 start/end（YYYY-MM-DD），end 为闭区间当日（内部转开区间）。
+func ParseDateRange(startStr, endStr string) (time.Time, time.Time, error) {
+	start, err := time.ParseInLocation("2006-01-02", startStr, time.Local)
+	if err != nil {
+		return time.Time{}, time.Time{}, errors.New("start 格式应为 YYYY-MM-DD")
+	}
+	end, err := time.ParseInLocation("2006-01-02", endStr, time.Local)
+	if err != nil {
+		return time.Time{}, time.Time{}, errors.New("end 格式应为 YYYY-MM-DD")
+	}
+	if end.Before(start) {
+		return time.Time{}, time.Time{}, errors.New("end 不能早于 start")
+	}
+	return start, end.AddDate(0, 0, 1), nil
+}
+
+// SortAccountUsageRows 预览排序：账号名 → 周期 → 请求数降序。
+func SortAccountUsageRows(rows []AccountUsageRow) {
+	sort.Slice(rows, func(i, j int) bool {
+		if rows[i].AccountName != rows[j].AccountName {
+			return rows[i].AccountName < rows[j].AccountName
+		}
+		if rows[i].Period != rows[j].Period {
+			return rows[i].Period < rows[j].Period
+		}
+		return rows[i].Requests > rows[j].Requests
+	})
+}

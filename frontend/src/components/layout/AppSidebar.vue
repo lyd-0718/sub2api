@@ -818,6 +818,8 @@ const adminNavItems = computed((): NavItem[] => {
       ],
     },
     { path: '/admin/usage', label: t('nav.usage'), icon: ChartIcon },
+    { path: '/admin/traces', label: t('nav.sessionTraces'), icon: FolderIcon, hideInSimpleMode: true },
+    { path: '/admin/account-usage-export', label: t('nav.accountUsageExport'), icon: CreditCardIcon, hideInSimpleMode: true },
     { path: '/admin/audit-logs', label: t('nav.auditLogs'), icon: ShieldIcon, hideInSimpleMode: true }
   ]
 

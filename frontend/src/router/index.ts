@@ -525,6 +525,30 @@ const routes: RouteRecordRaw[] = [
     }
   },
   {
+    path: '/admin/traces',
+    name: 'AdminTraces',
+    component: () => import('@/views/admin/TraceView.vue'),
+    meta: {
+      requiresAuth: true,
+      requiresAdmin: true,
+      title: 'Session Traces',
+      titleKey: 'admin.trace.title',
+      descriptionKey: 'admin.trace.description'
+    }
+  },
+  {
+    path: '/admin/account-usage-export',
+    name: 'AdminAccountUsageExport',
+    component: () => import('@/views/admin/AccountUsageExportView.vue'),
+    meta: {
+      requiresAuth: true,
+      requiresAdmin: true,
+      title: 'Account Usage Export',
+      titleKey: 'admin.accountExport.title',
+      descriptionKey: 'admin.accountExport.description'
+    }
+  },
+  {
     path: '/admin/plugins',
     name: 'AdminPlugins',
     component: () => import('@/views/admin/PluginsView.vue'),

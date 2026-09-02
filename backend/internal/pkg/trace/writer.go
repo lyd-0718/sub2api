@@ -45,5 +45,5 @@ func (w *teeWriter) capture(p []byte) {
 	w.buf.Write(p)
 }
 
-func (w *teeWriter) Bytes() []byte    { return w.buf.Bytes() }
-func (w *teeWriter) Truncated() bool  { return w.truncated }
+func (w *teeWriter) Bytes() []byte   { return w.buf.Bytes() }
+func (w *teeWriter) Truncated() bool { return w.truncated }

@@ -38,11 +38,11 @@ type responsesOutput struct {
 // 非流式响应与流式 response.completed 共用此函数。
 func blocksFromResponsesObject(data []byte, resp *Response) {
 	var obj struct {
-		Object            string            `json:"object"`
-		Status            string            `json:"status"`
-		Model             string            `json:"model"`
-		Output            []responsesOutput `json:"output"`
-		Usage             *struct {
+		Object string            `json:"object"`
+		Status string            `json:"status"`
+		Model  string            `json:"model"`
+		Output []responsesOutput `json:"output"`
+		Usage  *struct {
 			InputTokens  int `json:"input_tokens"`
 			OutputTokens int `json:"output_tokens"`
 		} `json:"usage"`
