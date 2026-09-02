@@ -107,6 +107,12 @@ cd /opt/sub2api && docker compose up -d sub2api
 
 `backend/internal/pkg/trace/` 下 18 个测试覆盖：三种格式 SSE 重组（含 Responses 断流退化）、思考链/工具参数分片合并、格式嗅探、错误事件、截断、空 keepalive、会话 ID 五级优先级、中间件端到端（验证客户端收到的响应零改动）。
 
+## 后台管理功能（已上线）
+
+- **会话 Trace 页**（/admin/traces）：会话列表（含 API Key 名称）、统计卡、按会话下载（热数据现场压缩、已归档直取）、手动/自动归档。定时归档配置存 `data/trace-settings.json`，进程内调度器，默认每天 03:00、只留今天为热数据。
+- **账号用量导出页**（/admin/account-usage-export）：usage_logs 按 账号×周期×模型 聚合，自定义时间范围，CSV（UTF-8 BOM）。费用按独立定价表（`data/export-pricing.json`，/admin/export-pricing 读写）计算，**与系统计费完全隔离**；未定价模型费用列显示 "-"。
+- 接线方式：`cmd/server/wire_gen.go` 里手工构造两个 service 挂到 `AdminHandlers`（重新跑 wire codegen 需补回这 4 行，文件内有注释标记）。
+
 ## 待做（第二阶段）
 
 - **导出器**：扫 trace 目录 → 逐轮样本（压缩边界前缀检测）→ 训练用 JSONL（thinking 转 `<think>`、tool_use 转目标模型 function-calling 格式、过滤 `complete=false`）
