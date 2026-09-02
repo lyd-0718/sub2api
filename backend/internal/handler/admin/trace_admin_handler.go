@@ -44,7 +44,25 @@ func (h *TraceAdminHandler) ListSessions(c *gin.Context) {
 		response.ErrorFrom(c, err)
 		return
 	}
-	response.Success(c, gin.H{"items": rows, "total": len(rows)})
+	// 服务端分页
+	total := len(rows)
+	page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
+	pageSize, _ := strconv.Atoi(c.DefaultQuery("page_size", "20"))
+	if page < 1 {
+		page = 1
+	}
+	if pageSize < 1 || pageSize > 200 {
+		pageSize = 20
+	}
+	startIdx := (page - 1) * pageSize
+	if startIdx > total {
+		startIdx = total
+	}
+	endIdx := startIdx + pageSize
+	if endIdx > total {
+		endIdx = total
+	}
+	response.Success(c, gin.H{"items": rows[startIdx:endIdx], "total": total, "page": page, "page_size": pageSize})
 }
 
 // Stats GET /api/v1/admin/traces/stats
@@ -144,10 +162,20 @@ func (h *AccountUsageExportHandler) Usage(c *gin.Context) {
 		return
 	}
 
+	// 排除的模型不进合计，与 CSV 口径一致
 	var totCost float64
+	var totRequests int64
+	var totIn, totOut, totCache int64
 	allKnown := true
 	for _, r := range rows {
+		if r.Excluded {
+			continue
+		}
 		totCost += r.Cost
+		totRequests += r.Requests
+		totIn += r.InputTokens
+		totOut += r.OutputTokens
+		totCache += r.CacheReadTokens + r.CacheCreationTokens
 		if !r.CostKnown {
 			allKnown = false
 		}
@@ -155,6 +183,8 @@ func (h *AccountUsageExportHandler) Usage(c *gin.Context) {
 	response.Success(c, gin.H{
 		"items": rows, "total": len(rows),
 		"total_cost": totCost, "cost_complete": allKnown,
+		"total_requests": totRequests, "total_input": totIn,
+		"total_output": totOut, "total_cache": totCache,
 		"currency": h.svc.GetPricing().Currency,
 	})
 }

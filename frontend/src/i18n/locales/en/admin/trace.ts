@@ -83,6 +83,10 @@ export default {
     unset: 'Unset',
     unsavedPricing: 'Unsaved pricing changes',
     savePricing: 'Save Pricing',
-    pricingNote: 'Pricing changes apply to subsequent exports immediately; historical exports are unaffected. Pricing is stored independently and fully isolated from system billing.'
+    pricingNote: 'Pricing changes apply to subsequent exports immediately; historical exports are unaffected. Pricing is stored independently and fully isolated from system billing.',
+    includeInExport: 'Include',
+    includeInExportHint: 'When unchecked, the model is hidden from preview, CSV and totals',
+    aliasTitle: 'Model Aliases',
+    aliasHint: 'Usage and cost of an alias model merge into the target model (e.g. k3 → kimi-k3). Applies after saving pricing.'
   }
 }

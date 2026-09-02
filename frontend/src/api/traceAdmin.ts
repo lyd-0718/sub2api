@@ -42,14 +42,16 @@ export interface TraceArchiveResult {
 }
 
 export const traceAdminAPI = {
-  async sessions(params?: { date?: string; status?: string; session_id?: string; api_key_id?: number }) {
+  async sessions(params?: { date?: string; status?: string; session_id?: string; api_key_id?: number; page?: number; page_size?: number }) {
     const query: Record<string, string | number> = {}
     if (params?.date) query.date = params.date
     if (params?.session_id) query.session_id = params.session_id
     if (params?.api_key_id) query.api_key_id = params.api_key_id
+    if (params?.page) query.page = params.page
+    if (params?.page_size) query.page_size = params.page_size
     if (params?.status === 'archived') query.archived = 'true'
     if (params?.status === 'hot') query.archived = 'false'
-    const { data } = await apiClient.get<{ items: TraceSession[]; total: number }>(
+    const { data } = await apiClient.get<{ items: TraceSession[]; total: number; page: number; page_size: number }>(
       '/admin/traces/sessions',
       { params: query, timeout: 60000 }
     )
@@ -117,17 +119,20 @@ export interface AccountUsageRow {
   cost: number
   cost_known: boolean
   currency: string
+  excluded: boolean
 }
 
 export interface ExportModelPricing {
   input: number
   output: number
   cache_read: number
+  excluded?: boolean
 }
 
 export interface ExportPricing {
   currency: string
   models: Record<string, ExportModelPricing>
+  aliases?: Record<string, string>
 }
 
 export const accountUsageExportAPI = {
@@ -143,6 +148,10 @@ export const accountUsageExportAPI = {
         total_cost: number
         cost_complete: boolean
         currency: string
+        total_requests: number
+        total_input: number
+        total_output: number
+        total_cache: number
       }>('/admin/account-usage-export', {
       params: {
         start: params.start,

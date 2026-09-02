@@ -38,7 +38,7 @@
         <!-- 筛选行 -->
         <div class="flex flex-wrap items-center gap-3 border-b border-gray-100 p-4 dark:border-dark-700/50">
           <div class="w-40">
-            <Select v-model="filters.status" :options="statusOptions" @change="loadSessions" />
+            <Select v-model="filters.status" :options="statusOptions" @change="loadSessions(true)" />
           </div>
           <input
             v-model.trim="filters.sessionId"
@@ -48,9 +48,9 @@
             @input="debouncedLoad"
           />
           <div class="w-40">
-            <Select v-model="filters.apiKeyId" :options="apiKeyOptions" @change="loadSessions" />
+            <Select v-model="filters.apiKeyId" :options="apiKeyOptions" @change="loadSessions(true)" />
           </div>
-          <button @click="loadSessions" class="btn btn-ghost btn-sm ml-auto" :disabled="loading">
+          <button @click="loadSessions(true)" class="btn btn-ghost btn-sm ml-auto" :disabled="loading">
             {{ t('common.refresh') }}
           </button>
         </div>
@@ -119,6 +119,16 @@
             </tbody>
           </table>
         </div>
+        <!-- 分页 -->
+        <div class="border-t border-gray-100 px-4 py-3 dark:border-dark-700/50">
+          <Pagination
+            :page="page"
+            :total="total"
+            :page-size="pageSize"
+            @update:page="(p) => { page = p; loadSessions() }"
+            @update:pageSize="(s) => { pageSize = s; page = 1; loadSessions() }"
+          />
+        </div>
       </div>
 
       <!-- 归档设置弹窗 -->
@@ -176,6 +186,7 @@ import { onMounted, reactive, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import AppLayout from '@/components/layout/AppLayout.vue'
 import Select from '@/components/common/Select.vue'
+import Pagination from '@/components/common/Pagination.vue'
 import { useAppStore } from '@/stores/app'
 import { traceAdminAPI, type TraceSession, type TraceStats, type TraceArchiveSettings } from '@/api/traceAdmin'
 import { keysAPI } from '@/api/keys'
@@ -186,6 +197,9 @@ const appStore = useAppStore()
 
 const loading = ref(false)
 const sessions = ref<TraceSession[]>([])
+const page = ref(1)
+const pageSize = ref(20)
+const total = ref(0)
 const stats = ref<TraceStats | null>(null)
 const downloading = ref('')
 const showSettings = ref(false)
@@ -208,18 +222,22 @@ const settingsForm = reactive<TraceArchiveSettings>({ enabled: true, time_of_day
 let debounceTimer: ReturnType<typeof setTimeout> | undefined
 const debouncedLoad = () => {
   clearTimeout(debounceTimer)
-  debounceTimer = setTimeout(loadSessions, 400)
+  debounceTimer = setTimeout(() => loadSessions(true), 400)
 }
 
-const loadSessions = async () => {
+const loadSessions = async (resetPage = false) => {
+  if (resetPage) page.value = 1
   loading.value = true
   try {
     const res = await traceAdminAPI.sessions({
       status: filters.status,
       session_id: filters.sessionId || undefined,
-      api_key_id: filters.apiKeyId === 'all' ? undefined : Number(filters.apiKeyId)
+      api_key_id: filters.apiKeyId === 'all' ? undefined : Number(filters.apiKeyId),
+      page: page.value,
+      page_size: pageSize.value
     })
     sessions.value = res.items || []
+    total.value = res.total || 0
   } catch {
     appStore.showError(t('admin.trace.loadFailed'))
   } finally {

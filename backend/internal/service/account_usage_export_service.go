@@ -23,16 +23,31 @@ import (
 // 与系统计费的 PricingService 完全隔离（独立 JSON 文件存储）。
 // ============================================================================
 
-// ExportPricing 导出定价：币种 + 每模型三项单价（每百万 token）。
+// ExportPricing 导出定价：币种 + 每模型三项单价（每百万 token）+ 导出控制。
 type ExportPricing struct {
 	Currency string                        `json:"currency"` // CNY / USD / ...
 	Models   map[string]ExportModelPricing `json:"models"`
+	// Aliases 模型名归并：{"k3": "kimi-k3"}，聚合与计价统一用归并后的名字。
+	Aliases map[string]string `json:"aliases,omitempty"`
+}
+
+// NormalizeModel 应用别名归并。
+func (p ExportPricing) NormalizeModel(model string) string {
+	if p.Aliases == nil {
+		return model
+	}
+	if target, ok := p.Aliases[model]; ok && target != "" {
+		return target
+	}
+	return model
 }
 
 type ExportModelPricing struct {
 	Input     float64 `json:"input"`      // 输入 / 百万 tok
 	Output    float64 `json:"output"`     // 输出 / 百万 tok
 	CacheRead float64 `json:"cache_read"` // 缓存读取 / 百万 tok
+	// Excluded 为 true 时该模型不出现在 CSV 导出与合计中（预览中淡显标记）。
+	Excluded bool `json:"excluded,omitempty"`
 }
 
 func (p ExportModelPricing) set() bool {
@@ -53,6 +68,7 @@ type AccountUsageRow struct {
 	Cost                float64 `json:"cost"`       // 独立定价核算
 	CostKnown           bool    `json:"cost_known"` // 该模型未定价时为 false
 	Currency            string  `json:"currency"`
+	Excluded            bool    `json:"excluded"` // 定价表中标记不参与导出（预览淡显，CSV 跳过）
 }
 
 type AccountUsageExportService struct {
@@ -71,7 +87,12 @@ func NewAccountUsageExportService(sqlDB *sql.DB) *AccountUsageExportService {
 	s := &AccountUsageExportService{
 		sqlDB:       sqlDB,
 		pricingPath: filepath.Join(filepath.Dir(dir), "export-pricing.json"),
-		pricing:     ExportPricing{Currency: "CNY", Models: map[string]ExportModelPricing{}},
+		pricing: ExportPricing{
+			Currency: "CNY",
+			Models:   map[string]ExportModelPricing{},
+			// 默认别名：k3 系列是 kimi-k3 的短名/变体
+			Aliases: map[string]string{"k3": "kimi-k3"},
+		},
 	}
 	_ = s.loadPricing()
 	return s
@@ -133,12 +154,13 @@ func (s *AccountUsageExportService) PricedModelsSeen(ctx context.Context) (map[s
 		return nil, err
 	}
 	defer rows.Close()
+	pricing := s.GetPricing()
 	out := map[string]int64{}
 	for rows.Next() {
 		var m string
 		var c int64
 		if rows.Scan(&m, &c) == nil {
-			out[m] = c
+			out[pricing.NormalizeModel(m)] += c // 别名归并后计数合并
 		}
 	}
 	return out, rows.Err()
@@ -194,22 +216,44 @@ ORDER BY account_name, period, requests DESC`, bucketExpr, strings.Join(where, "
 	defer rows.Close()
 
 	pricing := s.GetPricing()
-	out := []AccountUsageRow{}
+	// 按 账号×周期×归并后模型 合并（别名如 k3 → kimi-k3 的行会被加起来）
+	merged := map[string]*AccountUsageRow{}
+	order := []string{}
 	for rows.Next() {
 		var r AccountUsageRow
 		if err := rows.Scan(&r.AccountID, &r.AccountName, &r.Period, &r.Model, &r.Requests,
 			&r.InputTokens, &r.OutputTokens, &r.CacheReadTokens, &r.CacheCreationTokens); err != nil {
 			return nil, err
 		}
-		r.Currency = pricing.Currency
-		if p, ok := pricing.Models[r.Model]; ok && p.set() {
-			r.CostKnown = true
-			// 缓存创建按输入价计（它本质就是输入），缓存读取用缓存价
-			r.Cost = float64(r.InputTokens+r.CacheCreationTokens)/1e6*p.Input +
-				float64(r.OutputTokens)/1e6*p.Output +
-				float64(r.CacheReadTokens)/1e6*p.CacheRead
+		r.Model = pricing.NormalizeModel(r.Model)
+		key := fmt.Sprintf("%d|%s|%s", r.AccountID, r.Period, r.Model)
+		if m, ok := merged[key]; ok {
+			m.Requests += r.Requests
+			m.InputTokens += r.InputTokens
+			m.OutputTokens += r.OutputTokens
+			m.CacheReadTokens += r.CacheReadTokens
+			m.CacheCreationTokens += r.CacheCreationTokens
+			continue
 		}
-		out = append(out, r)
+		cp := r
+		merged[key] = &cp
+		order = append(order, key)
+	}
+	out := []AccountUsageRow{}
+	for _, key := range order {
+		r := merged[key]
+		r.Currency = pricing.Currency
+		if p, ok := pricing.Models[r.Model]; ok {
+			r.Excluded = p.Excluded
+			if p.set() {
+				r.CostKnown = true
+				// 缓存创建按输入价计（它本质就是输入），缓存读取用缓存价
+				r.Cost = float64(r.InputTokens+r.CacheCreationTokens)/1e6*p.Input +
+					float64(r.OutputTokens)/1e6*p.Output +
+					float64(r.CacheReadTokens)/1e6*p.CacheRead
+			}
+		}
+		out = append(out, *r)
 	}
 	return out, rows.Err()
 }
@@ -237,6 +281,9 @@ func (s *AccountUsageExportService) WriteCSV(rows []AccountUsageRow, w io.Writer
 	var totCost float64
 	allKnown := true
 	for _, r := range rows {
+		if r.Excluded {
+			continue // 不参与导出与合计
+		}
 		cost := "-"
 		if r.CostKnown {
 			cost = strconv.FormatFloat(r.Cost, 'f', 2, 64)

@@ -31,6 +31,7 @@ export default {
     no: 'No',
     all: 'All',
     none: 'None',
+    clear: 'Clear',
     selectAll: 'Select all',
     noData: 'No data',
     expand: 'Expand',

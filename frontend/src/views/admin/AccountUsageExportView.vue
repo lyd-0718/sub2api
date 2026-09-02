@@ -93,10 +93,11 @@
                 <tr v-if="loadingUsage">
                   <td colspan="8" class="px-4 py-10 text-center text-gray-400">{{ t('common.loading') }}</td>
                 </tr>
-                <tr v-else-if="usageRows.length === 0">
+                <tr v-else-if="visibleRows.length === 0">
                   <td colspan="8" class="px-4 py-10 text-center text-gray-400">{{ t('admin.accountExport.empty') }}</td>
                 </tr>
-                <tr v-else v-for="(r, i) in usageRows" :key="i" class="hover:bg-gray-50/60 dark:hover:bg-dark-700/20">
+                <!-- 排除的模型整行不显示（含合计口径），与 CSV 一致 -->
+                <tr v-else v-for="(r, i) in visibleRows" :key="i" class="hover:bg-gray-50/60 dark:hover:bg-dark-700/20">
                   <td class="px-5 py-3 font-medium text-gray-900 dark:text-white">{{ r.account_name }}</td>
                   <td class="px-4 py-3 tabular-nums text-gray-500 dark:text-gray-400">{{ r.period }}</td>
                   <td class="px-4 py-3">
@@ -112,7 +113,7 @@
                   </td>
                 </tr>
               </tbody>
-              <tfoot v-if="usageRows.length > 0">
+              <tfoot v-if="visibleRows.length > 0">
                 <tr class="border-t-2 border-gray-200 bg-gray-50/60 dark:border-dark-600 dark:bg-dark-700/20">
                   <td class="px-5 py-3.5 font-semibold text-gray-900 dark:text-white" colspan="3">{{ t('admin.accountExport.total') }}</td>
                   <td class="px-4 py-3.5 text-right tabular-nums font-semibold text-gray-900 dark:text-white">{{ formatNumber(totalRequests) }}</td>
@@ -160,6 +161,7 @@
                 <th class="px-4 py-3 font-medium text-right">{{ t('admin.accountExport.priceOutput') }}</th>
                 <th class="px-4 py-3 font-medium text-right">{{ t('admin.accountExport.priceCache') }}</th>
                 <th class="px-5 py-3 font-medium text-right">{{ t('admin.accountExport.calls90d') }}</th>
+                <th class="px-4 py-3 font-medium text-center">{{ t('admin.accountExport.includeInExport') }}</th>
               </tr>
             </thead>
             <tbody class="divide-y divide-gray-50 dark:divide-dark-700/30">
@@ -187,6 +189,15 @@
                   </div>
                 </td>
                 <td class="px-5 py-4 text-right tabular-nums text-gray-400">{{ formatNumber(modelsSeen[m] ?? 0) }}</td>
+                <td class="px-4 py-4 text-center">
+                  <input
+                    type="checkbox"
+                    :checked="!pricingForm.models[m]?.excluded"
+                    @change="setExcluded(m, !($event.target as HTMLInputElement).checked)"
+                    class="h-4 w-4 rounded accent-teal-500"
+                    :title="t('admin.accountExport.includeInExportHint')"
+                  />
+                </td>
               </tr>
             </tbody>
           </table>
@@ -204,6 +215,29 @@
               <button @click="savePricing" :disabled="savingPricing" class="btn btn-primary btn-sm">
                 {{ savingPricing ? t('common.saving') : t('admin.accountExport.savePricing') }}
               </button>
+            </div>
+          </div>
+        </div>
+        <!-- 模型别名归并 -->
+        <div class="card p-5">
+          <div class="text-sm font-medium text-gray-900 dark:text-white">{{ t('admin.accountExport.aliasTitle') }}</div>
+          <p class="mt-1 text-xs text-gray-400">{{ t('admin.accountExport.aliasHint') }}</p>
+          <div class="mt-3 space-y-2">
+            <div
+              v-for="(target, source) in pricingForm.aliases"
+              :key="source"
+              class="flex items-center gap-2 text-sm"
+            >
+              <span class="rounded-md bg-gray-100 px-2 py-0.5 font-mono text-xs text-gray-600 dark:bg-dark-700 dark:text-gray-300">{{ source }}</span>
+              <span class="text-gray-400">→</span>
+              <span class="rounded-md bg-teal-50 px-2 py-0.5 font-mono text-xs font-medium text-teal-700 dark:bg-teal-500/10 dark:text-teal-300">{{ target }}</span>
+              <button @click="removeAlias(String(source))" class="ml-1 text-xs text-red-500 hover:underline">{{ t('common.delete') }}</button>
+            </div>
+            <div class="flex items-center gap-2 pt-1">
+              <input v-model.trim="aliasFrom" type="text" placeholder="k3" class="w-36 rounded-lg border border-gray-200 bg-white px-2.5 py-1.5 font-mono text-xs focus:border-primary-500 focus:outline-none dark:border-dark-600 dark:bg-dark-800" />
+              <span class="text-gray-400">→</span>
+              <input v-model.trim="aliasTo" type="text" placeholder="kimi-k3" class="w-36 rounded-lg border border-gray-200 bg-white px-2.5 py-1.5 font-mono text-xs focus:border-primary-500 focus:outline-none dark:border-dark-600 dark:bg-dark-800" />
+              <button @click="addAlias" :disabled="!aliasFrom || !aliasTo" class="btn btn-secondary btn-sm">{{ t('common.add') }}</button>
             </div>
           </div>
         </div>
@@ -261,10 +295,12 @@ const totalCost = ref(0)
 const costComplete = ref(true)
 const currency = ref('CNY')
 
-const totalRequests = computed(() => usageRows.value.reduce((s, r) => s + r.requests, 0))
-const totalInput = computed(() => usageRows.value.reduce((s, r) => s + r.input_tokens, 0))
-const totalOutput = computed(() => usageRows.value.reduce((s, r) => s + r.output_tokens, 0))
-const totalCache = computed(() => usageRows.value.reduce((s, r) => s + r.cache_read_tokens + r.cache_creation_tokens, 0))
+// 排除的模型页面也不显示；合计直接用后端口径（已剔除排除项）
+const visibleRows = computed(() => usageRows.value.filter((r) => !r.excluded))
+const totalRequests = ref(0)
+const totalInput = ref(0)
+const totalOutput = ref(0)
+const totalCache = ref(0)
 
 const currencySymbol = computed(() => (currency.value === 'USD' ? '$' : '¥'))
 
@@ -279,6 +315,10 @@ const loadUsage = async () => {
     })
     usageRows.value = res.items || []
     totalCost.value = res.total_cost
+    totalRequests.value = res.total_requests
+    totalInput.value = res.total_input
+    totalOutput.value = res.total_output
+    totalCache.value = res.total_cache
     costComplete.value = res.cost_complete
     currency.value = res.currency
   } catch {
@@ -305,7 +345,32 @@ const exportCSV = async () => {
 }
 
 // ---------- 定价 ----------
-const pricingForm = reactive<ExportPricing>({ currency: 'CNY', models: {} })
+const pricingForm = reactive<ExportPricing>({ currency: 'CNY', models: {}, aliases: {} })
+const aliasFrom = ref('')
+const aliasTo = ref('')
+
+const setExcluded = (model: string, excluded: boolean) => {
+  if (!pricingForm.models[model]) {
+    pricingForm.models[model] = { input: 0, output: 0, cache_read: 0 }
+  }
+  pricingForm.models[model].excluded = excluded
+  markDirty()
+}
+
+const addAlias = () => {
+  if (!pricingForm.aliases) pricingForm.aliases = {}
+  pricingForm.aliases[aliasFrom.value] = aliasTo.value
+  aliasFrom.value = ''
+  aliasTo.value = ''
+  markDirty()
+}
+
+const removeAlias = (source: string) => {
+  if (pricingForm.aliases) {
+    delete pricingForm.aliases[source]
+    markDirty()
+  }
+}
 const pricingBackup = ref('')
 const pricingDirty = ref(false)
 const savingPricing = ref(false)
@@ -331,7 +396,7 @@ const markDirty = () => {
 const loadPricing = async () => {
   try {
     const res = await accountUsageExportAPI.getPricing()
-    Object.assign(pricingForm, { currency: res.pricing.currency, models: { ...res.pricing.models } })
+    Object.assign(pricingForm, { currency: res.pricing.currency, models: { ...res.pricing.models }, aliases: { ...(res.pricing.aliases || {}) } })
     modelsSeen.value = res.models_seen || {}
     pricingBackup.value = JSON.stringify(pricingForm)
     pricingDirty.value = false
@@ -343,7 +408,7 @@ const loadPricing = async () => {
 const savePricing = async () => {
   savingPricing.value = true
   try {
-    const saved = await accountUsageExportAPI.savePricing({ currency: pricingForm.currency, models: pricingForm.models })
+    const saved = await accountUsageExportAPI.savePricing({ currency: pricingForm.currency, models: pricingForm.models, aliases: pricingForm.aliases })
     pricingForm.models = { ...saved.models }
     pricingBackup.value = JSON.stringify(pricingForm)
     pricingDirty.value = false

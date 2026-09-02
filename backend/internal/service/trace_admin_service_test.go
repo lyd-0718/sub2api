@@ -262,3 +262,40 @@ func TestArchiveContentIntegrity(t *testing.T) {
 		t.Fatal("content mismatch after archive roundtrip")
 	}
 }
+
+func TestNormalizeModelAlias(t *testing.T) {
+	p := ExportPricing{Aliases: map[string]string{"k3": "kimi-k3"}}
+	if p.NormalizeModel("k3") != "kimi-k3" {
+		t.Fatal("alias not applied")
+	}
+	if p.NormalizeModel("kimi-k3") != "kimi-k3" {
+		t.Fatal("non-alias model must pass through")
+	}
+	if (ExportPricing{}).NormalizeModel("k3") != "k3" {
+		t.Fatal("nil aliases must pass through")
+	}
+}
+
+func TestCSVSkipsExcludedModels(t *testing.T) {
+	svc := &AccountUsageExportService{pricing: ExportPricing{Currency: "CNY", Models: map[string]ExportModelPricing{
+		"m1": {Input: 4, Output: 16, CacheRead: 1},
+	}}}
+	rows := []AccountUsageRow{
+		{AccountName: "A", Period: "2026-09", Model: "m1", Requests: 10, InputTokens: 1_000_000, CostKnown: true, Cost: 7.6},
+		{AccountName: "A", Period: "2026-09", Model: "noise", Requests: 2, Excluded: true},
+	}
+	var buf strings.Builder
+	if err := svc.WriteCSV(rows, &buf); err != nil {
+		t.Fatal(err)
+	}
+	out := buf.String()
+	if strings.Contains(out, "noise") {
+		t.Fatal("excluded model must not appear in CSV")
+	}
+	// 合计只含未排除行：请求数 10，费用 7.60
+	lines := strings.Split(strings.TrimSpace(out), "\n")
+	last := lines[len(lines)-1]
+	if !strings.Contains(last, ",10,") || !strings.HasSuffix(last, "7.60") {
+		t.Fatalf("total row = %s", last)
+	}
+}
