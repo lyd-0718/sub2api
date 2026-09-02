@@ -128,12 +128,30 @@ func resolveSessionID(c *gin.Context, body []byte, apiKeyID int64) string {
 	if u := strings.TrimSpace(gjson.GetBytes(body, "user").String()); u != "" {
 		return "user-" + u
 	}
-	first := ""
-	if msg := gjson.GetBytes(body, "messages.0.content"); msg.Exists() {
-		first = msg.Raw
-	}
+	// 取第一条 user 角色消息做哈希输入。注意不能用 messages[0]：
+	// OpenAI 格式客户端（如 omp）的 messages[0] 是恒定的系统提示词，
+	// 会导致同 key 下所有会话哈希相同、错误并组。
+	first := firstUserMessageHashInput(body)
 	sum := sha256.Sum256([]byte(strconv.FormatInt(apiKeyID, 10) + "|" + first))
 	return "anon-" + hex.EncodeToString(sum[:8])
+}
+
+// firstUserMessageHashInput 返回第一条 user 消息的原始 JSON；
+// 没有 user 消息时退回 messages[0]（部分客户端首轮只有一条）。
+func firstUserMessageHashInput(body []byte) string {
+	fallback := ""
+	for _, msg := range gjson.GetBytes(body, "messages").Array() {
+		if !msg.IsObject() {
+			continue
+		}
+		if fallback == "" {
+			fallback = msg.Get("content").Raw
+		}
+		if msg.Get("role").String() == "user" {
+			return msg.Get("content").Raw
+		}
+	}
+	return fallback
 }
 
 func requestID(c *gin.Context) string {

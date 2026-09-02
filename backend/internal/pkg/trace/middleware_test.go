@@ -170,3 +170,22 @@ func TestResolveSessionIDHeader(t *testing.T) {
 		t.Fatalf("header session = %q", got)
 	}
 }
+
+func TestFirstUserMessageSkipsSystemPrompt(t *testing.T) {
+	// omp 形态：messages[0] 是恒定系统提示词，哈希输入必须跳过它
+	body := []byte(`{"messages":[{"role":"system","content":"CONSTANT-SYSTEM-PROMPT"},{"role":"user","content":"session A opening"}]}`)
+	c := &gin.Context{Request: httptest.NewRequest(http.MethodPost, "/v1/chat/completions", nil)}
+	a := resolveSessionID(c, body, 1)
+
+	body2 := []byte(`{"messages":[{"role":"system","content":"CONSTANT-SYSTEM-PROMPT"},{"role":"user","content":"session B opening"}]}`)
+	b := resolveSessionID(c, body2, 1)
+	if a == b {
+		t.Fatal("different first user messages must produce different sessions")
+	}
+
+	// 同会话后续轮次（历史变长，但第一条 user 消息不变）哈希必须稳定
+	body3 := []byte(`{"messages":[{"role":"system","content":"CONSTANT-SYSTEM-PROMPT"},{"role":"user","content":"session A opening"},{"role":"assistant","content":"reply"},{"role":"user","content":"follow up"}]}`)
+	if resolveSessionID(c, body3, 1) != a {
+		t.Fatal("later turns of same session must keep the same hash")
+	}
+}
