@@ -395,39 +395,95 @@ func (s *TraceAdminService) scanArchived(ctx context.Context) ([]TraceSessionRow
 	return rows, nil
 }
 
-// fillArchiveMeta 打开压缩包数轮次、读首个文件的 meta。包内文件通常不多，开销可接受。
+// archiveMetaSidecar 是归档时写入的元信息旁车文件，避免列表/统计时解压整个压缩包
+// （压缩包解压后可达数百 MB，逐包流式扫描会把接口拖到超时）。
+type archiveMetaSidecar struct {
+	Turns    int    `json:"turns"`
+	APIKeyID int64  `json:"api_key_id"`
+	UserID   int64  `json:"user_id"`
+	Model    string `json:"model"`
+	FirstAt  string `json:"first_at"`
+}
+
+// fillArchiveMeta 优先读旁车 meta；缺失时做一次完整扫描并补写旁车。
 func (s *TraceAdminService) fillArchiveMeta(row *TraceSessionRow, path string) {
+	if meta, err := s.readArchiveSidecar(path); err == nil && meta != nil {
+		row.Turns = meta.Turns
+		row.APIKeyID = meta.APIKeyID
+		row.UserID = meta.UserID
+		row.Model = meta.Model
+		row.FirstAt = meta.FirstAt
+		return
+	}
+	meta := s.scanArchiveMeta(path)
+	if meta == nil {
+		return
+	}
+	row.Turns = meta.Turns
+	row.APIKeyID = meta.APIKeyID
+	row.UserID = meta.UserID
+	row.Model = meta.Model
+	row.FirstAt = meta.FirstAt
+	_ = s.writeArchiveSidecar(path, meta)
+}
+
+func (s *TraceAdminService) readArchiveSidecar(archivePath string) (*archiveMetaSidecar, error) {
+	data, err := os.ReadFile(archivePath + ".meta.json")
+	if err != nil {
+		return nil, err
+	}
+	var m archiveMetaSidecar
+	if err := json.Unmarshal(data, &m); err != nil {
+		return nil, err
+	}
+	return &m, nil
+}
+
+func (s *TraceAdminService) writeArchiveSidecar(archivePath string, m *archiveMetaSidecar) error {
+	data, err := json.Marshal(m)
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(archivePath+".meta.json", data, 0o644)
+}
+
+// scanArchiveMeta 完整流式扫描压缩包：数轮次 + 读首个文件 meta。慢，仅用于补建旁车。
+func (s *TraceAdminService) scanArchiveMeta(path string) *archiveMetaSidecar {
 	f, err := os.Open(path)
 	if err != nil {
-		return
+		return nil
 	}
 	defer f.Close()
 	zr, err := zstd.NewReader(f)
 	if err != nil {
-		return
+		return nil
 	}
 	defer zr.Close()
 	tr := tar.NewReader(zr)
+	meta := &archiveMetaSidecar{}
 	first := true
 	for {
 		hdr, err := tr.Next()
 		if err != nil {
-			return
+			if meta.Turns == 0 {
+				return nil
+			}
+			return meta
 		}
 		if hdr.Typeflag != tar.TypeReg || !strings.HasSuffix(hdr.Name, ".json") {
 			continue
 		}
-		row.Turns++
+		meta.Turns++
 		if first {
 			first = false
-			var meta traceRecordMeta
+			var rec traceRecordMeta
 			head := make([]byte, 4096)
 			n, _ := io.ReadAtLeast(tr, head, 1)
-			if json.Unmarshal(head[:n], &meta) == nil {
-				row.APIKeyID = meta.APIKeyID
-				row.UserID = meta.UserID
-				row.Model = meta.Model
-				row.FirstAt = meta.StartedAt
+			if json.Unmarshal(head[:n], &rec) == nil {
+				meta.APIKeyID = rec.APIKeyID
+				meta.UserID = rec.UserID
+				meta.Model = rec.Model
+				meta.FirstAt = rec.StartedAt
 			}
 		}
 	}
@@ -640,7 +696,39 @@ func (s *TraceAdminService) archiveSessionDir(srcDir, outPath string) (int, erro
 	if err != nil || verify != count {
 		return 0, fmt.Errorf("归档校验失败: 文件数 %d != %d (%v)", verify, count, err)
 	}
-	return count, os.Rename(tmpPath, outPath)
+	if err := os.Rename(tmpPath, outPath); err != nil {
+		return 0, err
+	}
+	// 写元信息旁车：列表/统计页不再解压整个包
+	if firstMeta := s.readFirstRecordMeta(srcDir); firstMeta != nil {
+		_ = s.writeArchiveSidecar(outPath, &archiveMetaSidecar{
+			Turns:    count,
+			APIKeyID: firstMeta.APIKeyID,
+			UserID:   firstMeta.UserID,
+			Model:    firstMeta.Model,
+			FirstAt:  firstMeta.StartedAt,
+		})
+	}
+	return count, nil
+}
+
+// readFirstRecordMeta 读会话目录里最早一轮的 meta（写旁车用）。
+func (s *TraceAdminService) readFirstRecordMeta(dir string) *traceRecordMeta {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return nil
+	}
+	names := []string{}
+	for _, e := range entries {
+		if strings.HasSuffix(e.Name(), ".json.gz") {
+			names = append(names, e.Name())
+		}
+	}
+	if len(names) == 0 {
+		return nil
+	}
+	sort.Strings(names)
+	return s.readRecordMeta(filepath.Join(dir, names[0]))
 }
 
 func readGzipFile(path string) ([]byte, error) {

@@ -58,7 +58,7 @@ export const traceAdminAPI = {
   },
 
   async stats() {
-    const { data } = await apiClient.get<ApiResponse<TraceStats>>('/admin/traces/stats')
+    const { data } = await apiClient.get<ApiResponse<TraceStats>>('/admin/traces/stats', { timeout: 60000 })
     return data.data
   },
 
