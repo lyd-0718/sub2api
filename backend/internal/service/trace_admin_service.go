@@ -19,6 +19,7 @@ import (
 	"time"
 
 	"github.com/klauspost/compress/zstd"
+	"github.com/tidwall/gjson"
 )
 
 // ============================================================================
@@ -328,6 +329,8 @@ type traceRecordMeta struct {
 }
 
 // readRecordMeta 只解码 meta 字段，不加载 request/response 大字段。
+// 注意：meta 字段在 JSON 头部但整个文件可达数 MB，截断读取后
+// json.Unmarshal 必然失败——用 gjson 直接取字段，容忍截断。
 func (s *TraceAdminService) readRecordMeta(path string) *traceRecordMeta {
 	f, err := os.Open(path)
 	if err != nil {
@@ -339,15 +342,18 @@ func (s *TraceAdminService) readRecordMeta(path string) *traceRecordMeta {
 		return nil
 	}
 	defer gz.Close()
-	// meta 字段在 JSON 头部，读前 4KB 足够（request 大字段在后）
-	head := make([]byte, 4096)
+	head := make([]byte, 8192)
 	n, _ := io.ReadAtLeast(gz, head, 1)
-	var meta traceRecordMeta
-	// 头 4KB 可能截断 JSON，尽力解码；失败则跳过 meta（行仍展示）
-	if err := json.Unmarshal(head[:n], &meta); err == nil {
-		return &meta
+	return metaFromHead(head[:n])
+}
+
+func metaFromHead(head []byte) *traceRecordMeta {
+	return &traceRecordMeta{
+		APIKeyID:  gjson.GetBytes(head, "api_key_id").Int(),
+		UserID:    gjson.GetBytes(head, "user_id").Int(),
+		Model:     gjson.GetBytes(head, "model").String(),
+		StartedAt: gjson.GetBytes(head, "started_at").String(),
 	}
-	return nil
 }
 
 // scanArchived 扫 traces-archive/<日期>/<会话>.tar.zst。
@@ -476,15 +482,13 @@ func (s *TraceAdminService) scanArchiveMeta(path string) *archiveMetaSidecar {
 		meta.Turns++
 		if first {
 			first = false
-			var rec traceRecordMeta
-			head := make([]byte, 4096)
+			head := make([]byte, 8192)
 			n, _ := io.ReadAtLeast(tr, head, 1)
-			if json.Unmarshal(head[:n], &rec) == nil {
-				meta.APIKeyID = rec.APIKeyID
-				meta.UserID = rec.UserID
-				meta.Model = rec.Model
-				meta.FirstAt = rec.StartedAt
-			}
+			rec := metaFromHead(head[:n])
+			meta.APIKeyID = rec.APIKeyID
+			meta.UserID = rec.UserID
+			meta.Model = rec.Model
+			meta.FirstAt = rec.StartedAt
 		}
 	}
 }

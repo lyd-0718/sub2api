@@ -299,3 +299,13 @@ func TestCSVSkipsExcludedModels(t *testing.T) {
 		t.Fatalf("total row = %s", last)
 	}
 }
+
+func TestMetaFromHeadToleratesTruncation(t *testing.T) {
+	// 数 MB 的完整 JSON 被截断到头部 8KB 时，meta 字段（在头部）仍须可读
+	full := `{"version":1,"session_id":"s","started_at":"2026-09-02T17:44:59+08:00","api_key_id":7,"user_id":3,"model":"kimi-k3","request":{"messages":[` + strings.Repeat(`{"role":"user","content":"x"}`, 500) + `]}}`
+	head := []byte(full)[:8192] // 截断
+	m := metaFromHead(head)
+	if m.APIKeyID != 7 || m.UserID != 3 || m.Model != "kimi-k3" || m.StartedAt == "" {
+		t.Fatalf("meta = %+v", m)
+	}
+}
