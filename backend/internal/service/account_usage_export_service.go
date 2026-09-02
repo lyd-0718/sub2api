@@ -138,6 +138,10 @@ func (s *AccountUsageExportService) loadPricing() error {
 	if p.Models == nil {
 		p.Models = map[string]ExportModelPricing{}
 	}
+	// 旧版定价文件没有 aliases 字段：补默认别名，避免升级后归并失效
+	if p.Aliases == nil {
+		p.Aliases = map[string]string{"k3": "kimi-k3"}
+	}
 	s.pricingMu.Lock()
 	s.pricing = p
 	s.pricingMu.Unlock()
