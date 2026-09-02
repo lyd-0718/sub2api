@@ -2,7 +2,6 @@
  * 二开模块 API：会话 Trace 管理 + 账号用量导出
  */
 import { apiClient } from './client'
-import type { ApiResponse } from '@/types'
 
 // ---------- 会话 Trace ----------
 
@@ -50,35 +49,35 @@ export const traceAdminAPI = {
     if (params?.api_key_id) query.api_key_id = params.api_key_id
     if (params?.status === 'archived') query.archived = 'true'
     if (params?.status === 'hot') query.archived = 'false'
-    const { data } = await apiClient.get<ApiResponse<{ items: TraceSession[]; total: number }>>(
+    const { data } = await apiClient.get<{ items: TraceSession[]; total: number }>(
       '/admin/traces/sessions',
       { params: query, timeout: 60000 }
     )
-    return data.data
+    return data
   },
 
   async stats() {
-    const { data } = await apiClient.get<ApiResponse<TraceStats>>('/admin/traces/stats', { timeout: 60000 })
-    return data.data
+    const { data } = await apiClient.get<TraceStats>('/admin/traces/stats', { timeout: 60000 })
+    return data
   },
 
   async archive(date: string) {
-    const { data } = await apiClient.post<ApiResponse<TraceArchiveResult>>(
+    const { data } = await apiClient.post<TraceArchiveResult>(
       '/admin/traces/archive',
       { date },
       { timeout: 300000 } // 大日期目录归档可能耗时数分钟
     )
-    return data.data
+    return data
   },
 
   async getSettings() {
-    const { data } = await apiClient.get<ApiResponse<TraceArchiveSettings>>('/admin/traces/settings')
-    return data.data
+    const { data } = await apiClient.get<TraceArchiveSettings>('/admin/traces/settings')
+    return data
   },
 
   async saveSettings(settings: TraceArchiveSettings) {
-    const { data } = await apiClient.put<ApiResponse<TraceArchiveSettings>>('/admin/traces/settings', settings)
-    return data.data
+    const { data } = await apiClient.put<TraceArchiveSettings>('/admin/traces/settings', settings)
+    return data
   },
 
   /** 下载会话（热数据现场压缩，已归档直接取包）。前端 axios 带鉴权，blob 落地。 */
@@ -138,15 +137,13 @@ export const accountUsageExportAPI = {
     granularity: string
     account_ids?: number[]
   }) {
-    const { data } = await apiClient.get<
-      ApiResponse<{
+    const { data } = await apiClient.get<{
         items: AccountUsageRow[]
         total: number
         total_cost: number
         cost_complete: boolean
         currency: string
-      }>
-    >('/admin/account-usage-export', {
+      }>('/admin/account-usage-export', {
       params: {
         start: params.start,
         end: params.end,
@@ -155,7 +152,7 @@ export const accountUsageExportAPI = {
       },
       timeout: 60000
     })
-    return data.data
+    return data
   },
 
   async downloadCSV(params: { start: string; end: string; granularity: string; account_ids?: number[] }) {
@@ -180,14 +177,12 @@ export const accountUsageExportAPI = {
   },
 
   async getPricing() {
-    const { data } = await apiClient.get<
-      ApiResponse<{ pricing: ExportPricing; models_seen: Record<string, number> }>
-    >('/admin/export-pricing')
-    return data.data
+    const { data } = await apiClient.get<{ pricing: ExportPricing; models_seen: Record<string, number> }>('/admin/export-pricing')
+    return data
   },
 
   async savePricing(pricing: ExportPricing) {
-    const { data } = await apiClient.put<ApiResponse<ExportPricing>>('/admin/export-pricing', pricing)
-    return data.data
+    const { data } = await apiClient.put<ExportPricing>('/admin/export-pricing', pricing)
+    return data
   }
 }
