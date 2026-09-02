@@ -4,7 +4,7 @@
 
 ## 这套东西是什么
 
-sub2api 官方镜像 + 一个"录音笔"中间件。所有经过 `/v1/messages`（Claude Code）和 `/v1/chat/completions`（OpenAI 格式）的请求，请求体和响应体被原样复制一份，按会话归档成 gzip 压缩的 JSON 文件。
+sub2api 官方镜像 + 一个"录音笔"中间件。所有经过 `/v1/messages`（Claude Code）、`/v1/chat/completions`（OpenAI 格式）、`/v1/responses`（Codex CLI）的请求，请求体和响应体被原样复制一份，按会话归档成 gzip 压缩的 JSON 文件。
 
 **对官方代码的改动只有 3 行**（`backend/internal/server/routes/gateway.go`：1 行 import + 2 行注册中间件），其余全部是独立目录 `backend/internal/pkg/trace/` 下的新文件。
 
@@ -35,15 +35,16 @@ sub2api 官方镜像 + 一个"录音笔"中间件。所有经过 `/v1/messages`�
 ## 会话 ID 怎么来的（按优先级）
 
 1. `X-Session-Id` 请求头（自家客户端可显式指定，最准）
-2. Claude Code 请求体 `metadata.user_id` 里的 session UUID（协议自带）
-3. OpenAI 请求体的 `user` 字段
-4. 兜底：`anon-<hash(apiKeyID + 首轮消息)>`，同会话首轮消息不变则 hash 稳定
+2. Codex CLI 的 `session_id` / `conversation_id` 请求头
+3. Claude Code 请求体 `metadata.user_id` 里的 session UUID（协议自带）
+4. OpenAI 请求体的 `user` 字段
+5. 兜底：`anon-<hash(apiKeyID + 第一条 user 消息)>`；注意不能用 messages[0]——omp 等客户端的 messages[0] 是恒定系统提示词，会把同 key 所有会话并错
 
 ## 工作原理（极简）
 
 - **请求进来**：中间件读一份请求体再原样归还，下游 handler 无感知。
 - **响应出去**：`gin.ResponseWriter` 包一层 tee，写给客户端的每个字节同时复制到内存缓冲（超 32MB 截断标记）。
-- **请求结束**：SSE 流重组成结构化 blocks（Anthropic 和 OpenAI 两种格式都归一成 `text/thinking/tool_use`），扔进异步队列。
+- **请求结束**：SSE 流重组成结构化 blocks。三种格式（Anthropic / OpenAI chat / OpenAI Responses）统一归一成 `text/thinking/tool_use`；Responses 流以 `response.completed` 的全量对象为权威，流中断退化为 delta 累积并标 `complete=false`。重组完扔进异步队列。
 - **落盘**：后台协程写 gzip 文件。队列满丢弃计数，**绝不阻塞转发**（fail-open）。
 
 ## 已知特性（蒸馏数据相关）
@@ -58,7 +59,7 @@ sub2api 官方镜像 + 一个"录音笔"中间件。所有经过 `/v1/messages`�
 |---|---|---|
 | `TRACE_ENABLED` | false | 总开关 |
 | `TRACE_DIR` | data/traces | 落盘目录 |
-| `TRACE_PATHS` | 两个端点 | 采集路径白名单 |
+| `TRACE_PATHS` | 三个端点 | 采集路径白名单 |
 | `TRACE_API_KEY_IDS` | 空=全部 | 只采指定 key（隐私控制） |
 | `TRACE_SAMPLE_RATE` | 1.0 | 采样率 |
 | `TRACE_MAX_BODY_BYTES` | 32MB | 单轮采集上限 |
@@ -104,7 +105,7 @@ cd /opt/sub2api && docker compose up -d sub2api
 
 ## 测试
 
-`backend/internal/pkg/trace/` 下 14 个测试覆盖：SSE 重组（两种格式）、思考链/工具参数分片合并、错误事件、截断、空 keepalive、会话 ID 解析优先级、中间件端到端（验证客户端收到的响应零改动）。
+`backend/internal/pkg/trace/` 下 18 个测试覆盖：三种格式 SSE 重组（含 Responses 断流退化）、思考链/工具参数分片合并、格式嗅探、错误事件、截断、空 keepalive、会话 ID 五级优先级、中间件端到端（验证客户端收到的响应零改动）。
 
 ## 待做（第二阶段）
 

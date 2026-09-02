@@ -119,6 +119,13 @@ func resolveSessionID(c *gin.Context, body []byte, apiKeyID int64) string {
 	if sid := strings.TrimSpace(c.GetHeader("X-Session-Id")); sid != "" {
 		return sid
 	}
+	// Codex CLI 自带会话头
+	if sid := strings.TrimSpace(c.GetHeader("session_id")); sid != "" {
+		return "codex-" + sid
+	}
+	if cid := strings.TrimSpace(c.GetHeader("conversation_id")); cid != "" {
+		return "codex-conv-" + cid
+	}
 	if uid := gjson.GetBytes(body, "metadata.user_id").String(); uid != "" {
 		if parsed := service.ParseMetadataUserID(uid); parsed != nil && parsed.SessionID != "" {
 			return parsed.SessionID

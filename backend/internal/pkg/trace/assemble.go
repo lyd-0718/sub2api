@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"encoding/json"
 	"strings"
+
+	"github.com/tidwall/gjson"
 )
 
 // Block 响应中的一个语义内容块。
@@ -55,22 +57,56 @@ func assemble(data []byte, truncated bool) *Response {
 		return resp
 	}
 		if trimmed[0] == '{' {
-		// 非流式：OpenAI chat.completion 带 choices，Anthropic message 带 type
+		// 非流式按结构区分：chat.completion 带 choices，Responses 带 output 数组
 		if bytes.Contains(trimmed, []byte(`"choices"`)) {
 			assembleOpenAIJSON(trimmed, resp)
+		} else if bytes.Contains(trimmed, []byte(`"output"`)) {
+			blocksFromResponsesObject(trimmed, resp)
+			if resp.Error == "" {
+				resp.Complete = true
+			}
 		} else {
 			assembleJSON(trimmed, resp)
 		}
-	} else if bytes.Contains(trimmed, []byte("\nevent:")) || bytes.HasPrefix(trimmed, []byte("event:")) {
-		// Anthropic SSE 每事件带 event: 行；OpenAI SSE 只有 data: 行
-		assembleSSE(trimmed, resp)
 	} else {
-		assembleOpenAISSE(trimmed, resp)
+		switch sniffSSEFormat(trimmed) {
+		case "responses":
+			assembleResponsesSSE(trimmed, resp)
+		case "openai":
+			assembleOpenAISSE(trimmed, resp)
+		default:
+			assembleSSE(trimmed, resp)
+		}
 	}
 	if truncated {
 		resp.Complete = false
 	}
 	return resp
+}
+
+// sniffSSEFormat 按首个 data 负载的类型字段区分三种 SSE：
+// Anthropic（type=message_start 等）、OpenAI Responses（type=response.*）、
+// OpenAI chat.completions（object=chat.completion.chunk）。
+func sniffSSEFormat(data []byte) string {
+	for _, raw := range bytes.Split(data, []byte("\n")) {
+		line := strings.TrimSpace(string(raw))
+		if !strings.HasPrefix(line, "data:") {
+			continue
+		}
+		payload := strings.TrimSpace(strings.TrimPrefix(line, "data:"))
+		if payload == "" || payload == "[DONE]" {
+			continue
+		}
+		typ := gjson.Get(payload, "type").String()
+		if strings.HasPrefix(typ, "response.") {
+			return "responses"
+		}
+		if gjson.Get(payload, "object").String() == "chat.completion.chunk" {
+			return "openai"
+		}
+		return "anthropic"
+	}
+	return "anthropic"
 }
 
 // assembleJSON 处理非流式响应：单个完整 message JSON。
