@@ -24,8 +24,16 @@
         <!-- 筛选卡片：账号 / 时间 / 粒度 同一行 -->
         <div class="card p-5">
           <div class="flex flex-wrap items-end gap-x-6 gap-y-4">
-            <!-- 账号多选下拉 -->
-            <div class="relative">
+            <!-- 聚合维度 -->
+            <div>
+              <div class="mb-2 text-xs font-medium uppercase tracking-wide text-gray-400 dark:text-gray-500">{{ t('admin.accountExport.dimension') }}</div>
+              <div class="flex rounded-xl bg-gray-100 p-1 text-sm dark:bg-dark-700">
+                <button @click="dimension = 'account'; loadUsage()" :class="dimension === 'account' ? tabActiveSm : tabIdleSm">{{ t('admin.accountExport.dimByAccount') }}</button>
+                <button @click="dimension = 'model'; loadUsage()" :class="dimension === 'model' ? tabActiveSm : tabIdleSm">{{ t('admin.accountExport.dimAggregated') }}</button>
+              </div>
+            </div>
+            <!-- 账号多选下拉（聚合模式下无意义，禁用） -->
+            <div class="relative" :class="{ 'opacity-40 pointer-events-none': dimension === 'model' }">
               <div class="mb-2 text-xs font-medium uppercase tracking-wide text-gray-400 dark:text-gray-500">{{ t('admin.accountExport.accounts') }}</div>
               <button
                 @click="showAccountDD = !showAccountDD"
@@ -79,7 +87,7 @@
             <table class="w-full text-sm">
               <thead>
                 <tr class="border-b border-gray-100 text-left text-xs text-gray-400 dark:border-dark-700/50 dark:text-gray-500">
-                  <th class="px-5 py-3 font-medium">{{ t('admin.accountExport.colAccount') }}</th>
+                  <th v-if="dimension === 'account'" class="px-5 py-3 font-medium">{{ t('admin.accountExport.colAccount') }}</th>
                   <th class="px-4 py-3 font-medium">{{ t('admin.accountExport.colPeriod') }}</th>
                   <th class="px-4 py-3 font-medium">{{ t('admin.accountExport.colModel') }}</th>
                   <th class="px-4 py-3 font-medium text-right">{{ t('admin.accountExport.colRequests') }}</th>
@@ -91,14 +99,14 @@
               </thead>
               <tbody class="divide-y divide-gray-50 dark:divide-dark-700/30">
                 <tr v-if="loadingUsage">
-                  <td colspan="8" class="px-4 py-10 text-center text-gray-400">{{ t('common.loading') }}</td>
+                  <td :colspan="dimension === 'account' ? 8 : 7" class="px-4 py-10 text-center text-gray-400">{{ t('common.loading') }}</td>
                 </tr>
                 <tr v-else-if="visibleRows.length === 0">
-                  <td colspan="8" class="px-4 py-10 text-center text-gray-400">{{ t('admin.accountExport.empty') }}</td>
+                  <td :colspan="dimension === 'account' ? 8 : 7" class="px-4 py-10 text-center text-gray-400">{{ t('admin.accountExport.empty') }}</td>
                 </tr>
                 <!-- 排除的模型整行不显示（含合计口径），与 CSV 一致 -->
                 <tr v-else v-for="(r, i) in visibleRows" :key="i" class="hover:bg-gray-50/60 dark:hover:bg-dark-700/20">
-                  <td class="px-5 py-3 font-medium text-gray-900 dark:text-white">{{ r.account_name }}</td>
+                  <td v-if="dimension === 'account'" class="px-5 py-3 font-medium text-gray-900 dark:text-white">{{ r.account_name }}</td>
                   <td class="px-4 py-3 tabular-nums text-gray-500 dark:text-gray-400">{{ r.period }}</td>
                   <td class="px-4 py-3">
                     <span class="rounded-md bg-teal-50 px-2 py-0.5 text-xs font-medium text-teal-700 dark:bg-teal-500/10 dark:text-teal-300">{{ r.model }}</span>
@@ -115,7 +123,7 @@
               </tbody>
               <tfoot v-if="visibleRows.length > 0">
                 <tr class="border-t-2 border-gray-200 bg-gray-50/60 dark:border-dark-600 dark:bg-dark-700/20">
-                  <td class="px-5 py-3.5 font-semibold text-gray-900 dark:text-white" colspan="3">{{ t('admin.accountExport.total') }}</td>
+                  <td class="px-5 py-3.5 font-semibold text-gray-900 dark:text-white" :colspan="dimension === 'account' ? 3 : 2">{{ t('admin.accountExport.total') }}</td>
                   <td class="px-4 py-3.5 text-right tabular-nums font-semibold text-gray-900 dark:text-white">{{ formatNumber(totalRequests) }}</td>
                   <td class="px-4 py-3.5 text-right tabular-nums font-semibold text-gray-700 dark:text-gray-300">{{ compactTokens(totalInput) }}</td>
                   <td class="px-4 py-3.5 text-right tabular-nums font-semibold text-gray-700 dark:text-gray-300">{{ compactTokens(totalOutput) }}</td>
@@ -264,6 +272,9 @@ const tabActive = 'rounded-lg bg-white px-4 py-1.5 font-medium text-gray-900 sha
 const tabIdle = 'rounded-lg px-4 py-1.5 font-medium text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200'
 
 const tab = ref<'export' | 'pricing'>('export')
+const dimension = ref<'account' | 'model'>('account')
+const tabActiveSm = 'rounded-lg bg-white px-3.5 py-1.5 text-sm font-medium text-gray-900 shadow-sm dark:bg-dark-800 dark:text-white'
+const tabIdleSm = 'rounded-lg px-3.5 py-1.5 text-sm font-medium text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200'
 
 // ---------- 筛选状态 ----------
 const accounts = ref<{ id: number; name: string }[]>([])
@@ -311,7 +322,8 @@ const loadUsage = async () => {
       start: startDate.value,
       end: endDate.value,
       granularity: granularity.value,
-      account_ids: selectedAccountIds.value
+      account_ids: dimension.value === 'model' ? [] : selectedAccountIds.value,
+      group_by: dimension.value
     })
     usageRows.value = res.items || []
     totalCost.value = res.total_cost
@@ -335,7 +347,8 @@ const exportCSV = async () => {
       start: startDate.value,
       end: endDate.value,
       granularity: granularity.value,
-      account_ids: selectedAccountIds.value
+      account_ids: dimension.value === 'model' ? [] : selectedAccountIds.value,
+      group_by: dimension.value
     })
   } catch {
     appStore.showError(t('admin.accountExport.exportFailed'))

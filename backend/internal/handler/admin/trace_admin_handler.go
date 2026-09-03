@@ -161,9 +161,10 @@ func (h *AccountUsageExportHandler) Usage(c *gin.Context) {
 		return
 	}
 	granularity := c.DefaultQuery("granularity", "month")
+	groupBy := c.DefaultQuery("group_by", "account")
 	accountIDs := parseIDList(c.Query("account_ids"))
 
-	rows, err := h.svc.Query(c.Request.Context(), start, end, granularity, accountIDs)
+	rows, err := h.svc.Query(c.Request.Context(), start, end, granularity, accountIDs, groupBy)
 	if err != nil {
 		response.ErrorFrom(c, err)
 		return
@@ -172,9 +173,12 @@ func (h *AccountUsageExportHandler) Usage(c *gin.Context) {
 
 	if c.Query("format") == "csv" {
 		filename := fmt.Sprintf("account-usage_%s_%s.csv", c.Query("start"), c.Query("end"))
+		if groupBy == "model" {
+			filename = fmt.Sprintf("model-usage_%s_%s.csv", c.Query("start"), c.Query("end"))
+		}
 		c.Header("Content-Type", "text/csv; charset=utf-8")
 		c.Header("Content-Disposition", fmt.Sprintf(`attachment; filename="%s"`, filename))
-		if err := h.svc.WriteCSV(rows, c.Writer); err != nil {
+		if err := h.svc.WriteCSV(rows, c.Writer, groupBy == "model"); err != nil {
 			c.Status(http.StatusInternalServerError)
 		}
 		return

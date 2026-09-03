@@ -87,6 +87,9 @@ export default {
     pricingNote: '定价变更立即生效于后续导出；历史导出文件不受影响。定价数据独立存储，与系统计费完全隔离。',
     includeInExport: '参与导出',
     includeInExportHint: '取消勾选后，该模型不出现在预览、CSV 与合计中',
+    dimension: '聚合维度',
+    dimByAccount: '按账号',
+    dimAggregated: '聚合',
     aliasTitle: '模型别名归并',
     aliasHint: '别名模型的用量与费用合并到目标模型显示（如 k3 → kimi-k3）。保存定价后生效。'
   }

@@ -141,6 +141,7 @@ export const accountUsageExportAPI = {
     end: string
     granularity: string
     account_ids?: number[]
+    group_by?: 'account' | 'model'
   }) {
     const { data } = await apiClient.get<{
         items: AccountUsageRow[]
@@ -157,26 +158,28 @@ export const accountUsageExportAPI = {
         start: params.start,
         end: params.end,
         granularity: params.granularity,
-        account_ids: params.account_ids?.length ? params.account_ids.join(',') : undefined
+        account_ids: params.account_ids?.length ? params.account_ids.join(',') : undefined,
+        group_by: params.group_by
       },
       timeout: 60000
     })
     return data
   },
 
-  async downloadCSV(params: { start: string; end: string; granularity: string; account_ids?: number[] }) {
+  async downloadCSV(params: { start: string; end: string; granularity: string; account_ids?: number[]; group_by?: 'account' | 'model' }) {
     const { data } = await apiClient.get('/admin/account-usage-export', {
       params: {
         start: params.start,
         end: params.end,
         granularity: params.granularity,
         account_ids: params.account_ids?.length ? params.account_ids.join(',') : undefined,
+        group_by: params.group_by,
         format: 'csv'
       },
       responseType: 'blob',
       timeout: 120000
     })
-    const filename = `account-usage_${params.start}_${params.end}.csv`
+    const filename = (params.group_by === 'model' ? 'model-usage' : 'account-usage') + `_${params.start}_${params.end}.csv`
     const url = URL.createObjectURL(data as Blob)
     const a = document.createElement('a')
     a.href = url

@@ -191,7 +191,7 @@ func TestExportPricingCostAndCSV(t *testing.T) {
 	}
 
 	var buf strings.Builder
-	if err := svc.WriteCSV(rows, &buf); err != nil {
+	if err := svc.WriteCSV(rows, &buf, false); err != nil {
 		t.Fatal(err)
 	}
 	out := buf.String()
@@ -285,7 +285,7 @@ func TestCSVSkipsExcludedModels(t *testing.T) {
 		{AccountName: "A", Period: "2026-09", Model: "noise", Requests: 2, Excluded: true},
 	}
 	var buf strings.Builder
-	if err := svc.WriteCSV(rows, &buf); err != nil {
+	if err := svc.WriteCSV(rows, &buf, false); err != nil {
 		t.Fatal(err)
 	}
 	out := buf.String()
@@ -307,5 +307,30 @@ func TestMetaFromHeadToleratesTruncation(t *testing.T) {
 	m := metaFromHead(head)
 	if m.APIKeyID != 7 || m.UserID != 3 || m.Model != "kimi-k3" || m.StartedAt == "" {
 		t.Fatalf("meta = %+v", m)
+	}
+}
+
+func TestCSVAggregatedOmitsAccountColumn(t *testing.T) {
+	svc := &AccountUsageExportService{pricing: ExportPricing{Currency: "CNY", Models: map[string]ExportModelPricing{
+		"m1": {Input: 4, Output: 16, CacheRead: 1},
+	}}}
+	rows := []AccountUsageRow{
+		{AccountName: "全部", Period: "2026-09", Model: "m1", Requests: 5, InputTokens: 500_000, CostKnown: true, Cost: 2},
+	}
+	var buf strings.Builder
+	if err := svc.WriteCSV(rows, &buf, true); err != nil {
+		t.Fatal(err)
+	}
+	out := buf.String()
+	if strings.Contains(out, "账号") || strings.Contains(out, "全部,") {
+		t.Fatalf("aggregated CSV must not contain account column: %s", out)
+	}
+	// 表头 8 列，合计行也 8 列
+	lines := strings.Split(strings.TrimSpace(out), "\n")
+	if got := len(strings.Split(lines[0], ",")); got != 8 {
+		t.Fatalf("header cols = %d", got)
+	}
+	if got := len(strings.Split(lines[len(lines)-1], ",")); got != 8 {
+		t.Fatalf("total cols = %d", got)
 	}
 }

@@ -179,11 +179,19 @@ var exportGranularityFormat = map[string]string{
 }
 
 // Query 聚合 usage_logs。granularity: day|week|month|total；accountIDs 空 = 全部账号。
+// groupBy: "account"（默认，账号×周期×模型）| "model"（账号维度抹掉，周期×模型聚合）。
 // 成功口径沿用仓库约定（actual_cost > 0 为成功请求代理）。
-func (s *AccountUsageExportService) Query(ctx context.Context, start, end time.Time, granularity string, accountIDs []int64) ([]AccountUsageRow, error) {
+func (s *AccountUsageExportService) Query(ctx context.Context, start, end time.Time, granularity string, accountIDs []int64, groupBy string) ([]AccountUsageRow, error) {
 	bucketExpr := "'全部'"
 	if f, ok := exportGranularityFormat[granularity]; ok {
 		bucketExpr = fmt.Sprintf("TO_CHAR(ul.created_at, '%s')", f)
+	}
+	aggregateAccounts := groupBy == "model"
+	accountSelect := "ul.account_id,\n       COALESCE(NULLIF(a.name, ''), '账号#' || ul.account_id::text) AS account_name,"
+	accountGroup := "ul.account_id, a.name,"
+	if aggregateAccounts {
+		accountSelect = "0::bigint AS account_id,\n       '全部' AS account_name,"
+		accountGroup = ""
 	}
 
 	args := []any{start, end}
@@ -198,8 +206,7 @@ func (s *AccountUsageExportService) Query(ctx context.Context, start, end time.T
 	}
 
 	q := fmt.Sprintf(`
-SELECT ul.account_id,
-       COALESCE(NULLIF(a.name, ''), '账号#' || ul.account_id::text) AS account_name,
+SELECT %s
        %s AS period,
        ul.model,
        COUNT(*) AS requests,
@@ -210,8 +217,8 @@ SELECT ul.account_id,
 FROM usage_logs ul
 LEFT JOIN accounts a ON a.id = ul.account_id
 WHERE %s
-GROUP BY ul.account_id, a.name, period, ul.model
-ORDER BY account_name, period, requests DESC`, bucketExpr, strings.Join(where, " AND "))
+GROUP BY %s period, ul.model
+ORDER BY account_name, period, requests DESC`, accountSelect, bucketExpr, strings.Join(where, " AND "), accountGroup)
 
 	rows, err := s.sqlDB.QueryContext(ctx, q, args...)
 	if err != nil {
@@ -265,7 +272,8 @@ ORDER BY account_name, period, requests DESC`, bucketExpr, strings.Join(where, "
 // ---------- CSV ----------
 
 // WriteCSV 导出 CSV（UTF-8 BOM，Excel 直开）。含合计行。
-func (s *AccountUsageExportService) WriteCSV(rows []AccountUsageRow, w io.Writer) error {
+// aggregated=true（聚合模式）时不输出"账号"列。
+func (s *AccountUsageExportService) WriteCSV(rows []AccountUsageRow, w io.Writer, aggregated bool) error {
 	if _, err := w.Write([]byte("\xEF\xBB\xBF")); err != nil { // BOM
 		return err
 	}
@@ -277,6 +285,9 @@ func (s *AccountUsageExportService) WriteCSV(rows []AccountUsageRow, w io.Writer
 	header := []string{"账号", "周期", "模型", "请求数",
 		"输入token", "输出token", "缓存读取token", "缓存写入token",
 		fmt.Sprintf("token费用(%s)", cur)}
+	if aggregated {
+		header = header[1:]
+	}
 	if err := cw.Write(header); err != nil {
 		return err
 	}
@@ -294,13 +305,16 @@ func (s *AccountUsageExportService) WriteCSV(rows []AccountUsageRow, w io.Writer
 		} else {
 			allKnown = false
 		}
-		rec := []string{r.AccountName, r.Period, r.Model,
+		rec := []string{r.Period, r.Model,
 			strconv.FormatInt(r.Requests, 10),
 			strconv.FormatInt(r.InputTokens, 10),
 			strconv.FormatInt(r.OutputTokens, 10),
 			strconv.FormatInt(r.CacheReadTokens, 10),
 			strconv.FormatInt(r.CacheCreationTokens, 10),
 			cost}
+		if !aggregated {
+			rec = append([]string{r.AccountName}, rec...)
+		}
 		if err := cw.Write(rec); err != nil {
 			return err
 		}
@@ -315,13 +329,19 @@ func (s *AccountUsageExportService) WriteCSV(rows []AccountUsageRow, w io.Writer
 	if allKnown {
 		totalCost = strconv.FormatFloat(totCost, 'f', 2, 64)
 	}
-	return cw.Write([]string{"合计", "", "",
+	nums := []string{
 		strconv.FormatInt(totReq, 10),
 		strconv.FormatInt(totIn, 10),
 		strconv.FormatInt(totOut, 10),
 		strconv.FormatInt(totCR, 10),
 		strconv.FormatInt(totCC, 10),
-		totalCost})
+		totalCost}
+	// 合计行对齐列数：聚合模式 8 列（周期,模型,…），非聚合 9 列（账号,周期,模型,…）
+	label := []string{"合计", ""}
+	if !aggregated {
+		label = []string{"合计", "", ""}
+	}
+	return cw.Write(append(label, nums...))
 }
 
 // ParseDateRange 解析 start/end（YYYY-MM-DD），end 为闭区间当日（内部转开区间）。
