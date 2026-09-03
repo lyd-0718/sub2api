@@ -33,6 +33,22 @@
         </div>
       </div>
 
+      <!-- 按人筛选（谁的会话归谁，含匿名会话） -->
+      <div v-if="keyChips.length > 1" class="flex flex-wrap gap-2">
+        <button
+          v-for="chip in keyChips"
+          :key="chip.id"
+          @click="selectKey(chip.id)"
+          class="flex items-center gap-2 rounded-xl border px-3.5 py-2 text-sm font-medium transition-colors"
+          :class="filters.apiKeyId === chip.id
+            ? 'border-primary-500/60 bg-primary-500/10 text-primary-700 dark:text-primary-100'
+            : 'border-gray-200 text-gray-500 hover:border-gray-300 dark:border-dark-600 dark:text-gray-400 dark:hover:border-dark-500'"
+        >
+          {{ chip.name }}
+          <span class="rounded-full bg-gray-100 px-1.5 py-0.5 text-xs tabular-nums text-gray-500 dark:bg-dark-700 dark:text-gray-400">{{ chip.count }}</span>
+        </button>
+      </div>
+
       <!-- 列表卡片 -->
       <div class="card">
         <!-- 筛选行 -->
@@ -182,7 +198,7 @@
 </template>
 
 <script setup lang="ts">
-import { onMounted, reactive, ref } from 'vue'
+import { computed, onMounted, reactive, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import AppLayout from '@/components/layout/AppLayout.vue'
 import Select from '@/components/common/Select.vue'
@@ -200,6 +216,23 @@ const sessions = ref<TraceSession[]>([])
 const page = ref(1)
 const pageSize = ref(20)
 const total = ref(0)
+const keyCounts = ref<Record<string, number>>({})
+const keyNames = ref<Record<string, string>>({})
+
+// 按人筛选 chips：全部 + 每个 key（名字优先取列表行里的 api_key_name）
+const keyChips = computed(() => {
+  const chips = [{ id: 'all', name: t('admin.trace.allApiKeys'), count: total.value }]
+  const entries = Object.entries(keyCounts.value).sort((a, b) => b[1] - a[1])
+  for (const [id, count] of entries) {
+    chips.push({ id, name: keyNames.value[id] || `Key ${id}`, count })
+  }
+  return chips
+})
+
+const selectKey = (id: string) => {
+  filters.apiKeyId = id
+  loadSessions(true)
+}
 const stats = ref<TraceStats | null>(null)
 const downloading = ref('')
 const showSettings = ref(false)
@@ -238,6 +271,10 @@ const loadSessions = async (resetPage = false) => {
     })
     sessions.value = res.items || []
     total.value = res.total || 0
+    keyCounts.value = (res as { key_counts?: Record<string, number> }).key_counts || {}
+    for (const s of sessions.value) {
+      if (s.api_key_name) keyNames.value[String(s.api_key_id)] = s.api_key_name
+    }
   } catch {
     appStore.showError(t('admin.trace.loadFailed'))
   } finally {
@@ -277,7 +314,7 @@ const download = async (s: TraceSession) => {
   const key = `${s.date}-${s.session_id}`
   downloading.value = key
   try {
-    await traceAdminAPI.download(s.date, s.session_id)
+    await traceAdminAPI.download(s.api_key_id, s.date, s.session_id)
   } catch {
     appStore.showError(t('admin.trace.downloadFailed'))
   } finally {

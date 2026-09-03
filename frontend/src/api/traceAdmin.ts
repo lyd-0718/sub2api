@@ -51,7 +51,7 @@ export const traceAdminAPI = {
     if (params?.page_size) query.page_size = params.page_size
     if (params?.status === 'archived') query.archived = 'true'
     if (params?.status === 'hot') query.archived = 'false'
-    const { data } = await apiClient.get<{ items: TraceSession[]; total: number; page: number; page_size: number }>(
+    const { data } = await apiClient.get<{ items: TraceSession[]; total: number; page: number; page_size: number; key_counts?: Record<string, number> }>(
       '/admin/traces/sessions',
       { params: query, timeout: 60000 }
     )
@@ -83,9 +83,9 @@ export const traceAdminAPI = {
   },
 
   /** 下载会话（热数据现场压缩，已归档直接取包）。前端 axios 带鉴权，blob 落地。 */
-  async download(date: string, sessionId: string, onProgress?: (percent: number) => void) {
+  async download(apiKeyId: number, date: string, sessionId: string, onProgress?: (percent: number) => void) {
     const { data, headers } = await apiClient.get('/admin/traces/download', {
-      params: { date, session: sessionId },
+      params: { key: apiKeyId, date, session: sessionId },
       responseType: 'blob',
       timeout: 300000,
       onDownloadProgress: (e) => {
@@ -94,7 +94,7 @@ export const traceAdminAPI = {
     })
     const dispo = String(headers?.['content-disposition'] || '')
     const m = dispo.match(/filename="?([^";]+)"?/)
-    const filename = m?.[1] || `trace_${date}_${sessionId}.tar.zst`
+    const filename = m?.[1] || `trace_${apiKeyId}_${date}_${sessionId}.tar.zst`
     const url = URL.createObjectURL(data as Blob)
     const a = document.createElement('a')
     a.href = url

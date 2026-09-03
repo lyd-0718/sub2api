@@ -249,35 +249,44 @@ func (s *TraceAdminService) Stats(ctx context.Context) (*TraceStats, error) {
 	return stats, nil
 }
 
-// scanHot 扫 traces/<日期>/<会话>/ 目录。
+// scanHot 扫 traces/<keyDir>/<日期>/<会话>/ 三层目录。
 func (s *TraceAdminService) scanHot(ctx context.Context) ([]TraceSessionRow, error) {
 	rows := []TraceSessionRow{}
-	dayDirs, err := os.ReadDir(s.traceDir)
+	keyDirs, err := os.ReadDir(s.traceDir)
 	if err != nil {
 		if os.IsNotExist(err) {
 			return rows, nil
 		}
 		return nil, err
 	}
-	for _, dd := range dayDirs {
-		if !dd.IsDir() {
+	for _, kd := range keyDirs {
+		if !kd.IsDir() {
 			continue
 		}
-		date := dd.Name()
-		sessDirs, err := os.ReadDir(filepath.Join(s.traceDir, date))
+		dayDirs, err := os.ReadDir(filepath.Join(s.traceDir, kd.Name()))
 		if err != nil {
 			continue
 		}
-		for _, sd := range sessDirs {
-			if !sd.IsDir() {
+		for _, dd := range dayDirs {
+			if !dd.IsDir() {
 				continue
 			}
-			select {
-			case <-ctx.Done():
-				return rows, ctx.Err()
-			default:
+			date := dd.Name()
+			sessDirs, err := os.ReadDir(filepath.Join(s.traceDir, kd.Name(), date))
+			if err != nil {
+				continue
 			}
-			rows = append(rows, s.scanSessionDir(date, sd.Name(), filepath.Join(s.traceDir, date, sd.Name())))
+			for _, sd := range sessDirs {
+				if !sd.IsDir() {
+					continue
+				}
+				select {
+				case <-ctx.Done():
+					return rows, ctx.Err()
+				default:
+				}
+				rows = append(rows, s.scanSessionDir(date, sd.Name(), filepath.Join(s.traceDir, kd.Name(), date, sd.Name())))
+			}
 		}
 	}
 	return rows, nil
@@ -356,46 +365,55 @@ func metaFromHead(head []byte) *traceRecordMeta {
 	}
 }
 
-// scanArchived 扫 traces-archive/<日期>/<会话>.tar.zst。
+// scanArchived 扫 traces-archive/<keyDir>/<日期>/<会话>.tar.zst。
 func (s *TraceAdminService) scanArchived(ctx context.Context) ([]TraceSessionRow, error) {
 	rows := []TraceSessionRow{}
-	dayDirs, err := os.ReadDir(s.archiveDir)
+	keyDirs, err := os.ReadDir(s.archiveDir)
 	if err != nil {
 		if os.IsNotExist(err) {
 			return rows, nil
 		}
 		return nil, err
 	}
-	for _, dd := range dayDirs {
-		if !dd.IsDir() {
+	for _, kd := range keyDirs {
+		if !kd.IsDir() {
 			continue
 		}
-		date := dd.Name()
-		files, err := os.ReadDir(filepath.Join(s.archiveDir, date))
+		dayDirs, err := os.ReadDir(filepath.Join(s.archiveDir, kd.Name()))
 		if err != nil {
 			continue
 		}
-		for _, f := range files {
-			name := f.Name()
-			if !strings.HasSuffix(name, ".tar.zst") {
+		for _, dd := range dayDirs {
+			if !dd.IsDir() {
 				continue
 			}
-			select {
-			case <-ctx.Done():
-				return rows, ctx.Err()
-			default:
+			date := dd.Name()
+			files, err := os.ReadDir(filepath.Join(s.archiveDir, kd.Name(), date))
+			if err != nil {
+				continue
 			}
-			row := TraceSessionRow{
-				Date:      date,
-				SessionID: strings.TrimSuffix(name, ".tar.zst"),
-				Archived:  true,
+			for _, f := range files {
+				name := f.Name()
+				if !strings.HasSuffix(name, ".tar.zst") {
+					continue
+				}
+				select {
+				case <-ctx.Done():
+					return rows, ctx.Err()
+				default:
+				}
+				row := TraceSessionRow{
+					Date:      date,
+					SessionID: strings.TrimSuffix(name, ".tar.zst"),
+					Archived:  true,
+				}
+				if info, err := f.Info(); err == nil {
+					row.SizeBytes = info.Size()
+					row.LastAt = info.ModTime().Format(time.RFC3339)
+				}
+				s.fillArchiveMeta(&row, filepath.Join(s.archiveDir, kd.Name(), date, name))
+				rows = append(rows, row)
 			}
-			if info, err := f.Info(); err == nil {
-				row.SizeBytes = info.Size()
-				row.LastAt = info.ModTime().Format(time.RFC3339)
-			}
-			s.fillArchiveMeta(&row, filepath.Join(s.archiveDir, date, name))
-			rows = append(rows, row)
 		}
 	}
 	return rows, nil
@@ -555,74 +573,102 @@ type ArchiveResult struct {
 	Skipped  []string `json:"skipped"`
 }
 
-// ArchiveDay 归档指定日期。isToday=true 时压缩后保留原始目录（仍在被写入）。
+// ArchiveDay 归档所有 key 下指定日期的会话。
+// isToday=true 时压缩后保留原始目录（仍在被写入）。
 // 逐会话：解压 → tar → zstd 极致压缩 → 校验文件数一致 → （非今天）删除原目录。
 func (s *TraceAdminService) ArchiveDay(_ context.Context, date string) (*ArchiveResult, error) {
-	src := filepath.Join(s.traceDir, date)
-	dst := filepath.Join(s.archiveDir, date)
-	if _, err := os.Stat(src); err != nil {
-		return nil, fmt.Errorf("日期目录不存在: %s", date)
-	}
 	isToday := date == time.Now().Format("20060102")
 	res := &ArchiveResult{Date: date, Kept: isToday}
 
-	sessDirs, err := os.ReadDir(src)
+	keyDirs, err := os.ReadDir(s.traceDir)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("日期目录不存在: %s", date)
 	}
-	if err := os.MkdirAll(dst, 0o755); err != nil {
-		return nil, err
-	}
-	for _, sd := range sessDirs {
-		if !sd.IsDir() {
+	found := false
+	for _, kd := range keyDirs {
+		if !kd.IsDir() {
 			continue
 		}
-		sid := sd.Name()
-		outPath := filepath.Join(dst, sid+".tar.zst")
-		if _, err := os.Stat(outPath); err == nil {
-			res.Skipped = append(res.Skipped, sid)
+		src := filepath.Join(s.traceDir, kd.Name(), date)
+		if _, err := os.Stat(src); err != nil {
 			continue
 		}
-		turns, err := s.archiveSessionDir(filepath.Join(src, sid), outPath)
+		found = true
+		dst := filepath.Join(s.archiveDir, kd.Name(), date)
+		if err := os.MkdirAll(dst, 0o755); err != nil {
+			return res, err
+		}
+		sessDirs, err := os.ReadDir(src)
 		if err != nil {
-			return res, fmt.Errorf("归档会话 %s 失败: %w", sid, err)
+			return res, err
 		}
-		res.Turns += turns
-		res.Sessions++
-		res.Archived = append(res.Archived, sid)
+		for _, sd := range sessDirs {
+			if !sd.IsDir() {
+				continue
+			}
+			sid := sd.Name()
+			outPath := filepath.Join(dst, sid+".tar.zst")
+			if _, err := os.Stat(outPath); err == nil {
+				res.Skipped = append(res.Skipped, sid)
+				continue
+			}
+			turns, err := s.archiveSessionDir(filepath.Join(src, sid), outPath)
+			if err != nil {
+				return res, fmt.Errorf("归档会话 %s/%s 失败: %w", kd.Name(), sid, err)
+			}
+			res.Turns += turns
+			res.Sessions++
+			res.Archived = append(res.Archived, kd.Name()+"/"+sid)
+			if !isToday {
+				_ = os.RemoveAll(filepath.Join(src, sid))
+			}
+		}
+		// 全部会话归档完且非今天：删掉空的日期目录
 		if !isToday {
-			_ = os.RemoveAll(filepath.Join(src, sid))
+			if entries, _ := os.ReadDir(src); len(entries) == 0 {
+				_ = os.Remove(src)
+			}
 		}
 	}
-	// 全部会话归档完且非今天：删掉空的日期目录
-	if !isToday {
-		if entries, _ := os.ReadDir(src); len(entries) == 0 {
-			_ = os.Remove(src)
-		}
+	if !found {
+		return nil, fmt.Errorf("日期目录不存在: %s", date)
 	}
 	return res, nil
 }
 
-// ArchiveOlderThan 归档所有早于 keepHotDays 的日期目录（定时任务用）。
+// ArchiveOlderThan 归档所有 key 下早于保留期的日期目录（定时任务用）。
 func (s *TraceAdminService) ArchiveOlderThan(ctx context.Context, keepHotDays int) ([]string, error) {
 	cutoff := time.Now().AddDate(0, 0, -(keepHotDays - 1)).Format("20060102")
-	dayDirs, err := os.ReadDir(s.traceDir)
+	keyDirs, err := os.ReadDir(s.traceDir)
 	if err != nil {
 		if os.IsNotExist(err) {
 			return nil, nil
 		}
 		return nil, err
 	}
-	done := []string{}
-	for _, dd := range dayDirs {
-		if !dd.IsDir() || dd.Name() >= cutoff {
+	dateSet := map[string]bool{}
+	for _, kd := range keyDirs {
+		if !kd.IsDir() {
 			continue
 		}
-		if _, err := s.ArchiveDay(ctx, dd.Name()); err != nil {
+		dayDirs, err := os.ReadDir(filepath.Join(s.traceDir, kd.Name()))
+		if err != nil {
+			continue
+		}
+		for _, dd := range dayDirs {
+			if dd.IsDir() && dd.Name() < cutoff {
+				dateSet[dd.Name()] = true
+			}
+		}
+	}
+	done := []string{}
+	for date := range dateSet {
+		if _, err := s.ArchiveDay(ctx, date); err != nil {
 			return done, err
 		}
-		done = append(done, dd.Name())
+		done = append(done, date)
 	}
+	sort.Strings(done)
 	return done, nil
 }
 
@@ -779,22 +825,26 @@ func countTarEntries(path string) (int, error) {
 // ---------- 下载 ----------
 
 // ResolveDownload 返回可下载的文件路径与下载文件名。
+// keyDir 为 key-<apiKeyID> 形式（列表行的 api_key_id 推导，0/负数视为非法）。
 // 已归档：直接给 .tar.zst；热数据：现场快速压缩到临时文件（保留原目录），调用方负责用后删除。
-func (s *TraceAdminService) ResolveDownload(date, sid string) (path, downloadName string, cleanup func(), err error) {
+func (s *TraceAdminService) ResolveDownload(keyDir, date, sid string) (path, downloadName string, cleanup func(), err error) {
 	if !fs.ValidPath(sid) || strings.Contains(sid, "/") || strings.Contains(sid, "..") {
 		return "", "", nil, errors.New("非法会话 ID")
 	}
 	if !fs.ValidPath(date) || strings.Contains(date, "/") || strings.Contains(date, "..") {
 		return "", "", nil, errors.New("非法日期")
 	}
-	downloadName = fmt.Sprintf("trace_%s_%s.tar.zst", date, sid)
+	if !fs.ValidPath(keyDir) || strings.Contains(keyDir, "/") || strings.Contains(keyDir, "..") || !strings.HasPrefix(keyDir, "key-") {
+		return "", "", nil, errors.New("非法 key 目录")
+	}
+	downloadName = fmt.Sprintf("trace_%s_%s_%s.tar.zst", keyDir, date, sid)
 
-	archived := filepath.Join(s.archiveDir, date, sid+".tar.zst")
+	archived := filepath.Join(s.archiveDir, keyDir, date, sid+".tar.zst")
 	if _, statErr := os.Stat(archived); statErr == nil {
 		return archived, downloadName, func() {}, nil
 	}
 
-	srcDir := filepath.Join(s.traceDir, date, sid)
+	srcDir := filepath.Join(s.traceDir, keyDir, date, sid)
 	if _, statErr := os.Stat(srcDir); statErr != nil {
 		return "", "", nil, errors.New("会话不存在")
 	}

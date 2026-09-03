@@ -49,7 +49,7 @@ func writeTestTurn(t *testing.T, dir, name string, rec map[string]any) {
 
 func TestArchiveDayPastDeletesOriginals(t *testing.T) {
 	svc, _ := setupTraceDirs(t)
-	sessDir := filepath.Join(svc.traceDir, "20260901", "sess-a")
+	sessDir := filepath.Join(svc.traceDir, "key-7", "20260901", "sess-a")
 	writeTestTurn(t, sessDir, "100000.000-req1.json.gz", map[string]any{
 		"session_id": "sess-a", "model": "m1", "api_key_id": 7, "started_at": "2026-09-01T10:00:00+08:00",
 		"request": map[string]any{}, "response": map[string]any{"complete": true},
@@ -71,7 +71,7 @@ func TestArchiveDayPastDeletesOriginals(t *testing.T) {
 		t.Fatal("past day originals should be deleted")
 	}
 	// 压缩包可读且含 2 个 json
-	n, err := countTarEntries(filepath.Join(svc.archiveDir, "20260901", "sess-a.tar.zst"))
+	n, err := countTarEntries(filepath.Join(svc.archiveDir, "key-7", "20260901", "sess-a.tar.zst"))
 	if err != nil || n != 2 {
 		t.Fatalf("tar entries = %d err = %v", n, err)
 	}
@@ -80,7 +80,7 @@ func TestArchiveDayPastDeletesOriginals(t *testing.T) {
 func TestArchiveTodayKeepsOriginals(t *testing.T) {
 	svc, _ := setupTraceDirs(t)
 	today := time.Now().Format("20060102")
-	sessDir := filepath.Join(svc.traceDir, today, "sess-live")
+	sessDir := filepath.Join(svc.traceDir, "key-7", today, "sess-live")
 	writeTestTurn(t, sessDir, "100000.000-req1.json.gz", map[string]any{
 		"session_id": "sess-live", "request": map[string]any{}, "response": map[string]any{},
 	})
@@ -99,7 +99,7 @@ func TestArchiveTodayKeepsOriginals(t *testing.T) {
 func TestListSessionsAndDownload(t *testing.T) {
 	svc, _ := setupTraceDirs(t)
 	today := time.Now().Format("20060102")
-	sessDir := filepath.Join(svc.traceDir, today, "s1")
+	sessDir := filepath.Join(svc.traceDir, "key-3", today, "s1")
 	writeTestTurn(t, sessDir, "100000.000-r1.json.gz", map[string]any{
 		"session_id": "s1", "model": "kimi-k3", "api_key_id": 3, "started_at": "2026-09-02T10:00:00+08:00",
 		"request": map[string]any{}, "response": map[string]any{"complete": true},
@@ -113,7 +113,7 @@ func TestListSessionsAndDownload(t *testing.T) {
 		t.Fatalf("rows = %+v", rows)
 	}
 
-	path, name, cleanup, err := svc.ResolveDownload(today, "s1")
+	path, name, cleanup, err := svc.ResolveDownload("key-3", today, "s1")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -132,7 +132,7 @@ func TestListSessionsAndDownload(t *testing.T) {
 
 func TestResolveDownloadPathTraversal(t *testing.T) {
 	svc, _ := setupTraceDirs(t)
-	if _, _, _, err := svc.ResolveDownload("20260901", "../etc"); err == nil {
+	if _, _, _, err := svc.ResolveDownload("key-1", "20260901", "../etc"); err == nil {
 		t.Fatal("path traversal must be rejected")
 	}
 }
@@ -225,14 +225,14 @@ func TestParseDateRange(t *testing.T) {
 // 确认 zstd 归档包内文件内容逐字节还原
 func TestArchiveContentIntegrity(t *testing.T) {
 	svc, _ := setupTraceDirs(t)
-	sessDir := filepath.Join(svc.traceDir, "20260901", "sess-x")
+	sessDir := filepath.Join(svc.traceDir, "key-7", "20260901", "sess-x")
 	want := map[string]any{"session_id": "sess-x", "payload": strings.Repeat("abc", 5000)}
 	writeTestTurn(t, sessDir, "100000.000-r1.json.gz", want)
 
 	if _, err := svc.ArchiveDay(context.Background(), "20260901"); err != nil {
 		t.Fatal(err)
 	}
-	f, err := os.Open(filepath.Join(svc.archiveDir, "20260901", "sess-x.tar.zst"))
+	f, err := os.Open(filepath.Join(svc.archiveDir, "key-7", "20260901", "sess-x.tar.zst"))
 	if err != nil {
 		t.Fatal(err)
 	}

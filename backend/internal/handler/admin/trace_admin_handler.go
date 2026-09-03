@@ -62,7 +62,12 @@ func (h *TraceAdminHandler) ListSessions(c *gin.Context) {
 	if endIdx > total {
 		endIdx = total
 	}
-	response.Success(c, gin.H{"items": rows[startIdx:endIdx], "total": total, "page": page, "page_size": pageSize})
+	// 按 key 聚合统计（前端按人筛选 chips 用），反映当前过滤条件
+	keyCounts := map[int64]int{}
+	for _, r := range rows {
+		keyCounts[r.APIKeyID]++
+	}
+	response.Success(c, gin.H{"items": rows[startIdx:endIdx], "total": total, "page": page, "page_size": pageSize, "key_counts": keyCounts})
 }
 
 // Stats GET /api/v1/admin/traces/stats
@@ -94,7 +99,12 @@ func (h *TraceAdminHandler) Archive(c *gin.Context) {
 
 // Download GET /api/v1/admin/traces/download?date=&session=
 func (h *TraceAdminHandler) Download(c *gin.Context) {
-	path, name, cleanup, err := h.svc.ResolveDownload(c.Query("date"), c.Query("session"))
+	keyID, _ := strconv.ParseInt(c.Query("key"), 10, 64)
+	keyDir := "key-unknown"
+	if keyID > 0 {
+		keyDir = fmt.Sprintf("key-%d", keyID)
+	}
+	path, name, cleanup, err := h.svc.ResolveDownload(keyDir, c.Query("date"), c.Query("session"))
 	if err != nil {
 		response.BadRequest(c, err.Error())
 		return

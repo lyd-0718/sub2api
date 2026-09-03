@@ -4,6 +4,7 @@ import (
 	"compress/gzip"
 	"encoding/json"
 	"log"
+	"strconv"
 	"os"
 	"path/filepath"
 	"sync"
@@ -73,12 +74,16 @@ func (s *sink) work() {
 	}
 }
 
-// write 落盘路径：dir/YYYYMMDD/<sessionID>/<timestamp>-<requestID>.json.gz
-// 一个会话一个目录，一轮请求一个文件，gzip 压缩（多轮请求体携带
-// 全量历史，重复前缀压缩率极高）。
+// write 落盘路径：dir/key-<apiKeyID>/YYYYMMDD/<sessionID>/<timestamp>-<requestID>.json.gz
+// 三级结构：按人分家（匿名会话也不混入他人目录）+ 按天切开（归档边界，
+// 热数据占用有硬上限，与会话寿命无关）+ 会话目录。
 func (s *sink) write(rec *record) error {
-	rec.Version = 1
-	dir := filepath.Join(s.cfg.Dir, rec.StartedAt.Format("20060102"), sanitizeName(rec.SessionID))
+	rec.Version = 3
+	keyDir := "key-unknown"
+	if rec.APIKeyID > 0 {
+		keyDir = "key-" + strconv.FormatInt(rec.APIKeyID, 10)
+	}
+	dir := filepath.Join(s.cfg.Dir, keyDir, rec.StartedAt.Format("20060102"), sanitizeName(rec.SessionID))
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return err
 	}
