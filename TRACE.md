@@ -87,10 +87,20 @@ python3 traceview.py <会话目录> [轮次N] [user|think|tool|text]
 cd ~/Desktop/sub2api
 git fetch https://github.com/Wei-Shaw/sub2api.git --tags
 git checkout trace
-git merge v0.1.186        # 换成新 tag；冲突面只有 gateway.go 那 3 行
-cd backend && go build ./... && go test ./internal/pkg/trace/
+git merge v0.1.186        # 换成新 tag
+cd backend && go build ./... && go test ./internal/pkg/trace/ ./internal/service/ -run 'TestKeepalive|TestCNCodingPlan429|TestCN429'
 git push origin trace
 ```
+
+**merge 冲突面（trace 分支对上游的全部改动）：**
+
+1. `backend/internal/server/routes/gateway.go`：3 行（trace 中间件注册）。
+2. `cmd/server/wire_gen.go`：手工装配若干行（trace admin 2 个 service + keepalive 2 行，均有注释标记；wire codegen 重跑需补回）。
+3. **429 证据停车**（`backend/internal/service/ratelimit_cn_providers.go`）：套餐号 429 按额度快照分级，瞬时 429 只短冷却；新增配置 `gateway.cn_providers.rate_limit_cooldown_seconds` / `quota_exhausted_percent`。上游若重写此文件，保留我方 `cnCodingPlan429Cooldown` 分支逻辑。
+4. **kimi 缓存保活**：主体是新增文件 `backend/internal/service/keepalive_service.go`（不会冲突）；对上游文件的侵入只有 6 处小钩子——4 个上游发送函数各 1 行 `s.captureKeepalive(...)`（cc_pipeline / forward / passthrough / messages_anthropic_native）、`openai_gateway_handler.go` 2 处 ctx 注入、`openai_gateway_service.go` 1 个字段。冲突时一律保留我方钩子行。
+5. `config/config.go`：纯追加（CNProviders 2 字段 + Keepalive 配置块 + defaults），一般自动合并。
+
+注意：保活依赖上游内部 API（`RecordUsage` / `GetAccountsLoadBatch` / `BindStickySession` / 四个发送函数签名）。上游重构这些接口时 merge 不冲突但会编译失败，`go build` 兜底，按新签名适配即可。
 
 服务器重新部署：
 
