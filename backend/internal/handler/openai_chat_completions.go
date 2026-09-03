@@ -148,6 +148,15 @@ func (h *OpenAIGatewayHandler) ChatCompletions(c *gin.Context) {
 	sessionHash := h.gatewayService.GenerateSessionHash(c, body)
 	promptCacheKey := h.gatewayService.ExtractSessionID(c, body)
 
+	// 保活捕获身份：供转发链路最后一公里登记 kimi 缓存保活（未启用时零开销）。
+	// 与 Messages/Responses 同款注入；chat/completions 是 CN 套餐主力入口，缺它保活不生效。
+	c.Request = c.Request.WithContext(service.WithKeepaliveCaptureInfo(c.Request.Context(), &service.KeepaliveCaptureInfo{
+		SessionHash: sessionHash,
+		GroupID:     apiKey.GroupID,
+		APIKeyID:    apiKey.ID,
+		UserID:      apiKey.UserID,
+	}))
+
 	maxAccountSwitches := h.maxAccountSwitches
 	switchCount := 0
 	profitVetoCount := 0
