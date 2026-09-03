@@ -12,6 +12,7 @@ export default {
     statusHot: '热数据',
     statusArchived: '已归档',
     allApiKeys: '全部 Key',
+    allDates: '全部日期',
     searchSession: '搜索会话 ID',
     colDate: '日期',
     colSession: '会话 ID',

@@ -51,7 +51,7 @@ export const traceAdminAPI = {
     if (params?.page_size) query.page_size = params.page_size
     if (params?.status === 'archived') query.archived = 'true'
     if (params?.status === 'hot') query.archived = 'false'
-    const { data } = await apiClient.get<{ items: TraceSession[]; total: number; page: number; page_size: number; key_counts?: Record<string, number> }>(
+    const { data } = await apiClient.get<{ items: TraceSession[]; total: number; page: number; page_size: number; key_counts?: Record<string, number>; dates?: string[] }>(
       '/admin/traces/sessions',
       { params: query, timeout: 60000 }
     )

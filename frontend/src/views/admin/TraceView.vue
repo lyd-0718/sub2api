@@ -33,28 +33,15 @@
         </div>
       </div>
 
-      <!-- 按人筛选（谁的会话归谁，含匿名会话） -->
-      <div v-if="keyChips.length > 1" class="flex flex-wrap gap-2">
-        <button
-          v-for="chip in keyChips"
-          :key="chip.id"
-          @click="selectKey(chip.id)"
-          class="flex items-center gap-2 rounded-xl border px-3.5 py-2 text-sm font-medium transition-colors"
-          :class="filters.apiKeyId === chip.id
-            ? 'border-primary-500/60 bg-primary-500/10 text-primary-700 dark:text-primary-100'
-            : 'border-gray-200 text-gray-500 hover:border-gray-300 dark:border-dark-600 dark:text-gray-400 dark:hover:border-dark-500'"
-        >
-          {{ chip.name }}
-          <span class="rounded-full bg-gray-100 px-1.5 py-0.5 text-xs tabular-nums text-gray-500 dark:bg-dark-700 dark:text-gray-400">{{ chip.count }}</span>
-        </button>
-      </div>
-
       <!-- 列表卡片 -->
       <div class="card">
-        <!-- 筛选行 -->
+        <!-- 筛选行：状态 / 日期 / 搜索 / Key 全为下拉或输入 -->
         <div class="flex flex-wrap items-center gap-3 border-b border-gray-100 p-4 dark:border-dark-700/50">
-          <div class="w-40">
+          <div class="w-36">
             <Select v-model="filters.status" :options="statusOptions" @change="loadSessions(true)" />
+          </div>
+          <div class="w-36">
+            <Select v-model="filters.date" :options="dateOptions" @change="loadSessions(true)" />
           </div>
           <input
             v-model.trim="filters.sessionId"
@@ -63,8 +50,8 @@
             class="input input-sm w-56"
             @input="debouncedLoad"
           />
-          <div class="w-40">
-            <Select v-model="filters.apiKeyId" :options="apiKeyOptions" @change="loadSessions(true)" />
+          <div class="w-44">
+            <Select v-model="filters.apiKeyId" :options="keyFilterOptions" @change="loadSessions(true)" />
           </div>
           <button @click="loadSessions(true)" class="btn btn-ghost btn-sm ml-auto" :disabled="loading">
             {{ t('common.refresh') }}
@@ -205,7 +192,6 @@ import Select from '@/components/common/Select.vue'
 import Pagination from '@/components/common/Pagination.vue'
 import { useAppStore } from '@/stores/app'
 import { traceAdminAPI, type TraceSession, type TraceStats, type TraceArchiveSettings } from '@/api/traceAdmin'
-import { keysAPI } from '@/api/keys'
 import { formatBytes } from '@/utils/format'
 
 const { t } = useI18n()
@@ -216,23 +202,22 @@ const sessions = ref<TraceSession[]>([])
 const page = ref(1)
 const pageSize = ref(20)
 const total = ref(0)
-const keyCounts = ref<Record<string, number>>({})
 const keyNames = ref<Record<string, string>>({})
+const seenDates = ref<string[]>([])
 
-// 按人筛选 chips：全部 + 每个 key（名字优先取列表行里的 api_key_name）
-const keyChips = computed(() => {
-  const chips = [{ id: 'all', name: t('admin.trace.allApiKeys'), count: total.value }]
-  const entries = Object.entries(keyCounts.value).sort((a, b) => b[1] - a[1])
-  for (const [id, count] of entries) {
-    chips.push({ id, name: keyNames.value[id] || `Key ${id}`, count })
-  }
-  return chips
-})
+// 日期下拉选项：全部 + 有数据的日期（新→旧）
+const dateOptions = computed(() => [
+  { value: 'all', label: t('admin.trace.allDates') },
+  ...seenDates.value.map((d) => ({ value: d, label: formatDate(d) }))
+])
 
-const selectKey = (id: string) => {
-  filters.apiKeyId = id
-  loadSessions(true)
-}
+// Key 下拉选项：全部 + 有数据的 key（名字来自列表行 join 结果）
+const keyFilterOptions = computed(() => [
+  { value: 'all', label: t('admin.trace.allApiKeys') },
+  ...Object.entries(keyNames.value)
+    .sort((a, b) => a[1].localeCompare(b[1]))
+    .map(([id, name]) => ({ value: id, label: name || `Key ${id}` }))
+])
 const stats = ref<TraceStats | null>(null)
 const downloading = ref('')
 const showSettings = ref(false)
@@ -242,13 +227,12 @@ const archiving = ref(false)
 const archiveDate = ref('')
 const todayISO = new Date().toISOString().slice(0, 10)
 
-const filters = reactive({ status: 'all', sessionId: '', apiKeyId: 'all' })
+const filters = reactive({ status: 'all', date: 'all', sessionId: '', apiKeyId: 'all' })
 const statusOptions = [
   { value: 'all', label: t('admin.trace.statusAll') },
   { value: 'hot', label: t('admin.trace.statusHot') },
   { value: 'archived', label: t('admin.trace.statusArchived') }
 ]
-const apiKeyOptions = ref<{ value: string; label: string }[]>([{ value: 'all', label: t('admin.trace.allApiKeys') }])
 
 const settingsForm = reactive<TraceArchiveSettings>({ enabled: true, time_of_day: '03:00', keep_hot_days: 1 })
 
@@ -264,6 +248,7 @@ const loadSessions = async (resetPage = false) => {
   try {
     const res = await traceAdminAPI.sessions({
       status: filters.status,
+      date: filters.date === 'all' ? undefined : filters.date,
       session_id: filters.sessionId || undefined,
       api_key_id: filters.apiKeyId === 'all' ? undefined : Number(filters.apiKeyId),
       page: page.value,
@@ -271,7 +256,10 @@ const loadSessions = async (resetPage = false) => {
     })
     sessions.value = res.items || []
     total.value = res.total || 0
-    keyCounts.value = (res as { key_counts?: Record<string, number> }).key_counts || {}
+    const resDates = (res as { dates?: string[] }).dates || []
+    if (resDates.length) {
+      seenDates.value = [...new Set([...seenDates.value, ...resDates])].sort().reverse()
+    }
     for (const s of sessions.value) {
       if (s.api_key_name) keyNames.value[String(s.api_key_id)] = s.api_key_name
     }
@@ -287,17 +275,6 @@ const loadStats = async () => {
     stats.value = await traceAdminAPI.stats()
   } catch {
     /* 统计卡失败不阻塞列表 */
-  }
-}
-
-const loadApiKeys = async () => {
-  try {
-    const res = await keysAPI.list(1, 200)
-    for (const k of res.items || []) {
-      apiKeyOptions.value.push({ value: String(k.id), label: k.name })
-    }
-  } catch {
-    /* key 筛选为可选增强 */
   }
 }
 
@@ -376,6 +353,5 @@ const formatLastActive = (iso: string) => {
 onMounted(() => {
   loadSessions()
   loadStats()
-  loadApiKeys()
 })
 </script>

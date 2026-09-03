@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"sort"
 	"strconv"
 	"strings"
 
@@ -62,12 +63,19 @@ func (h *TraceAdminHandler) ListSessions(c *gin.Context) {
 	if endIdx > total {
 		endIdx = total
 	}
-	// 按 key 聚合统计（前端按人筛选 chips 用），反映当前过滤条件
+	// 按 key 聚合统计 + 有数据的日期列表（前端筛选下拉用），反映当前过滤条件
 	keyCounts := map[int64]int{}
+	dateSet := map[string]bool{}
 	for _, r := range rows {
 		keyCounts[r.APIKeyID]++
+		dateSet[r.Date] = true
 	}
-	response.Success(c, gin.H{"items": rows[startIdx:endIdx], "total": total, "page": page, "page_size": pageSize, "key_counts": keyCounts})
+	dates := make([]string, 0, len(dateSet))
+	for d := range dateSet {
+		dates = append(dates, d)
+	}
+	sort.Sort(sort.Reverse(sort.StringSlice(dates)))
+	response.Success(c, gin.H{"items": rows[startIdx:endIdx], "total": total, "page": page, "page_size": pageSize, "key_counts": keyCounts, "dates": dates})
 }
 
 // Stats GET /api/v1/admin/traces/stats

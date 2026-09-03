@@ -12,6 +12,7 @@ export default {
     statusHot: 'Hot',
     statusArchived: 'Archived',
     allApiKeys: 'All Keys',
+    allDates: 'All Dates',
     searchSession: 'Search session ID',
     colDate: 'Date',
     colSession: 'Session ID',
