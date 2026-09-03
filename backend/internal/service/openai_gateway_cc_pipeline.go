@@ -222,6 +222,9 @@ func (s *OpenAIGatewayService) sendCCUpstreamRequest(
 	// 使配置值获得除共享传输层强制头之外的最高优先级。
 	account.ApplyHeaderOverrides(upstreamReq.Header)
 
+	// 保活捕获：kimi Coding Plan 缓存保活登记（未启用时零开销）。
+	s.captureKeepalive(ctx, account, targetURL, upstreamReq.Header, body)
+
 	proxyURL := ""
 	if account.Proxy != nil {
 		proxyURL = account.Proxy.URL()

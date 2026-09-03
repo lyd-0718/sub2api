@@ -1099,6 +1099,11 @@ type GatewayConfig struct {
 	// CNProviders: 国产 OpenAI 兼容供应商（kimi/zhipu/deepseek）的余额检测配置。
 	// 仅作用于 payg（按量付费）账号：周期探测余额，低于阈值则临时停调。
 	CNProviders GatewayCNProvidersConfig `mapstructure:"cn_providers"`
+
+	// Keepalive: kimi Coding Plan 账号的前缀缓存保活探测。
+	// 捕获成功请求的上游报文，会话空闲时向绑定账号重放，防止缓存 TTL 过期后
+	// 全量按 input 原价重算。默认关闭。
+	Keepalive GatewayKeepaliveConfig `mapstructure:"keepalive"`
 }
 
 // GatewayGrokConfig holds Grok-specific gateway scheduling knobs.
@@ -1141,6 +1146,31 @@ type GatewayCNProvidersConfig struct {
 	BalanceCheckEnabled         bool    `mapstructure:"balance_check_enabled"`
 	BalanceThreshold            float64 `mapstructure:"balance_threshold"`
 	BalanceCheckIntervalMinutes int     `mapstructure:"balance_check_interval_minutes"`
+	// RateLimitCooldownSeconds: 套餐号 429 且无窗口耗尽证据时的短冷却（秒，默认 60）。
+	// 避免瞬时并发 429 把账号停调到窗口重置（可达数小时）导致号池缩编。
+	RateLimitCooldownSeconds int `mapstructure:"rate_limit_cooldown_seconds"`
+	// QuotaExhaustedPercent: 5h/weekly 窗口用量 ≥ 该百分比才认定为「窗口耗尽」，
+	// 按窗口重置时间停调（默认 85）。
+	QuotaExhaustedPercent float64 `mapstructure:"quota_exhausted_percent"`
+}
+
+// GatewayKeepaliveConfig kimi Coding Plan 前缀缓存保活探测配置。
+//
+//   - enabled: 总开关（默认 false）
+//   - interval_seconds: 空闲多久后探测一次（默认 300，小于 kimi 名义缓存 TTL）
+//   - max_idle_seconds: 会话空闲超过该时长停止保活（默认 3600，隔夜不保活）
+//   - min_prompt_tokens: 仅保活 prompt 总量 ≥ 该值的会话（默认 300000）
+//   - max_body_bytes: 捕获报文大小上限（默认 8MiB，超限不保活）
+//   - probe_max_tokens: 探测请求的 max_tokens（默认 16）
+//   - max_entries_per_account: 单账号同时保活的会话数上限（默认 8）
+type GatewayKeepaliveConfig struct {
+	Enabled              bool  `mapstructure:"enabled"`
+	IntervalSeconds      int   `mapstructure:"interval_seconds"`
+	MaxIdleSeconds       int   `mapstructure:"max_idle_seconds"`
+	MinPromptTokens      int   `mapstructure:"min_prompt_tokens"`
+	MaxBodyBytes         int64 `mapstructure:"max_body_bytes"`
+	ProbeMaxTokens       int   `mapstructure:"probe_max_tokens"`
+	MaxEntriesPerAccount int   `mapstructure:"max_entries_per_account"`
 }
 
 type GatewayLiveConfig struct {
@@ -2455,6 +2485,16 @@ func setDefaults() {
 	viper.SetDefault("gateway.cn_providers.balance_check_enabled", true)
 	viper.SetDefault("gateway.cn_providers.balance_threshold", 0.5)
 	viper.SetDefault("gateway.cn_providers.balance_check_interval_minutes", 10)
+	viper.SetDefault("gateway.cn_providers.rate_limit_cooldown_seconds", 60)
+	viper.SetDefault("gateway.cn_providers.quota_exhausted_percent", 85)
+	// kimi Coding Plan 前缀缓存保活（默认关闭）。
+	viper.SetDefault("gateway.keepalive.enabled", false)
+	viper.SetDefault("gateway.keepalive.interval_seconds", 300)
+	viper.SetDefault("gateway.keepalive.max_idle_seconds", 3600)
+	viper.SetDefault("gateway.keepalive.min_prompt_tokens", 300000)
+	viper.SetDefault("gateway.keepalive.max_body_bytes", 8*1024*1024)
+	viper.SetDefault("gateway.keepalive.probe_max_tokens", 16)
+	viper.SetDefault("gateway.keepalive.max_entries_per_account", 8)
 	viper.SetDefault("gateway.image_concurrency.enabled", false)
 	viper.SetDefault("gateway.image_concurrency.max_concurrent_requests", 0)
 	viper.SetDefault("gateway.image_concurrency.overflow_mode", ImageConcurrencyOverflowModeReject)

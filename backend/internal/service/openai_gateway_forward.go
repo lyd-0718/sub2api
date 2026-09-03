@@ -1440,6 +1440,9 @@ func (s *OpenAIGatewayService) buildUpstreamRequest(ctx context.Context, c *gin.
 	setOpenAICodexRoutingHintFromBody(req.Header, account, body)
 	logOpenAIRoutingDiagnosticsFromBody(ctx, account, "http", req.Header, body, "not_applicable")
 
+	// 保活捕获：kimi Coding Plan 缓存保活登记（未启用时零开销）。
+	s.captureKeepalive(ctx, account, targetURL, req.Header, body)
+
 	return req, nil
 }
 

@@ -726,6 +726,9 @@ func (s *OpenAIGatewayService) buildUpstreamRequestOpenAIPassthrough(
 	setOpenAICodexRoutingHintFromBody(req.Header, account, body)
 	logOpenAIRoutingDiagnosticsFromBody(ctx, account, "http_passthrough", req.Header, body, "not_applicable")
 
+	// 保活捕获：kimi Coding Plan 缓存保活登记（未启用时零开销）。
+	s.captureKeepalive(ctx, account, targetURL, req.Header, body)
+
 	return req, nil
 }
 

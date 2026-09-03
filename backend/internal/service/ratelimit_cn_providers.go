@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"strings"
@@ -144,6 +145,73 @@ func cnProviderQuotaSnapshotReset(account *Account, now time.Time) *time.Time {
 	return earliest
 }
 
+// cnProviderQuotaSnapshotExhausted 判断账号快照是否给出「窗口耗尽」证据：
+// 5h 或 weekly 窗口用量 ≥ threshold 且该窗口尚未重置。快照缺失/过期（超过
+// maxAge 未刷新）时不认定耗尽——瞬时并发 429 不应按窗口耗尽长停调。
+func cnProviderQuotaSnapshotExhausted(account *Account, now time.Time, threshold float64, maxAge time.Duration) bool {
+	if account == nil || len(account.Extra) == 0 || threshold <= 0 {
+		return false
+	}
+	provider := account.Platform
+	updatedAt, err := time.Parse(time.RFC3339, strings.TrimSpace(fmt.Sprint(account.Extra[cnExtraKey(provider, cnExtraSuffixUsageUpdated)])))
+	if err != nil {
+		return false
+	}
+	if maxAge > 0 && now.Sub(updatedAt) > maxAge {
+		return false
+	}
+	for _, w := range []struct {
+		usedSuffix  string
+		resetSuffix string
+	}{
+		{cnExtraSuffix5hUsed, cnExtraSuffix5hReset},
+		{cnExtraSuffixWeeklyUsed, cnExtraSuffixWeeklyReset},
+	} {
+		used := schedulingPercentValue(account.Extra[cnExtraKey(provider, w.usedSuffix)])
+		if used < threshold {
+			continue
+		}
+		// 用量超阈值但窗口已重置 → 快照是旧窗口的，不算耗尽。
+		if reset := parseSchedulingResetAt(account.Extra[cnExtraKey(provider, w.resetSuffix)]); reset == nil || !reset.After(now) {
+			continue
+		}
+		return true
+	}
+	return false
+}
+
+// cn429TransientCooldown 返回无耗尽证据时 429 的短冷却时长。
+func (s *RateLimitService) cn429TransientCooldown() time.Duration {
+	seconds := 60
+	if s != nil && s.cfg != nil && s.cfg.Gateway.CNProviders.RateLimitCooldownSeconds > 0 {
+		seconds = s.cfg.Gateway.CNProviders.RateLimitCooldownSeconds
+	}
+	return time.Duration(seconds) * time.Second
+}
+
+// cn429QuotaExhaustedPercent 返回判定窗口耗尽的用量百分比阈值（默认 85）。
+func (s *RateLimitService) cn429QuotaExhaustedPercent() float64 {
+	if s != nil && s.cfg != nil && s.cfg.Gateway.CNProviders.QuotaExhaustedPercent > 0 {
+		return s.cfg.Gateway.CNProviders.QuotaExhaustedPercent
+	}
+	return 85
+}
+
+// cnCodingPlan429Cooldown 决定 Coding Plan 账号 429 的冷却终点。
+// 返回 (冷却终点, 是否窗口耗尽, 是否可判定)。窗口无未来重置点时 ok=false
+// （调用方继续走默认 429 逻辑）。有耗尽证据 → 停到最早窗口重置点；
+// 无证据（瞬时并发限流）→ 短冷却，避免号池因误停而缩编。
+func cnCodingPlan429Cooldown(account *Account, now time.Time, threshold float64, maxAge, transient time.Duration) (time.Time, bool, bool) {
+	until := cnProviderQuotaSnapshotReset(account, now)
+	if until == nil {
+		return time.Time{}, false, false
+	}
+	if cnProviderQuotaSnapshotExhausted(account, now, threshold, maxAge) {
+		return *until, true, true
+	}
+	return now.Add(transient), false, true
+}
+
 // applyCNProviderReactive429 处理国产供应商的 429 响应。
 // 返回 true 表示已处理（调用方应 return），false 表示未命中、继续走默认 429 逻辑。
 func (s *RateLimitService) applyCNProviderReactive429(
@@ -160,19 +228,19 @@ func (s *RateLimitService) applyCNProviderReactive429(
 		s.handleCNProviderInsufficientBalance(ctx, account, extractUpstreamErrorMessage(responseBody))
 		return true
 	}
-	// 2) Coding Plan 窗口耗尽：冷却到快照中最早的窗口重置点（见
-	// cnProviderQuotaSnapshotReset：429 多由 5h 窗口触发，取较早点避免过度停调）。
+	// 2) Coding Plan 429：按快照证据区分「窗口耗尽」与「瞬时并发限流」。
 	if account.IsCodingPlan() {
-		if until := cnProviderQuotaSnapshotReset(account, time.Now()); until != nil {
-			s.notifyAccountSchedulingBlocked(account, *until, "429")
-			if err := s.accountRepo.SetRateLimited(ctx, account.ID, *until); err != nil {
+		if cooldownUntil, exhausted, ok := cnCodingPlan429Cooldown(account, time.Now(), s.cn429QuotaExhaustedPercent(), 30*time.Minute, s.cn429TransientCooldown()); ok {
+			s.notifyAccountSchedulingBlocked(account, cooldownUntil, "429")
+			if err := s.accountRepo.SetRateLimited(ctx, account.ID, cooldownUntil); err != nil {
 				slog.Warn("rate_limit_set_failed", "account_id", account.ID, "error", err)
 				return true
 			}
 			slog.Info("cn_coding_plan_rate_limited",
 				"account_id", account.ID,
 				"platform", account.Platform,
-				"reset_at", *until,
+				"reset_at", cooldownUntil,
+				"quota_exhausted", exhausted,
 			)
 			return true
 		}

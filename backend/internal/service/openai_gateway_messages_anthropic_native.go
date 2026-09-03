@@ -191,6 +191,9 @@ func (s *OpenAIGatewayService) buildNativeAnthropicUpstreamRequest(
 	// 账号级请求头覆写（最终生效，覆盖上面所有来源的同名头）
 	account.ApplyHeaderOverrides(req.Header)
 
+	// 保活捕获：kimi Coding Plan 缓存保活登记（未启用时零开销）。
+	s.captureKeepalive(ctx, account, targetURL, req.Header, body)
+
 	return req, body, nil
 }
 
