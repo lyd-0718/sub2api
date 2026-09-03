@@ -208,6 +208,12 @@ func (s *GatewayService) buildUpstreamRequest(ctx context.Context, c *gin.Contex
 		logClaudeMimicDebug(req, body, account, tokenType, mimicClaudeCode)
 	}
 
+	// 保活捕获：kimi Coding Plan 缓存保活登记（未启用时零开销）。
+	// CN 套餐 chat/completions 入口最终经此构造 Anthropic 形态上游请求。
+	if s.keepalive != nil {
+		s.keepalive.Capture(ctx, account, targetURL, req.Header, body)
+	}
+
 	return req, body, nil
 }
 
