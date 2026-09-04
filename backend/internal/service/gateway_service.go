@@ -795,17 +795,6 @@ type GatewayService struct {
 	tlsFPProfileService   *TLSFingerprintProfileService
 	balanceNotifyService  *BalanceNotifyService
 	userPlatformQuotaRepo UserPlatformQuotaRepository
-	// keepalive kimi Coding Plan 前缀缓存保活（wire 手工装配，可为 nil）。
-	keepalive *KeepaliveService
-}
-
-// SetKeepalive 装配保活服务（wire_gen 手工注入；nil 时全链路零开销）。
-// GatewayService 承担 CN 套餐（chat/completions 入口）的 Anthropic 形态转发，
-// 与 OpenAIGatewayService.SetKeepalive 对称。
-func (s *GatewayService) SetKeepalive(k *KeepaliveService) {
-	if s != nil {
-		s.keepalive = k
-	}
 }
 
 // NewGatewayService creates a new GatewayService

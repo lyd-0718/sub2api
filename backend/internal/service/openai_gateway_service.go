@@ -452,9 +452,6 @@ type OpenAIGatewayService struct {
 	liveAttestation       liveattestation.Provider
 	liveAttestationCipher SecretEncryptor
 
-	// keepalive kimi Coding Plan 前缀缓存保活（wire 手工装配，可为 nil）。
-	keepalive *KeepaliveService
-
 	openaiWSPoolOnce               sync.Once
 	openaiWSStateStoreOnce         sync.Once
 	openaiSchedulerOnce            sync.Once

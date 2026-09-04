@@ -585,13 +585,6 @@ func (h *OpenAIGatewayHandler) Responses(c *gin.Context) {
 	if h.rejectIfCyberSessionBlocked(c, apiKey, sessionHashBody, reqModel, cyberBlockFormatResponses) {
 		return
 	}
-	// 保活捕获身份：供转发链路最后一公里登记 kimi 缓存保活（未启用时零开销）。
-	c.Request = c.Request.WithContext(service.WithKeepaliveCaptureInfo(c.Request.Context(), &service.KeepaliveCaptureInfo{
-		SessionHash: sessionHash,
-		GroupID:     apiKey.GroupID,
-		APIKeyID:    apiKey.ID,
-		UserID:      apiKey.UserID,
-	}))
 	c.Request = c.Request.WithContext(service.WithOpenAIGuardianParentAffinity(
 		c.Request.Context(), c, sessionHashBody, reqModel,
 	))
@@ -1213,13 +1206,6 @@ func (h *OpenAIGatewayHandler) Messages(c *gin.Context) {
 	if h.rejectIfCyberSessionBlocked(c, apiKey, body, reqModel, cyberBlockFormatAnthropic) {
 		return
 	}
-	// 保活捕获身份：供转发链路最后一公里登记 kimi 缓存保活（未启用时零开销）。
-	c.Request = c.Request.WithContext(service.WithKeepaliveCaptureInfo(c.Request.Context(), &service.KeepaliveCaptureInfo{
-		SessionHash: sessionHash,
-		GroupID:     apiKey.GroupID,
-		APIKeyID:    apiKey.ID,
-		UserID:      apiKey.UserID,
-	}))
 
 	maxAccountSwitches := h.maxAccountSwitches
 	switchCount := 0
