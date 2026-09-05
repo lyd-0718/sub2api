@@ -31,9 +31,6 @@ var explicitOpenAIHeaderSessionNames = []string{
 	"session-id",
 	"session_id",
 	"conversation_id",
-	// x-session-id：trace 采集同名头。让粘性路由/上游 prompt_cache_key
-	// 与 trace 会话 ID 同源，否则匿名客户端每轮漂移账号，前缀缓存命中率大跌。
-	"x-session-id",
 	openCodeSessionAffinityHeader,
 	openCodeSessionIDHeader,
 	openCodeNativeSessionHeader,
