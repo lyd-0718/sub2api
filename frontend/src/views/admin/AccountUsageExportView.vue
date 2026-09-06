@@ -94,15 +94,16 @@
                   <th class="px-4 py-3 font-medium text-right">{{ t('admin.accountExport.colInput') }}</th>
                   <th class="px-4 py-3 font-medium text-right">{{ t('admin.accountExport.colOutput') }}</th>
                   <th class="px-4 py-3 font-medium text-right">{{ t('admin.accountExport.colCache') }}</th>
+                  <th class="px-4 py-3 font-medium text-right">{{ t('admin.accountExport.colTotal') }}</th>
                   <th class="px-5 py-3 font-medium text-right">{{ t('admin.accountExport.colCost') }}</th>
                 </tr>
               </thead>
               <tbody class="divide-y divide-gray-50 dark:divide-dark-700/30">
                 <tr v-if="loadingUsage">
-                  <td :colspan="dimension === 'account' ? 8 : 7" class="px-4 py-10 text-center text-gray-400">{{ t('common.loading') }}</td>
+                  <td :colspan="dimension === 'account' ? 9 : 8" class="px-4 py-10 text-center text-gray-400">{{ t('common.loading') }}</td>
                 </tr>
                 <tr v-else-if="visibleRows.length === 0">
-                  <td :colspan="dimension === 'account' ? 8 : 7" class="px-4 py-10 text-center text-gray-400">{{ t('admin.accountExport.empty') }}</td>
+                  <td :colspan="dimension === 'account' ? 9 : 8" class="px-4 py-10 text-center text-gray-400">{{ t('admin.accountExport.empty') }}</td>
                 </tr>
                 <!-- 排除的模型整行不显示（含合计口径），与 CSV 一致 -->
                 <tr v-else v-for="(r, i) in visibleRows" :key="i" class="hover:bg-gray-50/60 dark:hover:bg-dark-700/20">
@@ -115,6 +116,7 @@
                   <td class="px-4 py-3 text-right tabular-nums">{{ compactTokens(r.input_tokens) }}</td>
                   <td class="px-4 py-3 text-right tabular-nums">{{ compactTokens(r.output_tokens) }}</td>
                   <td class="px-4 py-3 text-right tabular-nums">{{ compactTokens(r.cache_read_tokens + r.cache_creation_tokens) }}</td>
+                  <td class="px-4 py-3 text-right tabular-nums">{{ compactTokens(r.total_tokens) }}</td>
                   <td class="px-5 py-3 text-right tabular-nums font-medium text-gray-900 dark:text-white">
                     <template v-if="r.cost_known">{{ currencySymbol }}{{ r.cost.toFixed(2) }}</template>
                     <span v-else class="text-gray-300 dark:text-gray-600" :title="t('admin.accountExport.unpriced')">-</span>
@@ -128,6 +130,7 @@
                   <td class="px-4 py-3.5 text-right tabular-nums font-semibold text-gray-700 dark:text-gray-300">{{ compactTokens(totalInput) }}</td>
                   <td class="px-4 py-3.5 text-right tabular-nums font-semibold text-gray-700 dark:text-gray-300">{{ compactTokens(totalOutput) }}</td>
                   <td class="px-4 py-3.5 text-right tabular-nums font-semibold text-gray-700 dark:text-gray-300">{{ compactTokens(totalCache) }}</td>
+                  <td class="px-4 py-3.5 text-right tabular-nums font-semibold text-gray-700 dark:text-gray-300">{{ compactTokens(totalTokens) }}</td>
                   <td class="px-5 py-3.5 text-right tabular-nums text-base font-semibold text-primary-600 dark:text-primary-400">
                     {{ costComplete ? currencySymbol + totalCost.toFixed(2) : '-' }}
                   </td>
@@ -312,6 +315,7 @@ const totalRequests = ref(0)
 const totalInput = ref(0)
 const totalOutput = ref(0)
 const totalCache = ref(0)
+const totalTokens = ref(0)
 
 const currencySymbol = computed(() => (currency.value === 'USD' ? '$' : '¥'))
 
@@ -331,6 +335,7 @@ const loadUsage = async () => {
     totalInput.value = res.total_input
     totalOutput.value = res.total_output
     totalCache.value = res.total_cache
+    totalTokens.value = res.total_tokens
     costComplete.value = res.cost_complete
     currency.value = res.currency
   } catch {

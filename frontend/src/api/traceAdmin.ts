@@ -116,6 +116,7 @@ export interface AccountUsageRow {
   output_tokens: number
   cache_read_tokens: number
   cache_creation_tokens: number
+  total_tokens: number
   cost: number
   cost_known: boolean
   currency: string
@@ -153,6 +154,7 @@ export const accountUsageExportAPI = {
         total_input: number
         total_output: number
         total_cache: number
+        total_tokens: number
       }>('/admin/account-usage-export', {
       params: {
         start: params.start,

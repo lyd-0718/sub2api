@@ -62,6 +62,7 @@ export default {
     colInput: '输入 token',
     colOutput: '输出 token',
     colCache: '缓存 token',
+    colTotal: '总 token',
     colCost: 'token 费用',
     total: '合计',
     empty: '该时间段内无用量的账号',

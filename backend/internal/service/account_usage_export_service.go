@@ -65,6 +65,7 @@ type AccountUsageRow struct {
 	OutputTokens        int64   `json:"output_tokens"`
 	CacheReadTokens     int64   `json:"cache_read_tokens"`
 	CacheCreationTokens int64   `json:"cache_creation_tokens"`
+	TotalTokens         int64   `json:"total_tokens"`
 	Cost                float64 `json:"cost"`       // 独立定价核算
 	CostKnown           bool    `json:"cost_known"` // 该模型未定价时为 false
 	Currency            string  `json:"currency"`
@@ -264,6 +265,7 @@ ORDER BY account_name, period, requests DESC`, accountSelect, bucketExpr, string
 					float64(r.CacheReadTokens)/1e6*p.CacheRead
 			}
 		}
+		r.TotalTokens = r.InputTokens + r.OutputTokens + r.CacheReadTokens + r.CacheCreationTokens
 		out = append(out, *r)
 	}
 	return out, rows.Err()
@@ -284,6 +286,7 @@ func (s *AccountUsageExportService) WriteCSV(rows []AccountUsageRow, w io.Writer
 	cur := pricing.Currency
 	header := []string{"账号", "周期", "模型", "请求数",
 		"输入token", "输出token", "缓存读取token", "缓存写入token",
+		"总token",
 		fmt.Sprintf("token费用(%s)", cur)}
 	if aggregated {
 		header = header[1:]
@@ -292,7 +295,7 @@ func (s *AccountUsageExportService) WriteCSV(rows []AccountUsageRow, w io.Writer
 		return err
 	}
 
-	var totReq, totIn, totOut, totCR, totCC int64
+	var totReq, totIn, totOut, totCR, totCC, totTokens int64
 	var totCost float64
 	allKnown := true
 	for _, r := range rows {
@@ -311,6 +314,7 @@ func (s *AccountUsageExportService) WriteCSV(rows []AccountUsageRow, w io.Writer
 			strconv.FormatInt(r.OutputTokens, 10),
 			strconv.FormatInt(r.CacheReadTokens, 10),
 			strconv.FormatInt(r.CacheCreationTokens, 10),
+			strconv.FormatInt(r.InputTokens+r.OutputTokens+r.CacheReadTokens+r.CacheCreationTokens, 10),
 			cost}
 		if !aggregated {
 			rec = append([]string{r.AccountName}, rec...)
@@ -323,6 +327,7 @@ func (s *AccountUsageExportService) WriteCSV(rows []AccountUsageRow, w io.Writer
 		totOut += r.OutputTokens
 		totCR += r.CacheReadTokens
 		totCC += r.CacheCreationTokens
+		totTokens += r.InputTokens + r.OutputTokens + r.CacheReadTokens + r.CacheCreationTokens
 		totCost += r.Cost
 	}
 	totalCost := "-"
@@ -335,8 +340,9 @@ func (s *AccountUsageExportService) WriteCSV(rows []AccountUsageRow, w io.Writer
 		strconv.FormatInt(totOut, 10),
 		strconv.FormatInt(totCR, 10),
 		strconv.FormatInt(totCC, 10),
+		strconv.FormatInt(totTokens, 10),
 		totalCost}
-	// 合计行对齐列数：聚合模式 8 列（周期,模型,…），非聚合 9 列（账号,周期,模型,…）
+	// 合计行对齐列数：聚合模式 9 列（周期,模型,…），非聚合 10 列（账号,周期,模型,…）
 	label := []string{"合计", ""}
 	if !aggregated {
 		label = []string{"合计", "", ""}

@@ -62,6 +62,7 @@ export default {
     colInput: 'Input Tokens',
     colOutput: 'Output Tokens',
     colCache: 'Cache Tokens',
+    colTotal: 'Total Tokens',
     colCost: 'Token Cost',
     total: 'Total',
     empty: 'No usage in the selected period',

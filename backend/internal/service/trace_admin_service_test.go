@@ -5,9 +5,9 @@ import (
 	"compress/gzip"
 	"context"
 	"encoding/json"
+	"io"
 	"os"
 	"path/filepath"
-	"io"
 	"strings"
 	"testing"
 	"time"
@@ -292,6 +292,9 @@ func TestCSVSkipsExcludedModels(t *testing.T) {
 	if strings.Contains(out, "noise") {
 		t.Fatal("excluded model must not appear in CSV")
 	}
+	if !strings.Contains(out, "总token") || !strings.Contains(out, ",10,1000000,0,0,0,1000000,7.60") {
+		t.Fatalf("CSV must include total tokens: %s", out)
+	}
 	// 合计只含未排除行：请求数 10，费用 7.60
 	lines := strings.Split(strings.TrimSpace(out), "\n")
 	last := lines[len(lines)-1]
@@ -325,12 +328,12 @@ func TestCSVAggregatedOmitsAccountColumn(t *testing.T) {
 	if strings.Contains(out, "账号") || strings.Contains(out, "全部,") {
 		t.Fatalf("aggregated CSV must not contain account column: %s", out)
 	}
-	// 表头 8 列，合计行也 8 列
+	// 表头 9 列，合计行也 9 列
 	lines := strings.Split(strings.TrimSpace(out), "\n")
-	if got := len(strings.Split(lines[0], ",")); got != 8 {
+	if got := len(strings.Split(lines[0], ",")); got != 9 {
 		t.Fatalf("header cols = %d", got)
 	}
-	if got := len(strings.Split(lines[len(lines)-1], ",")); got != 8 {
+	if got := len(strings.Split(lines[len(lines)-1], ",")); got != 9 {
 		t.Fatalf("total cols = %d", got)
 	}
 }

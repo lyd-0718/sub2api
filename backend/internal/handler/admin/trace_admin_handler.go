@@ -187,7 +187,7 @@ func (h *AccountUsageExportHandler) Usage(c *gin.Context) {
 	// 排除的模型不进合计，与 CSV 口径一致
 	var totCost float64
 	var totRequests int64
-	var totIn, totOut, totCache int64
+	var totIn, totOut, totCache, totTokens int64
 	allKnown := true
 	for _, r := range rows {
 		if r.Excluded {
@@ -198,6 +198,7 @@ func (h *AccountUsageExportHandler) Usage(c *gin.Context) {
 		totIn += r.InputTokens
 		totOut += r.OutputTokens
 		totCache += r.CacheReadTokens + r.CacheCreationTokens
+		totTokens += r.TotalTokens
 		if !r.CostKnown {
 			allKnown = false
 		}
@@ -207,7 +208,8 @@ func (h *AccountUsageExportHandler) Usage(c *gin.Context) {
 		"total_cost": totCost, "cost_complete": allKnown,
 		"total_requests": totRequests, "total_input": totIn,
 		"total_output": totOut, "total_cache": totCache,
-		"currency": h.svc.GetPricing().Currency,
+		"total_tokens": totTokens,
+		"currency":     h.svc.GetPricing().Currency,
 	})
 }
 
