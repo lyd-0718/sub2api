@@ -77,9 +77,10 @@ python3 traceview.py <会话目录> [轮次N] [user|think|tool|text]
 
 ## 代码位置与更新流程
 
-- Fork：`github.com/lyd-0718/sub2api`，分支 `trace`（基于官方 `v0.1.185`）
+- Fork：`github.com/lyd-0718/sub2api`，分支 `trace`（当前已合并官方 `v0.2.1`，merge 提交 `cf0fe3e2`）
 - 本地：`~/Desktop/sub2api`
-- 服务器构建目录：`/opt/sub2api-trace`（每次部署重新拉 trace 分支 tarball 构建）
+- 服务器构建目录：`/opt/sub2api-trace`
+- 部署配置：`/opt/sub2api/docker-compose.yml`（只改 image tag，其他不动）
 
 **跟进官方更新：**
 
@@ -87,7 +88,7 @@ python3 traceview.py <会话目录> [轮次N] [user|think|tool|text]
 cd ~/Desktop/sub2api
 git fetch https://github.com/Wei-Shaw/sub2api.git --tags
 git checkout trace
-git merge v0.1.186        # 换成新 tag
+git merge v<x.y.z>        # 换成新 tag；注意上游 release tag 非直线历史，冲突按下方清单判
 cd backend && go build ./... && go test ./internal/pkg/trace/ ./internal/service/ -run 'TestCNCodingPlan429|TestCN429'
 git push origin trace
 ```
@@ -97,21 +98,29 @@ git push origin trace
 1. `backend/internal/server/routes/gateway.go`：3 行（trace 中间件注册）。
 2. `cmd/server/wire_gen.go`：手工装配若干行（trace admin 2 个 service，均有注释标记；wire codegen 重跑需补回）。
 3. **429 证据停车**（`backend/internal/service/ratelimit_cn_providers.go`）：套餐号 429 按额度快照分级，瞬时 429 只短冷却 60s；配置 `gateway.cn_providers.rate_limit_cooldown_seconds` / `quota_exhausted_percent`。上游若重写此文件，保留我方 `cnCodingPlan429Cooldown` 分支逻辑。
-4. **粘性路由认 x-session-id**（`openai_gateway_scheduling.go` 3 行）：omp/匿名客户端的会话粘性修复。
-5. `config/config.go`：纯追加（CNProviders 2 字段 + defaults），一般自动合并。
+4. `config/config.go`：纯追加（CNProviders 2 字段 + defaults），一般自动合并。
+5. 前端：`TraceView.vue` / `AccountUsageExportView.vue` / `api/traceAdmin.ts` / i18n / 侧边栏入口（AppSidebar.vue），均为新增文件或纯追加。
 
 （kimi 缓存保活模块已于 2026-09-04 移除：实测有用但探测费相对省下的冷启动费性价比不高。历史见 git log。）
+（`x-session-id` 粘性路由曾作为第 4 条改动，v0.2.1 合并时确认为重复代码已删除——上游名单的 `openCodeSessionIDHeader` 常量值就是 `X-Session-Id`。）
 
-服务器重新部署：
+**服务器部署（标准流程，2026-09-05 起）：**
 
 ```bash
 ssh relay
-cd /opt/sub2api-trace
+# 1) 全新构建目录（不要增量解压！tar 不删除已移除的文件，残留旧文件会编译失败）
+rm -rf /opt/sub2api-trace && mkdir -p /opt/sub2api-trace && cd /opt/sub2api-trace
 curl -sL https://github.com/lyd-0718/sub2api/archive/refs/heads/trace.tar.gz | tar xz --strip-components=1
-docker build -t sub2api-trace:<新版本号> .
-# 改 /opt/sub2api/docker-compose.yml 的 image tag，然后：
+# 2) 构建新镜像（构建期间旧服务照常运行）；tag 用 <版本>-<短提交>
+docker build -t sub2api-trace:<版本>-<短提交> .
+# 3) 维护窗口：备份数据库（迁移不可逆）+ compose + data 目录
+# 4) 改 /opt/sub2api/docker-compose.yml 的 image tag，切换：
 cd /opt/sub2api && docker compose up -d sub2api
+# 5) 验收：健康检查 200、docker logs 确认迁移 applied、发一个真实请求确认
+#    traces/ 下生成新会话文件、429 面板可打开、模型调用正常
 ```
+
+回滚：迁移均为**加可空列**，旧代码兼容新表结构——直接改回旧 image tag `up -d` 即可，无需恢复数据库。
 
 ## 测试
 
