@@ -29,11 +29,11 @@
               <div class="mb-2 text-xs font-medium uppercase tracking-wide text-gray-400 dark:text-gray-500">{{ t('admin.accountExport.dimension') }}</div>
               <div class="flex rounded-xl bg-gray-100 p-1 text-sm dark:bg-dark-700">
                 <button @click="dimension = 'account'; loadUsage()" :class="dimension === 'account' ? tabActiveSm : tabIdleSm">{{ t('admin.accountExport.dimByAccount') }}</button>
-                <button @click="dimension = 'model'; loadUsage()" :class="dimension === 'model' ? tabActiveSm : tabIdleSm">{{ t('admin.accountExport.dimAggregated') }}</button>
+                <button @click="dimension = 'model'; showAccountDD = false; loadUsage()" :class="dimension === 'model' ? tabActiveSm : tabIdleSm">{{ t('admin.accountExport.dimAggregated') }}</button>
               </div>
             </div>
             <!-- 账号多选下拉（聚合模式下无意义，禁用） -->
-            <div class="relative" :class="{ 'opacity-40 pointer-events-none': dimension === 'model' }">
+            <div class="relative" ref="accountDDRef" :class="{ 'opacity-40 pointer-events-none': dimension === 'model' }">
               <div class="mb-2 text-xs font-medium uppercase tracking-wide text-gray-400 dark:text-gray-500">{{ t('admin.accountExport.accounts') }}</div>
               <button
                 @click="showAccountDD = !showAccountDD"
@@ -259,7 +259,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, reactive, ref } from 'vue'
+import { computed, onMounted, onUnmounted, reactive, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import AppLayout from '@/components/layout/AppLayout.vue'
 import Select from '@/components/common/Select.vue'
@@ -283,6 +283,16 @@ const tabIdleSm = 'rounded-lg px-3.5 py-1.5 text-sm font-medium text-gray-500 ho
 const accounts = ref<{ id: number; name: string }[]>([])
 const selectedAccountIds = ref<number[]>([])
 const showAccountDD = ref(false)
+// 点击下拉区域外部时关闭；仅在打开期间挂监听，组件卸载时兜底摘除
+const accountDDRef = ref<HTMLElement | null>(null)
+const onDocMousedown = (e: MouseEvent) => {
+  if (accountDDRef.value && !accountDDRef.value.contains(e.target as Node)) showAccountDD.value = false
+}
+watch(showAccountDD, (open) => {
+  if (open) document.addEventListener('mousedown', onDocMousedown)
+  else document.removeEventListener('mousedown', onDocMousedown)
+})
+onUnmounted(() => document.removeEventListener('mousedown', onDocMousedown))
 const today = new Date()
 const startDate = ref(new Date(today.getFullYear(), today.getMonth(), 1).toISOString().slice(0, 10))
 const endDate = ref(today.toISOString().slice(0, 10))
