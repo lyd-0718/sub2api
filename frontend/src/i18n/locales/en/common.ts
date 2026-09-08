@@ -7,6 +7,7 @@ export default {
     peakRateImageNote: '; image tokens billed as tokens are also affected, per-image billing is unaffected',
     save: 'Save',
     saved: 'Saved successfully',
+    saveFailed: 'Save failed',
     deleted: 'Deleted successfully',
     cancel: 'Cancel',
     delete: 'Delete',
