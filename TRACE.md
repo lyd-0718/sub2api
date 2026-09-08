@@ -77,7 +77,7 @@ python3 traceview.py <会话目录> [轮次N] [user|think|tool|text]
 
 ## 代码位置与更新流程
 
-- Fork：`github.com/lyd-0718/sub2api`，分支 `trace`（当前已合并官方 `v0.2.1`，merge 提交 `cf0fe3e2`）
+- Fork：`github.com/lyd-0718/sub2api`，分支 `trace`（当前已合并官方 `v0.2.3`，merge 提交 `e39d6699`）
 - 本地：`~/Desktop/sub2api`
 - 服务器构建目录：`/opt/sub2api-trace`
 - 部署配置：`/opt/sub2api/docker-compose.yml`（只改 image tag，其他不动）
@@ -88,8 +88,10 @@ python3 traceview.py <会话目录> [轮次N] [user|think|tool|text]
 cd ~/Desktop/sub2api
 git fetch https://github.com/Wei-Shaw/sub2api.git --tags
 git checkout trace
-git merge v<x.y.z>        # 换成新 tag；注意上游 release tag 非直线历史，冲突按下方清单判
+git merge upstream/main   # 注意：合 main 而非 tag——上游先打 tag 后 bump VERSION，
+                          # 合 tag 会带进旧 VERSION（v0.2.1 曾因此界面显示 0.2.0）
 cd backend && go build ./... && go test ./internal/pkg/trace/ ./internal/service/ -run 'TestCNCodingPlan429|TestCN429'
+cd ../frontend && npx vitest run src/i18n/__tests__/localeKeyCompleteness.spec.ts  # 上游有语言键完整性测试，镜像构建会跑，本地先跑避免白构建
 git push origin trace
 ```
 
