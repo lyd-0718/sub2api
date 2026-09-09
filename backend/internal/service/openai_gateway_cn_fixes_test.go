@@ -210,6 +210,11 @@ func TestHandle403_CNProviderConcurrencyLimitAlwaysUsesTemporaryCooldown(t *test
 	require.Len(t, blocker.accounts, 1)
 	require.Equal(t, cnConcurrencyLimitReasonPrefix, blocker.reasons[0])
 	require.True(t, blocker.until[0].After(time.Now()))
+	// 并发超限是秒级瞬时信号：冷却必须显著短于 403 鉴权默认（10 分钟），
+	// 否则停车→负载挤压→更多超限的级联会缩编号池。
+	cooldown := time.Until(blocker.until[0])
+	require.Greater(t, cooldown, 20*time.Second)
+	require.Less(t, cooldown, 60*time.Second, "concurrency-limit cooldown must stay seconds-scale")
 }
 
 func TestHandle403_KimiConcurrencyLimitRepositoryFailureKeepsRuntimeBlock(t *testing.T) {

@@ -40,7 +40,9 @@ func (s *RateLimitService) handleCNProviderConcurrencyLimit403(
 	ctx context.Context,
 	account *Account,
 ) {
-	until := time.Now().Add(time.Duration(openAI403CooldownMinutesDefault) * time.Minute)
+	// 并发超限是秒级瞬时信号（在途流结束即释放槽位），用短冷却而非 403 默认的
+	// 10 分钟——长冷却会引发级联停车（停 A → 压 B → B 也超限），号池快速缩编。
+	until := time.Now().Add(s.cnConcurrencyLimitCooldown())
 	reason := cnConcurrencyLimitReasonPrefix + ": " + kimiConcurrentRequestLimitMessage
 	s.notifyAccountSchedulingBlocked(account, until, cnConcurrencyLimitReasonPrefix)
 	if err := s.accountRepo.SetTempUnschedulable(ctx, account.ID, until, reason); err != nil {
@@ -185,6 +187,15 @@ func (s *RateLimitService) cn429TransientCooldown() time.Duration {
 	seconds := 60
 	if s != nil && s.cfg != nil && s.cfg.Gateway.CNProviders.RateLimitCooldownSeconds > 0 {
 		seconds = s.cfg.Gateway.CNProviders.RateLimitCooldownSeconds
+	}
+	return time.Duration(seconds) * time.Second
+}
+
+// cnConcurrencyLimitCooldown 返回 kimi 并发超限的冷却时长（秒级瞬时信号，默认 30s）。
+func (s *RateLimitService) cnConcurrencyLimitCooldown() time.Duration {
+	seconds := 30
+	if s != nil && s.cfg != nil && s.cfg.Gateway.CNProviders.ConcurrencyLimitCooldownSeconds > 0 {
+		seconds = s.cfg.Gateway.CNProviders.ConcurrencyLimitCooldownSeconds
 	}
 	return time.Duration(seconds) * time.Second
 }

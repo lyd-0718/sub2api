@@ -1144,6 +1144,10 @@ type GatewayCNProvidersConfig struct {
 	// RateLimitCooldownSeconds: 套餐号 429 且无窗口耗尽证据时的短冷却（秒，默认 60）。
 	// 避免瞬时并发 429 把账号停调到窗口重置（可达数小时）导致号池缩编。
 	RateLimitCooldownSeconds int `mapstructure:"rate_limit_cooldown_seconds"`
+	// ConcurrencyLimitCooldownSeconds: kimi 并发超限（cn_concurrency_limit）的冷却（秒，默认 30）。
+	// 并发超限是秒级瞬时信号（在途流结束即恢复），套用 403 鉴权默认的 10 分钟冷却
+	// 会造成级联停车（停车→负载挤压→更多超限）。短冷却让账号快速归队。
+	ConcurrencyLimitCooldownSeconds int `mapstructure:"concurrency_limit_cooldown_seconds"`
 	// QuotaExhaustedPercent: 5h/weekly 窗口用量 ≥ 该百分比才认定为「窗口耗尽」，
 	// 按窗口重置时间停调（默认 85）。
 	QuotaExhaustedPercent float64 `mapstructure:"quota_exhausted_percent"`
@@ -2462,6 +2466,7 @@ func setDefaults() {
 	viper.SetDefault("gateway.cn_providers.balance_threshold", 0.5)
 	viper.SetDefault("gateway.cn_providers.balance_check_interval_minutes", 10)
 	viper.SetDefault("gateway.cn_providers.rate_limit_cooldown_seconds", 60)
+	viper.SetDefault("gateway.cn_providers.concurrency_limit_cooldown_seconds", 30)
 	viper.SetDefault("gateway.cn_providers.quota_exhausted_percent", 85)
 	viper.SetDefault("gateway.image_concurrency.enabled", false)
 	viper.SetDefault("gateway.image_concurrency.max_concurrent_requests", 0)
