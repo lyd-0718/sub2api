@@ -102,6 +102,7 @@ git push origin trace
 3. **429 证据停车**（`backend/internal/service/ratelimit_cn_providers.go`）：套餐号 429 按额度快照分级，瞬时 429 只短冷却 60s；配置 `gateway.cn_providers.rate_limit_cooldown_seconds` / `quota_exhausted_percent`。上游若重写此文件，保留我方 `cnCodingPlan429Cooldown` 分支逻辑。
 4. `config/config.go`：纯追加（CNProviders 2 字段 + defaults），一般自动合并。
 5. 前端：`TraceView.vue` / `AccountUsageExportView.vue` / `api/traceAdmin.ts` / i18n / 侧边栏入口（AppSidebar.vue），均为新增文件或纯追加。
+6. **OpenRouter 余额探测**（2026-09-14 新增）：上游文件 `cn_provider_balance_service.go` 仅 4 处小改（`CNProviderBalanceEntry.Label` 字段、`cnBalanceURL` 的 openrouter 分支、deepseek 解析分流、快照写入 label）；识别/解析/`/key` 限额查询全在新文件 `cn_provider_balance_openrouter.go`（自有文件，零冲突）。前端 `CNProviderBalanceCell.vue` + `api/admin/cnProviders.ts` + zh/en i18n 各一处小改（label 前缀渲染，无 label 时行为不变）。
 
 （kimi 缓存保活模块已于 2026-09-04 移除：实测有用但探测费相对省下的冷启动费性价比不高。历史见 git log。）
 （`x-session-id` 粘性路由曾作为第 4 条改动，v0.2.1 合并时确认为重复代码已删除——上游名单的 `openCodeSessionIDHeader` 常量值就是 `X-Session-Id`。）

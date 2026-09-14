@@ -153,6 +153,10 @@ export default {
         probeTooltip: 'Query the provider quota endpoint for 5-hour / weekly rolling window usage',
         balanceProbeTooltip: 'Query the provider balance endpoint for the account balance',
         balanceLow: 'Insufficient balance',
+        balanceLabels: {
+          account: 'Account',
+          key: 'Key limit',
+        },
         noBalanceEndpoint: 'This platform has no balance query endpoint',
       },
       types: {

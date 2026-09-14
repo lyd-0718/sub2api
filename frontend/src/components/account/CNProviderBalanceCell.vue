@@ -94,15 +94,15 @@ const snapshotCurrency = computed(() => {
   const v = props.account.extra?.[extraKey('balance_currency')]
   return typeof v === 'string' ? v : ''
 })
-// 多币种快照（后端写 <platform>_balances：[{currency, balance}]，deepseek CNY+USD）。
+// 多币种快照（后端写 <platform>_balances：[{currency, balance, label?}]，deepseek CNY+USD）。
 const snapshotBalances = computed<CNProviderBalanceEntry[]>(() => {
   const v = props.account.extra?.[extraKey('balances')]
   if (!Array.isArray(v)) return []
   return v.flatMap((item): CNProviderBalanceEntry[] => {
     if (!item || typeof item !== 'object') return []
-    const { currency, balance } = item as Record<string, unknown>
+    const { currency, balance, label } = item as Record<string, unknown>
     if (typeof currency !== 'string' || typeof balance !== 'number') return []
-    return [{ currency, balance }]
+    return [{ currency, balance, label: typeof label === 'string' ? label : undefined }]
   })
 })
 const balanceLow = computed(() => props.account.extra?.[extraKey('balance_low')] === true)
@@ -120,9 +120,19 @@ const currentEntries = computed<CNProviderBalanceEntry[]>(() => {
   return []
 })
 
+// 标签稳定键 → i18n 文案；未识别的键原样展示，新增供应商标记时无需改前端。
+const balanceLabelText = (key: string): string => {
+  const known: Record<string, string> = {
+    account: t('admin.accounts.cnProviders.balanceLabels.account'),
+    key: t('admin.accounts.cnProviders.balanceLabels.key'),
+  }
+  return known[key] ?? key
+}
+
 const formatEntry = (entry: CNProviderBalanceEntry): string => {
   const fixed = entry.balance >= 100 ? entry.balance.toFixed(0) : entry.balance.toFixed(2)
-  return `${entry.currency || '¥'} ${fixed}`
+  const value = `${entry.currency || '¥'} ${fixed}`
+  return entry.label ? `${balanceLabelText(entry.label)} ${value}` : value
 }
 
 const balanceLabel = computed(() => {

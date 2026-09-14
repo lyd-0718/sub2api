@@ -30,6 +30,11 @@ export interface CNProviderQuotaProbeResult {
 export interface CNProviderBalanceEntry {
   currency: string
   balance: number
+  /**
+   * 明细标签稳定键（如 OpenRouter 的 account / key）。后端仅在需要区分多条
+   * 同币种明细时下发；缺失或未识别时按无标签渲染。
+   */
+  label?: string
 }
 
 /** payg 余额探测结果（kimi / deepseek），对齐后端 CNProviderBalanceResult。 */

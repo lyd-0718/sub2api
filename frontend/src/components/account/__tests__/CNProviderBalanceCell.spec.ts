@@ -73,4 +73,29 @@ describe('CNProviderBalanceCell', () => {
     expect(wrapper.text()).toContain('CNY 12.50')
     expect(wrapper.text()).toContain('HTTP 401')
   })
+
+  it('renders labeled entries for same-currency multi-entry balances', async () => {
+    // OpenRouter 账号：账户余额与单 key 限额同为 USD，靠 label 区分。
+    const openRouterAccount = {
+      ...account,
+      platform: 'deepseek',
+      credentials: { account_mode: 'payg' },
+      extra: {
+        deepseek_balance: 499.99,
+        deepseek_balance_currency: 'USD',
+        deepseek_balances: [
+          { currency: 'USD', balance: 499.99957464, label: 'key' },
+          { currency: 'USD', balance: 506.86, label: 'account' }
+        ]
+      }
+    } as Account
+
+    const wrapper = mount(CNProviderBalanceCell, { props: { account: openRouterAccount } })
+
+    // i18n 在测试里被 mock 成返回 key 本身，断言渲染顺序与标签前缀。
+    expect(wrapper.get('[data-test="cn-provider-balance-value"]').text()).toBe(
+      'admin.accounts.cnProviders.balanceLabels.key USD 500 · ' +
+        'admin.accounts.cnProviders.balanceLabels.account USD 507'
+    )
+  })
 })

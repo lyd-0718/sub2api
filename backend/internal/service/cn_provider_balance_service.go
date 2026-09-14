@@ -40,6 +40,9 @@ const (
 type CNProviderBalanceEntry struct {
 	Currency string  `json:"currency"`
 	Balance  float64 `json:"balance"`
+	// Label 为明细标签（稳定键，如 OpenRouter 的 account/key）。空值表示无标签，
+	// 消费方按现有格式渲染；历史数据无此字段不受影响。
+	Label string `json:"label,omitempty"`
 }
 
 // CNProviderBalanceResult 是余额探测的返回结构（管理端 + UI 消费）。
@@ -184,6 +187,17 @@ func (s *CNProviderBalanceService) queryBalanceForAccount(ctx context.Context, a
 		balance, _ := cnParseF64(gjson.GetBytes(bodyBytes, "data.available_balance").Value())
 		entries = append(entries, CNProviderBalanceEntry{Currency: "CNY", Balance: balance})
 	case PlatformDeepseek:
+		// OpenRouter 兼容：credits 端点返回形状与官方不同，走独立解析（见
+		// cn_provider_balance_openrouter.go）；官方 DeepSeek 逻辑保持不变。
+		if isOpenRouterBalanceAccount(account) {
+			openRouterEntries, openRouterAvailable, openRouterErr := s.buildOpenRouterBalanceEntries(ctx, account, bodyBytes)
+			if openRouterErr != nil {
+				result.Error = openRouterErr.Error()
+				return result, nil
+			}
+			entries, available = openRouterEntries, openRouterAvailable
+			break
+		}
 		// is_available 缺省视为 true（健康）；显式存在时取其值。
 		if v := gjson.GetBytes(bodyBytes, "is_available"); v.Exists() {
 			available = v.Bool()
@@ -221,10 +235,15 @@ func (s *CNProviderBalanceService) queryBalanceForAccount(ctx context.Context, a
 
 	balanceUpdates := make([]any, 0, len(entries))
 	for _, entry := range entries {
-		balanceUpdates = append(balanceUpdates, map[string]any{
+		update := map[string]any{
 			"currency": entry.Currency,
 			"balance":  entry.Balance,
-		})
+		}
+		// Label 仅在有值时写入，保持历史快照形状不变。
+		if entry.Label != "" {
+			update["label"] = entry.Label
+		}
+		balanceUpdates = append(balanceUpdates, update)
 	}
 	updates := map[string]any{
 		cnExtraKey(provider, cnBalanceExtraSuffixBalance):   result.Balance,
@@ -298,7 +317,12 @@ func cnBalanceURL(account *Account) string {
 	case PlatformDeepseek:
 		// Anthropic 协议账号的凭证 base_url 指向 /anthropic 端点，余额探测需回退
 		// 到 OpenAI 格式 base（协议感知）再拼接 /user/balance。
-		return strings.TrimRight(account.GetOpenAIFormatBaseURL(), "/") + "/user/balance"
+		base := strings.TrimRight(account.GetOpenAIFormatBaseURL(), "/")
+		// OpenRouter 兼容：账户余额在 /credits（官方 DeepSeek 无此路径）。
+		if isOpenRouterBalanceBase(base) {
+			return base + "/credits"
+		}
+		return base + "/user/balance"
 	default:
 		return ""
 	}
