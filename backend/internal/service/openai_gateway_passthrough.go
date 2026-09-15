@@ -2089,6 +2089,9 @@ func (s *OpenAIGatewayService) handleStreamingResponsePassthrough(
 					}
 				}
 				if !outputStarted {
+					// CN 403 分类先行：kimi 额度文案不含 retry 标记时 shouldFailover=false，
+					// 错误原样透传给客户端——但账号副作用（按窗口停调/写 cap）不能丢。
+					s.applyCNClassifiedStream403AccountSideEffects(openAIStreamSideEffectContext(c), account, dataBytes)
 					shouldFailover := false
 					if !cyberHit {
 						if eventType == "error" {

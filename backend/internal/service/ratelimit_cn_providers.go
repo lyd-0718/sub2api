@@ -41,14 +41,25 @@ func (s *RateLimitService) handleCNProviderConcurrencyLimit403(
 	ctx context.Context,
 	account *Account,
 ) {
-	// 撞并发 403 → 该账号有效并发降为 1（cap），等待后续探测阶梯回升。
+	// 撞并发 403 → 该账号有效并发降为受限档（cap），等待后续探测阶梯回升。
 	// SetCap 是幂等的（同值重写只推进版本号），去重由调用方的副作用幂等键负责。
+	restricted := 1
+	if s.cfg != nil && s.cfg.Gateway.ConcurrencyCap.Restricted > 0 {
+		restricted = s.cfg.Gateway.ConcurrencyCap.Restricted
+	}
 	switch {
 	case s.concurrencyCapStore == nil:
 		// store 未接线（wire 漏注入）时不能让 cap 静默不写：显式暴露配置缺口。
 		slog.Warn("cn_concurrency_cap_store_missing", "account_id", account.ID, "platform", account.Platform)
 	default:
-		if err := s.concurrencyCapStore.SetCap(ctx, account.ID, 1, cnConcurrencyCapReason); err != nil {
+		// flap 口径②：从更高档位被打回受限档（回升后 72h 内又撞）也计 flap；
+		// 原本就在受限档的重复撞击、以及首次受限（无记录）不计。
+		if record, err := s.concurrencyCapStore.GetCap(ctx, account.ID); err == nil && record != nil && record.Cap > restricted {
+			if _, ferr := s.concurrencyCapStore.RecordFlap(ctx, account.ID, time.Now()); ferr != nil {
+				slog.Warn("cn_concurrency_cap_flap_failed", "account_id", account.ID, "error", ferr)
+			}
+		}
+		if err := s.concurrencyCapStore.SetCap(ctx, account.ID, restricted, cnConcurrencyCapReason); err != nil {
 			slog.Warn("cn_concurrency_cap_set_failed", "account_id", account.ID, "error", err)
 		}
 	}

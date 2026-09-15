@@ -96,6 +96,12 @@ func (h *AdminConcurrencyCapHandler) Update(c *gin.Context) {
 	if !ok {
 		return
 	}
+	// 平台闸：非 CN 账号建 cap 记录没有自动回升出口（探测调度器跳过非 CN），
+	// 会被永久夹帽且无告警——直接拒绝（PLAN §3.3「非 CN 不受约束」落到实现）。
+	if !account.IsCNProvider() {
+		response.BadRequest(c, "concurrency cap only applies to CN provider accounts")
+		return
+	}
 	ctx := c.Request.Context()
 
 	if req.Cap != nil {

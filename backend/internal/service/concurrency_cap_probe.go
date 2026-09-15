@@ -36,8 +36,11 @@ import (
 )
 
 const (
-	// concurrencyCapProbeDrainBudget 是单轮"占满槽位"的总预算（PLAN §4.1：本轮总预算 60s）。
-	concurrencyCapProbeDrainBudget = 60 * time.Second
+	// concurrencyCapProbeDrainBudget 是单轮"占满槽位"的总预算（PLAN §4.1）。
+	// 单轮预算 = leader_lock_ttl(90s) - 15s 安全边 = 75s；单账号最坏 = 占槽预算 + 探测
+	// 超时(30s)。占槽预算取 40s（4 次 10s 重试），最坏 70s 落在单轮预算内——占不满
+	// 就推迟到下一轮，绝不让探测流在 ctx 到期的边缘起跑。
+	concurrencyCapProbeDrainBudget = 40 * time.Second
 	// concurrencyCapProbeMaxBodyBytes 限制单条探测响应体读取量。探测流必须读全才能看到
 	// 流内 error 事件（与生产 403 同源的判定依据），但读取量要有上限。
 	concurrencyCapProbeMaxBodyBytes = 64 << 10
@@ -409,8 +412,10 @@ func (p *ConcurrencyCapProbe) sendLane(ctx context.Context, account *Account, la
 		return capLaneResultInconclusive, status, respBody, readErr
 	}
 	// 200 也可能是流内 error（生产 403 同源的 Anthropic 流内错误），显式抽取后再分类。
+	// 注意必须传语义状态码 403 而不是实测的 200：分类器只认 401/403/429，
+	// 传 200 会让「并发受限」的流内文案永远判不出 limited（不计 flap、状态机退化）。
 	if message, ok := capProbeStreamErrorMessage(respBody); ok {
-		if ClassifyCNUpstreamError(account.Platform, status, []byte(message)) == UpstreamErrorConcurrentLimit {
+		if ClassifyCNUpstreamError(account.Platform, http.StatusForbidden, []byte(message)) == UpstreamErrorConcurrentLimit {
 			return capLaneResultLimited, status, respBody, nil
 		}
 		return capLaneResultInconclusive, status, respBody, nil

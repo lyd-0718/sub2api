@@ -298,6 +298,19 @@ func (r *accountConcurrencyCapRepository) SetCachedCap(ctx context.Context, acco
 	return r.rdb.Set(ctx, concurrencyCapRedisKey(accountID), strconv.Itoa(cap), 0).Err()
 }
 
+// DeleteCachedCap 删除单个账号的 cap 缓存键。用于「毕业（cap≥cap_max）写入 Redis 失败」
+// 的兜底：毕业记录退出 ListRestricted 周期修复集，残留旧值会永久夹帽；删键后读侧
+// miss → 不夹帽，与 DB 真源一致（宁可不夹帽，不留旧值）。
+func (r *accountConcurrencyCapRepository) DeleteCachedCap(ctx context.Context, accountID int64) error {
+	if r == nil || r.rdb == nil {
+		return errors.New("nil concurrency cap redis client")
+	}
+	if accountID <= 0 {
+		return errors.New("invalid concurrency cap account id")
+	}
+	return r.rdb.Del(ctx, concurrencyCapRedisKey(accountID)).Err()
+}
+
 // SetCachedCaps 批量写穿（ListRestricted 修复路径用；单次 pipeline）。
 func (r *accountConcurrencyCapRepository) SetCachedCaps(ctx context.Context, caps map[int64]int) error {
 	if r == nil || r.rdb == nil {

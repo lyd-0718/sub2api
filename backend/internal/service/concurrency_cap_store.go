@@ -97,6 +97,7 @@ type ConcurrencyCapRepository interface {
 	GetCachedCap(ctx context.Context, accountID int64) (int, bool, error)
 	GetCachedCaps(ctx context.Context, accountIDs []int64) (map[int64]int, error)
 	SetCachedCap(ctx context.Context, accountID int64, cap int) error
+	DeleteCachedCap(ctx context.Context, accountID int64) error
 	SetCachedCaps(ctx context.Context, caps map[int64]int) error
 }
 
@@ -250,6 +251,13 @@ func (s *concurrencyCapStore) SetCap(ctx context.Context, accountID int64, cap i
 	s.storeCachedCap(accountID, cap, now)
 	if err := s.repo.SetCachedCap(ctx, accountID, cap); err != nil {
 		logger.LegacyPrintf("service.concurrency_cap", "Warning: concurrency cap write-through failed for account %d: %v", accountID, err)
+		if nextProbeAt == nil {
+			// 毕业（cap≥cap_max）记录退出 ListRestricted 周期修复集：Redis 残留旧值会
+			// 永久夹帽且无自愈。删键兜底——读侧 miss = 不夹帽，与 DB 真源一致。
+			if derr := s.repo.DeleteCachedCap(ctx, accountID); derr != nil {
+				logger.LegacyPrintf("service.concurrency_cap", "Warning: concurrency cap delete-after-write-failure failed for account %d: %v", accountID, derr)
+			}
+		}
 	}
 	return nil
 }

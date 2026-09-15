@@ -1043,6 +1043,9 @@ func (s *OpenAIGatewayService) handleAnthropicStreamingResponse(
 					return true
 				}
 				message := extractOpenAISSEErrorMessage(payloadBytes)
+				// CN 403 分类先行：额度文案不含 retry 标记时 shouldFailover=false，
+				// 错误直接透传——账号副作用（按窗口停调/写 cap）仍须落地。
+				s.applyCNClassifiedStream403AccountSideEffects(openAIStreamSideEffectContext(c), account, payloadBytes)
 				// Once Anthropic output has started, switching accounts would splice
 				// two model streams together. Surface a proper Anthropic error event
 				// instead of returning a failover error that the handler cannot retry.

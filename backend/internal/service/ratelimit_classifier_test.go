@@ -37,7 +37,9 @@ func TestClassifyCNUpstreamError(t *testing.T) {
 		"kimi 周额度文案":        {PlatformKimi, http.StatusForbidden, weeklyQuota, UpstreamErrorQuotaExhausted},
 		"kimi 7-day 额度文案":   {PlatformKimi, http.StatusForbidden, sevenDayQuota, UpstreamErrorQuotaExhausted},
 		"kimi 5h 额度文案":      {PlatformKimi, http.StatusForbidden, fiveHourQuota, UpstreamErrorQuotaExhausted},
-		"kimi 5h 额度文案紧凑写法":  {PlatformKimi, http.StatusTooManyRequests, compactFiveHourQuota, UpstreamErrorQuotaExhausted},
+		// 裸 "5h" 紧凑写法【有意不匹配】：3 字符子串会被 request_id/URL 片段误命中，
+		// 真实文案均为 "5-hour"（见 fiveHourQuota）；若上游日后出现该写法再补带边界的匹配。
+		"kimi 裸 5h 紧凑写法不判额度": {PlatformKimi, http.StatusTooManyRequests, compactFiveHourQuota, UpstreamErrorOther},
 		"kimi 401 鉴权":       {PlatformKimi, http.StatusUnauthorized, structuredAuth, UpstreamErrorAuth},
 		"kimi 结构化凭据 403":    {PlatformKimi, http.StatusForbidden, structuredAuth, UpstreamErrorAuth},
 		"kimi 未知文案":         {PlatformKimi, http.StatusForbidden, unknownForbidden, UpstreamErrorOther},

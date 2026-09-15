@@ -55,7 +55,8 @@ const cnConcurrentLimitLooseWording = "concurrent request limit"
 // 都不足以写成额度停调——那会把无关 403 停调到数天后的窗口重置点。
 var (
 	cnQuotaWordingWeeklyWindowTokens   = []string{"weekly", "7-day", "7 day"}
-	cnQuotaWordingFiveHourWindowTokens = []string{"5-hour", "5 hour", "5h", "five-hour"}
+	// 不含裸 "5h"：那是 3 字符子串，request_id/URL 片段都可能命中（真实文案用 "5-hour"）。
+	cnQuotaWordingFiveHourWindowTokens = []string{"5-hour", "5 hour", "five-hour"}
 	cnQuotaWordingExhaustionTokens     = []string{
 		"limit", "exceed", "exhaust", "quota", "usage", "reached", "out of",
 		"额度", "配额", "用量", "超限", "耗尽", "用尽",

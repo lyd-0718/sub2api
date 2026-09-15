@@ -305,6 +305,7 @@ func initializeApplication(buildInfo handler.BuildInfo) (*Application, error) {
 	concurrencyService.SetConcurrencyCapStore(concurrencyCapStore)
 	rateLimitService.SetConcurrencyCapStore(concurrencyCapStore)
 	concurrencyCapService := service.NewConcurrencyCapService(concurrencyCapStore, accountRepository, concurrencyService, proxyRepository, httpUpstream, configConfig)
+	concurrencyCapService.SetLeaderLock(leaderLockCache, db)
 	concurrencyCapService.Start()
 	accountErrorRecoveryService := service.NewAccountErrorRecoveryService(accountRepository, cnProviderQuotaService, httpUpstream, configConfig, 10*time.Minute)
 	accountErrorRecoveryService.SetLeaderLock(leaderLockCache, db)

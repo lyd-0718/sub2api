@@ -546,7 +546,11 @@ func (s *ConcurrencyCapService) handleSkip(ctx context.Context, record *AccountC
 				zap.String("reason", plan.Reason),
 			)
 		}
-		if plan.Reschedule != capRescheduleNone {
+		// 熔断期每轮扫描都会走到这里：next_probe_at 只是「重查熔断是否解除」的节拍，
+		// 仅当剩余不足 30 分钟才续写——否则每 30s 一次空 UPDATE（version 空转、
+		// 还会把 Limited 刚设下的 72h hold 反复改写）。
+		if plan.Reschedule != capRescheduleNone &&
+			(record.NextProbeAt.IsZero() || !record.NextProbeAt.After(now.Add(30*time.Minute))) {
 			s.setNextProbeAt(ctx, record.AccountID, plan.NextProbeAt, plan.Reason)
 		}
 	case capSkipPinned:
