@@ -1613,15 +1613,18 @@ func (s *OpenAIGatewayService) handleOpenAIStreamTerminalAccountSideEffects(
 	statusCode := openAIStreamFailureStatus(payload, message)
 	switch statusCode {
 	case http.StatusForbidden:
+		// CN 分类器先于 openAIStream403AccountFailure 谓词：kimi 并发限流/额度耗尽文案
+		// 不命中该谓词，先过谓词会让 error / response.failed 双事件都被静默丢弃
+		// （不写 cap、不换号）。同名副作用由「请求 ID + 账号 + 分类」幂等键合并。
+		if s.applyCNClassifiedStream403AccountSideEffects(openAIStreamSideEffectContext(c), account, payload) {
+			return statusCode, true
+		}
 		if !openAIStream403AccountFailure(payload, message) {
 			return statusCode, false
 		}
 		fallthrough
 	case http.StatusUnauthorized, http.StatusTooManyRequests, 529:
-		ctx := context.Background()
-		if c != nil && c.Request != nil {
-			ctx = c.Request.Context()
-		}
+		ctx := openAIStreamSideEffectContext(c)
 		model := firstNonEmpty(canonicalModel...)
 		if model == "" {
 			model = firstNonEmpty(gjson.GetBytes(payload, "model").String(), gjson.GetBytes(payload, "response.model").String())

@@ -134,6 +134,7 @@ func (s *GroupCapacityService) getGroupCapacitiesBatch(ctx context.Context, grou
 	seenGroupAccount := make(map[groupCapacityAccountRef]struct{}, len(rows))
 	accountIDSet := make(map[int64]struct{}, len(rows))
 	accountIDs := make([]int64, 0, len(rows))
+	configuredConcurrency := make(map[int64]int, len(rows))
 	sessionTimeouts := make(map[int64]time.Duration)
 
 	for _, row := range rows {
@@ -152,6 +153,7 @@ func (s *GroupCapacityService) getGroupCapacitiesBatch(ctx context.Context, grou
 		if _, ok := accountIDSet[row.AccountID]; !ok {
 			accountIDSet[row.AccountID] = struct{}{}
 			accountIDs = append(accountIDs, row.AccountID)
+			configuredConcurrency[row.AccountID] = row.Concurrency
 		}
 
 		acc := Account{
@@ -162,8 +164,6 @@ func (s *GroupCapacityService) getGroupCapacitiesBatch(ctx context.Context, grou
 			SessionWindowEnd:    row.SessionWindowEnd,
 			SessionWindowStatus: row.SessionWindowStatus,
 		}
-
-		results[idx].ConcurrencyMax += acc.Concurrency
 
 		if maxSessions := acc.GetMaxSessions(); maxSessions > 0 {
 			results[idx].SessionsMax += maxSessions
@@ -204,8 +204,13 @@ func (s *GroupCapacityService) getGroupCapacitiesBatch(ctx context.Context, grou
 		rpmMap, _ = s.rpmCache.GetRPMBatch(ctx, rpmAccountIDs)
 	}
 
+	// 容量上限按「有效并发」汇总：账号级 cap 夹帽，取不到 cap 时回落配置并发。
+	// 否则「配置 vs 有效」在容量视图里仍然不可见（受限账号仍按 10 计容量）。
+	effectiveConcurrency := s.effectiveAccountConcurrency(ctx, accountIDs, configuredConcurrency)
+
 	for _, ref := range refs {
 		idx := groupIndex[ref.groupID]
+		results[idx].ConcurrencyMax += effectiveConcurrency[ref.accountID]
 		results[idx].ConcurrencyUsed += concurrencyMap[ref.accountID]
 		if sessionsMap != nil && results[idx].SessionsMax > 0 {
 			results[idx].SessionsUsed += sessionsMap[ref.accountID]
@@ -215,6 +220,31 @@ func (s *GroupCapacityService) getGroupCapacitiesBatch(ctx context.Context, grou
 		}
 	}
 	return results, nil
+}
+
+// effectiveAccountConcurrency 汇总每个账号的有效并发上限：配置并发夹账号级 cap。
+// 取不到 cap 记录的账号回落配置并发（非 CN 平台因此不受影响）。
+func (s *GroupCapacityService) effectiveAccountConcurrency(ctx context.Context, accountIDs []int64, configured map[int64]int) map[int64]int {
+	effective := make(map[int64]int, len(accountIDs))
+	if s.concurrencyService == nil {
+		for _, accountID := range accountIDs {
+			effective[accountID] = configured[accountID]
+		}
+		return effective
+	}
+	loadReq := make([]AccountWithConcurrency, 0, len(accountIDs))
+	for _, accountID := range accountIDs {
+		loadReq = append(loadReq, AccountWithConcurrency{ID: accountID, MaxConcurrency: configured[accountID]})
+	}
+	capped := s.concurrencyService.EffectiveAccountConcurrencyBatch(ctx, loadReq)
+	for _, accountID := range accountIDs {
+		if value, ok := capped[accountID]; ok && value > 0 {
+			effective[accountID] = value
+			continue
+		}
+		effective[accountID] = configured[accountID]
+	}
+	return effective
 }
 
 func accountIDsForGroupsWithLimit(refs []groupCapacityAccountRef, groupIndex map[int64]int, summaries []GroupCapacitySummary, include func(GroupCapacitySummary) bool) []int64 {
@@ -245,13 +275,14 @@ func (s *GroupCapacityService) getGroupCapacity(ctx context.Context, groupID int
 
 	// Collect account IDs and config values
 	accountIDs := make([]int64, 0, len(accounts))
+	configuredConcurrency := make(map[int64]int, len(accounts))
 	sessionTimeouts := make(map[int64]time.Duration)
-	var concurrencyMax, sessionsMax, rpmMax int
+	var sessionsMax, rpmMax int
 
 	for i := range accounts {
 		acc := &accounts[i]
 		accountIDs = append(accountIDs, acc.ID)
-		concurrencyMax += acc.Concurrency
+		configuredConcurrency[acc.ID] = acc.Concurrency
 
 		if ms := acc.GetMaxSessions(); ms > 0 {
 			sessionsMax += ms
@@ -282,7 +313,11 @@ func (s *GroupCapacityService) getGroupCapacity(ctx context.Context, groupID int
 
 	// Aggregate
 	var concurrencyUsed, sessionsUsed, rpmUsed int
+	// 容量上限按「有效并发」汇总：账号级 cap 夹帽，取不到 cap 时回落配置并发。
+	effectiveConcurrency := s.effectiveAccountConcurrency(ctx, accountIDs, configuredConcurrency)
+	concurrencyMax := 0
 	for _, id := range accountIDs {
+		concurrencyMax += effectiveConcurrency[id]
 		concurrencyUsed += concurrencyMap[id]
 		if sessionsMap != nil {
 			sessionsUsed += sessionsMap[id]

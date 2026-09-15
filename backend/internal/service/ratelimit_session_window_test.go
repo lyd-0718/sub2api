@@ -174,6 +174,18 @@ func (m *sessionWindowMockRepo) ListShadowsByParent(context.Context, int64) ([]*
 	panic("unexpected")
 }
 
+func (m *sessionWindowMockRepo) SetRateLimitedIfLater(context.Context, int64, time.Time) error {
+	panic("unexpected")
+}
+
+func (m *sessionWindowMockRepo) ListCNQuotaDisabled(context.Context, string) ([]*Account, error) {
+	panic("unexpected")
+}
+
+func (m *sessionWindowMockRepo) RestoreRecoveredAccount(context.Context, int64, time.Time) (bool, error) {
+	panic("unexpected")
+}
+
 // newRateLimitServiceForTest creates a RateLimitService with the given mock repo.
 func newRateLimitServiceForTest(repo AccountRepository) *RateLimitService {
 	return &RateLimitService{accountRepo: repo}

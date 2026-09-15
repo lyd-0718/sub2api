@@ -100,6 +100,18 @@ type AccountRepository interface {
 	ListModelAvailabilityCandidates(ctx context.Context, groupID *int64, platforms []string, includeGrouped bool) ([]Account, error)
 
 	SetRateLimited(ctx context.Context, id int64, resetAt time.Time) error
+	// SetRateLimitedIfLater 仅在 until 晚于当前 rate_limit_reset_at 时推进限额
+	//（单调推进，不回退）：并发完成的旧响应不得覆盖更晚的重置边界。
+	// 额度耗尽停调（cnCodingPlan429Cooldown）与 Grok 分布式限流共用它。
+	SetRateLimitedIfLater(ctx context.Context, accountID int64, until time.Time) error
+	// ListCNQuotaDisabled 返回指定平台下处于 status='error' 的账号，供额度耗尽
+	// 自动归队扫描。不得复用带 status='active' 过滤的 ListByPlatform。
+	ListCNQuotaDisabled(ctx context.Context, platform string) ([]*Account, error)
+	// RestoreRecoveredAccount 单事务 CAS 恢复被禁用账号：WHERE id=? AND
+	// status='error' AND updated_at=expectedUpdatedAt，成功时置回
+	// active + schedulable 并清掉 error / 临时停调 / 限流 / 过载标记。
+	// 影响行数 0 → (false, nil)：并发改写，调用方重排且不消耗退避预算。
+	RestoreRecoveredAccount(ctx context.Context, accountID int64, expectedUpdatedAt time.Time) (bool, error)
 	SetModelRateLimit(ctx context.Context, id int64, scope string, resetAt time.Time, reason ...string) error
 	SetOverloaded(ctx context.Context, id int64, until time.Time) error
 	SetTempUnschedulable(ctx context.Context, id int64, until time.Time, reason string) error

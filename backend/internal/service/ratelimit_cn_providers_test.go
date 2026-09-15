@@ -51,17 +51,19 @@ func TestCNCodingPlan429Cooldown_ExhaustedWindowParksUntilReset(t *testing.T) {
 	require.Equal(t, windowReset.UTC(), until.UTC())
 }
 
-func TestCNCodingPlan429Cooldown_WeeklyExhaustionAlsoParks(t *testing.T) {
+func TestCNCodingPlan429Cooldown_WeeklyExhaustionParksUntilWeeklyReset(t *testing.T) {
 	now := time.Now().Truncate(time.Second)
 	weeklyReset := now.Add(48 * time.Hour)
-	// 5h 未耗尽但 weekly 92% → 耗尽；停到较早的 5h 重置点（现有行为，避免过度停调）。
+	// 5h 未耗尽但 weekly 92% → 周满按【周窗口重置点】停调。
+	// 取 5h 重置点会让账号在 5h 重置后立刻再撞 403（周窗口仍是满的），
+	// 形成停调/放行抖动——需求方规则明确要求周满看周。
 	acc := cn429TestAccount(cn429Snapshot(now.Add(-2*time.Minute), 10.0, now.Add(3*time.Hour), 92.0, weeklyReset))
 
 	until, exhausted, ok := cnCodingPlan429Cooldown(acc, now, 85, 30*time.Minute, 60*time.Second)
 
 	require.True(t, ok)
 	require.True(t, exhausted)
-	require.Equal(t, now.Add(3*time.Hour).UTC(), until.UTC())
+	require.Equal(t, weeklyReset.UTC(), until.UTC())
 }
 
 func TestCNCodingPlan429Cooldown_StaleSnapshotIsNotEvidence(t *testing.T) {
@@ -78,8 +80,8 @@ func TestCNCodingPlan429Cooldown_StaleSnapshotIsNotEvidence(t *testing.T) {
 
 func TestCNCodingPlan429Cooldown_HighUsageButWindowAlreadyReset(t *testing.T) {
 	now := time.Now().Truncate(time.Second)
-	// 用量 99% 但窗口重置点已过去 → 旧窗口快照，不算耗尽。
-	// cnProviderQuotaSnapshotReset 无未来重置点 → ok=false，走默认 429 逻辑。
+	// 用量 99% 但窗口重置点已过去 → 旧窗口快照，不算耗尽：无未来重置点 → ok=false，
+	// 走默认 429 逻辑。
 	acc := cn429TestAccount(cn429Snapshot(now.Add(-2*time.Minute), 99.0, now.Add(-10*time.Minute), 99.0, now.Add(-time.Hour)))
 
 	_, _, ok := cnCodingPlan429Cooldown(acc, now, 85, 30*time.Minute, 60*time.Second)

@@ -439,15 +439,14 @@ func TestEvaluateAccountSchedulingThreshold_CNWindowResetSkipped(t *testing.T) {
 	require.False(t, EvaluateAccountSchedulingThreshold(low, map[string]int{PlatformZhipu: 80}, now).ShouldPause)
 }
 
-// TestCNProviderQuotaSnapshotReset Coding Plan 429 冷却：取快照中最早的「仍在未来」窗口重置点。
-func TestCNProviderQuotaSnapshotReset(t *testing.T) {
+// TestCNQuotaSnapshotHasFutureReset 429 判定门槛：快照里至少一个窗口带未来重置点
+// 才算「可判定」；payg 账号无窗口快照恒 false（余额型走余额检测）。
+func TestCNQuotaSnapshotHasFutureReset(t *testing.T) {
 	t.Parallel()
 	now := time.Date(2026, 8, 14, 12, 0, 0, 0, time.UTC)
 	future5h := now.Add(2 * time.Hour)
-	futureWeekly := now.Add(3 * 24 * time.Hour)
 	pastWeekly := now.Add(-24 * time.Hour)
 
-	// 5h 在未来、weekly 已过期 → 返回 5h。
 	account := &Account{
 		Platform:    PlatformKimi,
 		Credentials: map[string]any{"account_mode": AccountModeCoding},
@@ -456,24 +455,9 @@ func TestCNProviderQuotaSnapshotReset(t *testing.T) {
 			"kimi_weekly_reset_at": pastWeekly.Format(time.RFC3339),
 		},
 	}
-	got := cnProviderQuotaSnapshotReset(account, now)
-	require.NotNil(t, got)
-	require.True(t, future5h.Equal(*got))
+	require.True(t, cnQuotaSnapshotHasFutureReset(account, now))
 
-	// 两窗口均在未来 → 取较早者（429 多由 5h 窗口触发，避免冷却到 weekly 重置）。
-	both := &Account{
-		Platform:    PlatformKimi,
-		Credentials: map[string]any{"account_mode": AccountModeCoding},
-		Extra: map[string]any{
-			"kimi_5h_reset_at":     future5h.Format(time.RFC3339),
-			"kimi_weekly_reset_at": futureWeekly.Format(time.RFC3339),
-		},
-	}
-	gotBoth := cnProviderQuotaSnapshotReset(both, now)
-	require.NotNil(t, gotBoth)
-	require.True(t, future5h.Equal(*gotBoth))
-
-	// 两窗口均过期 → nil。
+	// 两窗口均过期 → 旧窗口快照，不构成当前耗尽的证据。
 	expired := &Account{
 		Platform:    PlatformKimi,
 		Credentials: map[string]any{"account_mode": AccountModeCoding},
@@ -482,15 +466,16 @@ func TestCNProviderQuotaSnapshotReset(t *testing.T) {
 			"kimi_weekly_reset_at": pastWeekly.Format(time.RFC3339),
 		},
 	}
-	require.Nil(t, cnProviderQuotaSnapshotReset(expired, now))
+	require.False(t, cnQuotaSnapshotHasFutureReset(expired, now))
 
-	// payg 账号（非 coding）→ nil（余额型走余额检测）。
+	// payg 账号（非 coding）→ 余额型走余额检测，不进窗口判定。
 	payg := &Account{
 		Platform:    PlatformKimi,
 		Credentials: map[string]any{"account_mode": AccountModePayG},
 		Extra:       map[string]any{"kimi_5h_reset_at": future5h.Format(time.RFC3339)},
 	}
-	require.Nil(t, cnProviderQuotaSnapshotReset(payg, now))
+	require.False(t, cnQuotaSnapshotHasFutureReset(payg, now))
+	require.False(t, cnQuotaSnapshotHasFutureReset(nil, now))
 }
 
 // TestNormalizeOpenAICompatiblePlatform_SchedulerExactMatch 回归保护：

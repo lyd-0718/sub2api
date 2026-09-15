@@ -548,11 +548,18 @@ func (s *SettingService) buildSystemSettingsUpdates(ctx context.Context, setting
 	return updates, nil
 }
 
+// defaultAccountSchedulingThresholds 是各平台自动停调阈值的默认值（100 = 关闭）。
+// kimi 的 Coding Plan 滚动窗口（5h/weekly）必须默认开启 85：额度耗尽后停调度是
+// 需求方指定的功能 1，未配置时若该平台不在表内，EvaluateAccountSchedulingThreshold
+// 会直接早退 → 只剩 403 时刻的一次性判定，快照驱动的「续停/自动恢复」永不生效。
+// 该默认值同时是管理端设置页的展示值与保存时的合并基线（validateAndNormalize…），
+// 因此不需要额外的 DB 种子（settings 表无该键的行 = 走默认值）。
 func defaultAccountSchedulingThresholds() map[string]int {
 	return map[string]int{
 		PlatformOpenAI:    100,
 		PlatformAnthropic: 100,
 		PlatformGrok:      100,
+		PlatformKimi:      85,
 	}
 }
 

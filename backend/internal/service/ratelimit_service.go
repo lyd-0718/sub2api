@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/config"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/ctxkey"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
 	"github.com/tidwall/gjson"
 )
@@ -31,12 +32,19 @@ type RateLimitService struct {
 	settingService        *SettingService
 	tokenCacheInvalidator TokenCacheInvalidator
 	runtimeBlocker        AccountRuntimeBlocker
+	concurrencyCapStore   ConcurrencyCapStore
 	usageCacheMu          sync.RWMutex
 	usageCache            map[int64]*geminiUsageCacheEntry
 
 	// OpenAI Team 联动熔断的进程内去重：teamID → 去重窗口截止时间
 	openaiTeamLinkedMu     sync.Mutex
 	openaiTeamLinkedRecent map[string]time.Time
+
+	// CN 403 副作用幂等：键 = 请求 ID + 账号 ID + 分类，值 = 去重窗口截止时间。
+	// 同一请求对同一账号的同一类错误只施加一次副作用（error + response.failed 双事件、
+	// HTTP 403 与流内 403 重复命中都会被合并）。
+	cn403SideEffectMu     sync.Mutex
+	cn403SideEffectRecent map[string]time.Time
 }
 
 type AccountRuntimeBlocker interface {
@@ -91,6 +99,11 @@ const (
 	openAI403CounterWindowMinutes   = 180
 )
 
+// cn403SideEffectDedupTTL 是 CN 403 副作用幂等键的存活时间。取值只需覆盖单个客户端
+// 请求的完整生命周期（含流内 error → response.failed 双事件、HTTP 与流内重复命中），
+// 不能长到跨请求——上游重启/重试会在新请求里重新命中同一账号，那是新的副作用。
+const cn403SideEffectDedupTTL = 60 * time.Second
+
 // NewRateLimitService 创建RateLimitService实例
 func NewRateLimitService(accountRepo AccountRepository, usageRepo UsageLogRepository, cfg *config.Config, geminiQuotaService *GeminiQuotaService, tempUnschedCache TempUnschedCache) *RateLimitService {
 	return &RateLimitService{
@@ -120,6 +133,12 @@ func (s *RateLimitService) SetOpenAI403CounterCache(cache OpenAI403CounterCache)
 // SetSettingService 设置系统设置服务（可选依赖）
 func (s *RateLimitService) SetSettingService(settingService *SettingService) {
 	s.settingService = settingService
+}
+
+// SetConcurrencyCapStore 注入账号级有效并发上限存储（可选依赖）。
+// 未注入时撞并发 403 仍然只做 30s 临时停车（保留旧行为），不写 cap。
+func (s *RateLimitService) SetConcurrencyCapStore(store ConcurrencyCapStore) {
+	s.concurrencyCapStore = store
 }
 
 // SetTokenCacheInvalidator 设置 token 缓存清理器（可选依赖）
@@ -329,6 +348,13 @@ func (s *RateLimitService) HandleUpstreamError(ctx context.Context, account *Acc
 	// Team 联动熔断必须先于池模式/自定义错误码/临时不可调度的各类早退；
 	// 同请求内与 fastpath 调用点的重复触发由方法内去重吸收。
 	s.maybeHandleOpenAITeamLinkedError(ctx, account, statusCode, responseBody)
+
+	// 国产供应商 403 统一分类必须先于池模式/自定义错误码/临时不可调度的各类早退：
+	// 并发限流与额度耗尽都不得进入 handleOpenAI403 的连续计数（计数到阈值即永久
+	// status=error，而两者都会在上游释放槽位/窗口重置后自然恢复）。
+	if statusCode == http.StatusForbidden && s.HandleCNClassifiedUpstreamError(ctx, account, statusCode, responseBody) {
+		return true
+	}
 	customErrorCodesEnabled := account.IsCustomErrorCodesEnabled()
 
 	// 池模式默认不标记本地账号状态；但管理员显式配置的临时不可调度规则优先。
@@ -973,19 +999,84 @@ func buildForbiddenErrorMessage(prefix string, upstreamMsg string, responseBody 
 	return prefix + fallback
 }
 
+// HandleCNClassifiedUpstreamError 是 CN 403 统一分类器的唯一收口。
+//
+// 返回 true 表示分类命中（并发限流 / 额度耗尽）且账号副作用已按类施加，调用方必须
+// 早退：这两类错误都不得进入 handleOpenAI403 的连续 403 计数——计数到阈值会把账号
+// 永久置 status=error，而两者都是「上游释放槽位 / 窗口重置」后必然恢复的瞬时状态。
+// 非 CN 平台、未识别的 403 一律返回 false（调用方维持既有处理）。
+//
+// statusCode 传 HTTP 状态码；流内错误传语义状态码（403）。
+func (s *RateLimitService) HandleCNClassifiedUpstreamError(ctx context.Context, account *Account, statusCode int, body []byte) bool {
+	if s == nil || account == nil {
+		return false
+	}
+	switch ClassifyCNUpstreamError(account.Platform, statusCode, body) {
+	case UpstreamErrorConcurrentLimit:
+		// 幂等键命中（同一请求同账号同类已写过）时只吞掉副作用，仍返回 true：
+		// 调用方必须早退，避免重复进入 403 计数。
+		if s.markCN403SideEffectFired(ctx, account.ID, UpstreamErrorConcurrentLimit) {
+			s.handleCNProviderConcurrencyLimit403(ctx, account)
+		}
+		return true
+	case UpstreamErrorQuotaExhausted:
+		if s.markCN403SideEffectFired(ctx, account.ID, UpstreamErrorQuotaExhausted) {
+			s.handleCNProviderQuotaExhausted403(ctx, account, body)
+		}
+		return true
+	default:
+		return false
+	}
+}
+
+// markCN403SideEffectFired 以「请求 ID + 账号 ID + 分类」为键做进程内去重
+// （先例见 markOpenAITeamLinkedFired）。请求 ID 取中间件写入 ctx 的 client_request_id；
+// 取不到（WS/SSE 排水路径脱离请求链等）时不去重——两种副作用本身都是单调收敛的
+// （SetCap 同值重写、SetRateLimitedIfLater 只前进），重复写不会回退状态。
+func (s *RateLimitService) markCN403SideEffectFired(ctx context.Context, accountID int64, class UpstreamErrorClass) bool {
+	requestID := cn403SideEffectRequestID(ctx)
+	if requestID == "" || accountID <= 0 {
+		return true
+	}
+	key := requestID + "|" + strconv.FormatInt(accountID, 10) + "|" + class.String()
+	now := time.Now()
+
+	s.cn403SideEffectMu.Lock()
+	defer s.cn403SideEffectMu.Unlock()
+	if expiry, ok := s.cn403SideEffectRecent[key]; ok && expiry.After(now) {
+		return false
+	}
+	if s.cn403SideEffectRecent == nil {
+		s.cn403SideEffectRecent = make(map[string]time.Time)
+	}
+	for k, v := range s.cn403SideEffectRecent {
+		if !v.After(now) {
+			delete(s.cn403SideEffectRecent, k)
+		}
+	}
+	s.cn403SideEffectRecent[key] = now.Add(cn403SideEffectDedupTTL)
+	return true
+}
+
+// cn403SideEffectRequestID 读取中间件写入请求 ctx 的 client_request_id。
+func cn403SideEffectRequestID(ctx context.Context) string {
+	if ctx == nil {
+		return ""
+	}
+	value, _ := ctx.Value(ctxkey.ClientRequestID).(string)
+	return strings.TrimSpace(value)
+}
+
 // handle403 处理 403 Forbidden 错误
 // Antigravity 平台区分 validation/violation/generic 三种类型，均 SetError 永久禁用；
 // 其他平台保持原有 SetError 行为。
+//
+// 注意：CN 平台（kimi/zhipu/minimax）的并发限流与额度耗尽已在 HandleUpstreamError 的
+// 分类器收口（HandleCNClassifiedUpstreamError）中命中并早退，不会到达这里——不要再在
+// 本函数里为这两类错误加分支，否则会重复施加副作用。
 func (s *RateLimitService) handle403(ctx context.Context, account *Account, upstreamMsg string, responseBody []byte) (shouldDisable bool) {
 	if account.Platform == PlatformAntigravity {
 		return s.handleAntigravity403(ctx, account, upstreamMsg, responseBody)
-	}
-	// Kimi reports its transient per-account concurrency/business limit as a 403.
-	// Keep the normal 403 failover signal (true), but never feed this exact message
-	// into the escalating 403 counter that can permanently mark the account error.
-	if isCNProviderConcurrencyLimit403(account, upstreamMsg) {
-		s.handleCNProviderConcurrencyLimit403(ctx, account)
-		return true
 	}
 	// 国产供应商与 openai 同口径:HTML 403(CDN/代理拦截页)不构成账号失效证据,
 	// 且 403 在 failover 状态集里会被逐账号重放——直接 SetError 会让一个坏请求/

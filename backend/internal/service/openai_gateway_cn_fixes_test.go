@@ -144,25 +144,19 @@ func TestHandle403_CNProviderStructured403TempUnschedulableFirstHit(t *testing.T
 	require.Contains(t, repo.lastTempReason, "(1/3)")
 }
 
-func TestIsCNProviderConcurrencyLimit403_ExactClassification(t *testing.T) {
-	kimi := &Account{Platform: PlatformKimi}
+func TestCNConcurrentLimitExactWording_ExactClassification(t *testing.T) {
+	require.True(t, cnConcurrentLimitExactWording(kimiConcurrentRequestLimitMessage))
+	require.True(t, cnConcurrentLimitExactWording("  "+kimiConcurrentRequestLimitMessage+"\n"))
 
-	require.True(t, isCNProviderConcurrencyLimit403(kimi, kimiConcurrentRequestLimitMessage))
-	require.True(t, isCNProviderConcurrencyLimit403(kimi, "  "+kimiConcurrentRequestLimitMessage+"\n"))
-
-	for name, tc := range map[string]struct {
-		account *Account
-		message string
-	}{
-		"permission denied":              {kimi, "You do not have permission to access this resource."},
-		"generic concurrency wording":    {kimi, "concurrent request limit reached"},
-		"near match missing punctuation": {kimi, "You've reached your concurrent request limit. Please wait for your ongoing requests to finish and try again"},
-		"other CN provider":              {&Account{Platform: PlatformZhipu}, kimiConcurrentRequestLimitMessage},
-		"non CN provider":                {&Account{Platform: PlatformOpenAI}, kimiConcurrentRequestLimitMessage},
-		"nil account":                    {nil, kimiConcurrentRequestLimitMessage},
+	// 精确文案必须逐字相等；宽松兜底（含 "concurrent request limit"）由
+	// ClassifyCNUpstreamError 负责，不在这里放宽。
+	for name, message := range map[string]string{
+		"permission denied":              "You do not have permission to access this resource.",
+		"generic concurrency wording":    "concurrent request limit reached",
+		"near match missing punctuation": "You've reached your concurrent request limit. Please wait for your ongoing requests to finish and try again",
 	} {
 		t.Run(name, func(t *testing.T) {
-			require.False(t, isCNProviderConcurrencyLimit403(tc.account, tc.message))
+			require.False(t, cnConcurrentLimitExactWording(message))
 		})
 	}
 }
@@ -241,19 +235,23 @@ func TestHandle403_KimiConcurrencyLimitRepositoryFailureKeepsRuntimeBlock(t *tes
 	require.True(t, blocker.until[0].After(time.Now()))
 }
 
-func TestHandle403_CNProviderNearMatchRetainsNormalPermanentErrorPolicy(t *testing.T) {
+func TestHandle403_CNProviderConcurrencyLooseWordingBypassesNormalPolicy(t *testing.T) {
 	repo := &rateLimitAccountRepoStub{}
 	counter := &openAI403CounterCacheStub{counts: []int64{openAI403DisableThreshold}}
 	service := NewRateLimitService(repo, nil, &config.Config{}, nil, nil)
 	service.SetOpenAI403CounterCache(counter)
 	account := &Account{ID: 404, Platform: PlatformKimi, Type: AccountTypeAPIKey}
 
+	// 宽松兜底：上游改写尾部文案（"...Please contact support."）时仍必须归为并发限流，
+	// 否则会落回 403 计数 → 3 次后永久禁用。
 	shouldDisable := service.HandleUpstreamError(
 		context.Background(), account, http.StatusForbidden, http.Header{},
 		[]byte(`{"error":{"message":"You've reached your concurrent request limit. Please contact support."}}`),
 	)
 
 	require.True(t, shouldDisable)
-	require.Equal(t, 1, repo.setErrorCalls, "non-exact 403 must retain existing permission/auth protection")
-	require.Equal(t, 0, repo.tempCalls)
+	require.Equal(t, 0, repo.setErrorCalls, "并发文案命中不得永久禁用账号")
+	require.Equal(t, 1, repo.tempCalls)
+	require.Contains(t, repo.lastTempReason, cnConcurrencyLimitReasonPrefix)
+	require.Equal(t, []int64{openAI403DisableThreshold}, counter.counts, "并发文案命中不得消耗 403 计数")
 }

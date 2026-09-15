@@ -167,6 +167,18 @@ func (s *accountRepoStub) SetRateLimited(ctx context.Context, id int64, resetAt 
 	panic("unexpected SetRateLimited call")
 }
 
+func (s *accountRepoStub) SetRateLimitedIfLater(ctx context.Context, id int64, resetAt time.Time) error {
+	panic("unexpected SetRateLimitedIfLater call")
+}
+
+func (s *accountRepoStub) ListCNQuotaDisabled(ctx context.Context, platform string) ([]*Account, error) {
+	panic("unexpected ListCNQuotaDisabled call")
+}
+
+func (s *accountRepoStub) RestoreRecoveredAccount(ctx context.Context, accountID int64, expectedUpdatedAt time.Time) (bool, error) {
+	panic("unexpected RestoreRecoveredAccount call")
+}
+
 func (s *accountRepoStub) SetModelRateLimit(ctx context.Context, id int64, scope string, resetAt time.Time, reason ...string) error {
 	panic("unexpected SetModelRateLimit call")
 }

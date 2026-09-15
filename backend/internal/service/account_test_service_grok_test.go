@@ -88,6 +88,15 @@ func (r *grokAccountTestRateLimitRepo) SetRateLimited(_ context.Context, _ int64
 	return nil
 }
 
+// persistGrokRateLimit 对实现了 grokRateLimitExtendingRepository 的 repo 走
+// SetRateLimitedIfLater 分支；本桩嵌套的 mock 现在实现了该接口，因此必须覆盖并
+// 计入同一计数器——测试断言的是「限流被持久化」，不关心走哪个分支。
+func (r *grokAccountTestRateLimitRepo) SetRateLimitedIfLater(_ context.Context, _ int64, resetAt time.Time) error {
+	r.rateLimitedCalls++
+	r.resetAt = resetAt
+	return nil
+}
+
 func TestAccountTestService_TestAccountConnection_GrokUsesXAIResponses(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 

@@ -1016,6 +1016,25 @@ func filterSchedulerExtra(extra map[string]any) map[string]any {
 		"codex_5h_reset_after_seconds",
 		"codex_7d_reset_after_seconds",
 		"codex_usage_updated_at",
+		// 国产供应商 Coding Plan 的 5h / weekly 滚动窗口快照必须进投影：候选过滤与
+		// 阈值停调读的是本投影（cnProviderThresholdCandidates），裁掉这些键会让阈值
+		// 路径恒为 nil → 额度耗尽停调/续停永不生效（账号只能靠 403 时刻的一次性判定）。
+		// 键名与 CNProviderQuotaService 的写入侧（cnExtraKey：provider_suffix）逐字一致。
+		"kimi_5h_used_percent",
+		"kimi_5h_reset_at",
+		"kimi_weekly_used_percent",
+		"kimi_weekly_reset_at",
+		"kimi_usage_updated_at",
+		"zhipu_5h_used_percent",
+		"zhipu_5h_reset_at",
+		"zhipu_weekly_used_percent",
+		"zhipu_weekly_reset_at",
+		"zhipu_usage_updated_at",
+		"minimax_5h_used_percent",
+		"minimax_5h_reset_at",
+		"minimax_weekly_used_percent",
+		"minimax_weekly_reset_at",
+		"minimax_usage_updated_at",
 		"auto_pause_5h_threshold",
 		"auto_pause_7d_threshold",
 		"auto_pause_5h_disabled",

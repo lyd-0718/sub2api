@@ -442,6 +442,30 @@ func isOpenAIHTTPUpstreamAccessStateError(_ int, _ string, body []byte) bool {
 	return isOpenAIUpstreamAccessStateError("", body)
 }
 
+// applyCNClassifiedStream403AccountSideEffects 把流内 403 交给 CN 403 分类器
+// （ratelimit_classifier.go），命中并发限流/额度耗尽时按 HTTP 403 同口径施加账号副作用
+// （写 cap / 按窗口停调），返回 true 表示已处理。
+//
+// 必须早于 openAIStream403AccountFailure 谓词：该谓词只认 OpenAI 访问态与凭据错误，
+// kimi 并发文案与额度文案都不命中 → 若先过谓词，流内 403 会被静默丢弃（不写 cap、
+// 不换号、不停调）。
+func (s *OpenAIGatewayService) applyCNClassifiedStream403AccountSideEffects(ctx context.Context, account *Account, payload []byte) bool {
+	if s == nil || s.rateLimitService == nil || account == nil || !IsCNProvider(account.Platform) {
+		return false
+	}
+	return s.rateLimitService.HandleCNClassifiedUpstreamError(ctx, account, http.StatusForbidden, payload)
+}
+
+// openAIStreamSideEffectContext 取流内账号副作用使用的 ctx：优先请求 ctx
+// （带 middleware 写入的 client_request_id，副作用幂等键依赖它），
+// 无 gin context 时退化为 Background。
+func openAIStreamSideEffectContext(c *gin.Context) context.Context {
+	if c != nil && c.Request != nil {
+		return c.Request.Context()
+	}
+	return context.Background()
+}
+
 func openAICapacityShedClientMessage(upstreamMsg string, body []byte) string {
 	for _, candidate := range []string{
 		upstreamMsg,

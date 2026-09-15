@@ -153,6 +153,15 @@ func (m *mockAccountRepoForGemini) ListModelAvailabilityCandidates(ctx context.C
 func (m *mockAccountRepoForGemini) SetRateLimited(ctx context.Context, id int64, resetAt time.Time) error {
 	return nil
 }
+func (m *mockAccountRepoForGemini) SetRateLimitedIfLater(ctx context.Context, id int64, resetAt time.Time) error {
+	return nil
+}
+func (m *mockAccountRepoForGemini) ListCNQuotaDisabled(ctx context.Context, platform string) ([]*Account, error) {
+	return nil, nil
+}
+func (m *mockAccountRepoForGemini) RestoreRecoveredAccount(ctx context.Context, accountID int64, expectedUpdatedAt time.Time) (bool, error) {
+	return false, nil
+}
 func (m *mockAccountRepoForGemini) SetModelRateLimit(ctx context.Context, id int64, scope string, resetAt time.Time, reason ...string) error {
 	return nil
 }

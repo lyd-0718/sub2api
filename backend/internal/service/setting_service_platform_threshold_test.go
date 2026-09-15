@@ -29,6 +29,7 @@ func TestPlatformSchedulingThresholds_RoundTrip_DefaultsAndStoredValues(t *testi
 		PlatformOpenAI:    100,
 		PlatformAnthropic: 100,
 		PlatformGrok:      100,
+		PlatformKimi:      85,
 	}, got.AccountSchedulingThresholds)
 
 	got = svc.parseSettings(map[string]string{
@@ -52,7 +53,7 @@ func TestBuildSystemSettingsUpdates_PersistsAccountSchedulingThresholds(t *testi
 		},
 	})
 	require.NoError(t, err)
-	require.JSONEq(t, `{"openai":91,"anthropic":88,"grok":77}`, updates[SettingKeyAccountSchedulingThresholds])
+	require.JSONEq(t, `{"openai":91,"anthropic":88,"grok":77,"kimi":85}`, updates[SettingKeyAccountSchedulingThresholds])
 }
 
 func TestValidateAndNormalizeAccountSchedulingThresholds_FillsMissingPlatforms(t *testing.T) {
@@ -167,5 +168,6 @@ func TestGetAccountSchedulingThresholds_NilRepoReturnsDefaults(t *testing.T) {
 		PlatformOpenAI:    100,
 		PlatformAnthropic: 100,
 		PlatformGrok:      100,
+		PlatformKimi:      85,
 	}, got)
 }

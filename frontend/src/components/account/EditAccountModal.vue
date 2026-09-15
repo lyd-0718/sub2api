@@ -1605,6 +1605,12 @@
           <label class="input-label">{{ t('admin.accounts.concurrency') }}</label>
           <input v-model.number="form.concurrency" type="number" min="1" class="input"
             @input="form.concurrency = Math.max(1, form.concurrency || 1)" />
+          <p v-if="concurrencyCapLabel" class="input-hint" data-testid="account-concurrency-cap">
+            {{ concurrencyCapLabel }}
+            <span v-if="concurrencyCapTags.length" class="text-amber-600 dark:text-amber-400">
+              · {{ concurrencyCapTags.join(' · ') }}
+            </span>
+          </p>
         </div>
         <div>
           <label class="input-label">{{ t('admin.accounts.loadFactor') }}</label>
@@ -2979,7 +2985,8 @@ import type {
   OpenAIEndpointCapability,
   OllamaCloudUsageState,
   GrokMediaEligibilityMode,
-  GrokMediaEligibilityState
+  GrokMediaEligibilityState,
+  AccountConcurrencyCapState
 } from '@/types'
 import BaseDialog from '@/components/common/BaseDialog.vue'
 import ConfirmDialog from '@/components/common/ConfirmDialog.vue'
@@ -3087,6 +3094,58 @@ const hideAccountLongContextBilling = computed(() => {
 const handleOllamaCloudUsageUpdated = (state: OllamaCloudUsageState) => {
   if (props.account) emit('updated', { ...props.account, ollama_cloud_usage: state })
 }
+
+// 账号级有效并发上限（cap）只读展示：区分「配置并发」与「有效并发」，
+// 受限账号在详情里直接可见原因/下次探测/抖动计数。拉取失败静默（不阻塞编辑流程）。
+const concurrencyCapState = ref<AccountConcurrencyCapState | null>(null)
+
+const loadConcurrencyCapState = async () => {
+  const accountID = props.account?.id
+  concurrencyCapState.value = null
+  if (!accountID) return
+  try {
+    concurrencyCapState.value = await adminAPI.accounts.getAccountConcurrencyCap(accountID)
+  } catch {
+    concurrencyCapState.value = null
+  }
+}
+
+watch(
+  () => [props.show, props.account?.id] as const,
+  ([show]) => {
+    if (show) void loadConcurrencyCapState()
+  },
+  { immediate: true }
+)
+
+const concurrencyCapLabel = computed(() => {
+  const state = concurrencyCapState.value
+  if (!state) return ''
+  return t('admin.accounts.concurrencyCapEffective', {
+    effective: state.effective_concurrency,
+    configured: state.configured_concurrency
+  })
+})
+
+const concurrencyCapTags = computed(() => {
+  const state = concurrencyCapState.value
+  if (!state) return [] as string[]
+  const tags: string[] = []
+  if (state.restricted) tags.push(t('admin.accounts.concurrencyCapRestricted'))
+  if (state.pinned) tags.push(t('admin.accounts.concurrencyCapPinned'))
+  if (state.fused) {
+    tags.push(
+      t('admin.accounts.concurrencyCapFused', {
+        count: state.flap_count_7d,
+        threshold: state.fuse_flap_threshold
+      })
+    )
+  }
+  if (state.next_probe_at) {
+    tags.push(t('admin.accounts.concurrencyCapNextProbe', { time: state.next_probe_at }))
+  }
+  return tags
+})
 
 // Platform-specific hint for Base URL
 const baseUrlHint = computed(() => {

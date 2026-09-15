@@ -814,8 +814,18 @@ func (s *GatewayService) Forward(ctx context.Context, c *gin.Context, account *A
 				// 上游 HTTP 200 + SSE 流体内出现 event:error 帧。
 				body := []byte(sseErr.RawData)
 				semanticStatus := http.StatusForbidden
-				if c.Writer.Size() == writerSizeBeforeStream && gjson.GetBytes(body, "error.type").String() == "overloaded_error" {
+				overloaded := c.Writer.Size() == writerSizeBeforeStream &&
+					gjson.GetBytes(body, "error.type").String() == "overloaded_error"
+				if overloaded {
 					semanticStatus = 529
+				}
+				// CN 平台（kimi/zhipu/minimax）的并发限流/额度耗尽文案必须先过分类器再写
+				// 副作用：现状只有 overloaded_error 会落 handleFailoverSideEffects，
+				// 而 CN 文案既不命中该分支、也不进任何 403 计数路径 → 流内 403 被静默丢弃
+				// （不写 cap、不按窗口停调）。分类命中即按 HTTP 403 同口径施加账号副作用。
+				cnClassified := !overloaded && IsCNProvider(account.Platform) &&
+					ClassifyCNUpstreamError(account.Platform, http.StatusForbidden, body) != UpstreamErrorOther
+				if overloaded || cnClassified {
 					syntheticResp := &http.Response{
 						StatusCode: semanticStatus,
 						Header:     resp.Header.Clone(),

@@ -11,6 +11,10 @@ import (
 // registerTraceAdminRoutes 二开模块路由：会话 trace 管理 + 账号用量导出。
 // 挂载在 admin 组下，复用现有管理员鉴权/审计中间件。
 func registerTraceAdminRoutes(admin *gin.RouterGroup, h *handler.Handlers) {
+	// 测试会用部分构造的 Handlers 调路由注册；trace 模块未接线时跳过，避免 nil 解引用。
+	if h == nil || h.Admin.TraceAdmin == nil || h.Admin.AccountUsageExport == nil {
+		return
+	}
 	// 会话 Trace 管理
 	traces := admin.Group("/traces")
 	{

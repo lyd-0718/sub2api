@@ -28,7 +28,9 @@ import type {
   OllamaCloudUsageSettings,
   OllamaCloudUsageState,
   GrokMediaEligibilityMode,
-  GrokMediaEligibilityState
+  GrokMediaEligibilityState,
+  AccountConcurrencyCapState,
+  UpdateAccountConcurrencyCapRequest
 } from '@/types'
 
 /**
@@ -1042,6 +1044,26 @@ export async function getOllamaCloudUsage(id: number): Promise<OllamaCloudUsageS
   return data
 }
 
+/** 账号级有效并发上限（cap）治理状态：配置并发 vs 有效并发、受限原因、下次探测、flap 计数。 */
+export async function getAccountConcurrencyCap(id: number): Promise<AccountConcurrencyCapState> {
+  const { data } = await apiClient.get<AccountConcurrencyCapState>(
+    `/admin/accounts/${id}/concurrency-cap`
+  )
+  return data
+}
+
+/** 人工干预：设置 cap、置位/清位 pinned、解除熔断。 */
+export async function updateAccountConcurrencyCap(
+  id: number,
+  payload: UpdateAccountConcurrencyCapRequest
+): Promise<AccountConcurrencyCapState> {
+  const { data } = await apiClient.put<AccountConcurrencyCapState>(
+    `/admin/accounts/${id}/concurrency-cap`,
+    payload
+  )
+  return data
+}
+
 export async function saveOllamaCloudUsageSession(id: number, session: string): Promise<OllamaCloudUsageState> {
   const { data } = await apiClient.put<OllamaCloudUsageState>(`/admin/accounts/${id}/ollama-cloud-usage/session`, {
     session
@@ -1126,6 +1148,8 @@ export const accountsAPI = {
   getOllamaCloudUsageSettings,
   updateOllamaCloudUsageSettings,
   getOllamaCloudUsage,
+  getAccountConcurrencyCap,
+  updateAccountConcurrencyCap,
   saveOllamaCloudUsageSession,
   deleteOllamaCloudUsageSession,
   setOllamaCloudUsageAutoRefresh,

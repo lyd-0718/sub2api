@@ -1175,8 +1175,9 @@ func (s *defaultOpenAIAccountScheduler) tryAcquireOpenAISelectionOrderWithBudget
 		if candidate.account == nil {
 			continue
 		}
-		if candidate.loadKnown && candidate.account.Concurrency > 0 &&
-			candidate.loadInfo.CurrentConcurrency >= candidate.account.Concurrency {
+		effectiveConcurrency := s.effectiveAccountConcurrency(ctx, candidate.account)
+		if candidate.loadKnown && effectiveConcurrency > 0 &&
+			candidate.loadInfo.CurrentConcurrency >= effectiveConcurrency {
 			continue
 		}
 
@@ -1655,6 +1656,19 @@ func buildOpenAIAccountLoadRequest(accounts []*Account) []AccountWithConcurrency
 	return loadReq
 }
 
+// effectiveAccountConcurrency 返回候选账号的有效并发上限（配置并发夹账号级 cap）。
+// 「是否已满」的判满必须用这个值：负载批量侧已按 cap 计算负载率，配置并发仍是原值，
+// 用配置值比较会让受限账号永远判不满（cap=1 时 current=1 < concurrency=10）。
+func (s *defaultOpenAIAccountScheduler) effectiveAccountConcurrency(ctx context.Context, account *Account) int {
+	if account == nil {
+		return 0
+	}
+	if s.service == nil || s.service.concurrencyService == nil {
+		return account.Concurrency
+	}
+	return s.service.concurrencyService.EffectiveAccountConcurrency(ctx, account.ID, account.Concurrency)
+}
+
 func (s *defaultOpenAIAccountScheduler) finishLoadBalanceSelectionFallback(
 	ctx context.Context,
 	req OpenAIAccountScheduleRequest,
@@ -1691,8 +1705,9 @@ func (s *defaultOpenAIAccountScheduler) finishLoadBalanceSelectionFallback(
 				continue
 			}
 			if budget != nil && budget.limited {
-				knownFull := candidate.loadKnown && candidate.account.Concurrency > 0 &&
-					candidate.loadInfo.CurrentConcurrency >= candidate.account.Concurrency
+				effectiveConcurrency := s.effectiveAccountConcurrency(ctx, candidate.account)
+				knownFull := candidate.loadKnown && effectiveConcurrency > 0 &&
+					candidate.loadInfo.CurrentConcurrency >= effectiveConcurrency
 				if budget.wasAttempted(candidate.account.ID) != wantAttempted || knownFull != wantKnownFull {
 					continue
 				}

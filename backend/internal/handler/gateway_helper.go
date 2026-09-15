@@ -336,6 +336,9 @@ func (h *ConcurrencyHelper) withAPIKeySlot(ctx context.Context, apiKeyID int64, 
 // streamStarted is updated if streaming response has begun.
 func (h *ConcurrencyHelper) AcquireAccountSlotWithWait(c *gin.Context, accountID int64, maxConcurrency int, isStream bool, streamStarted *bool) (func(), error) {
 	ctx := c.Request.Context()
+	// 判满与后续重试统一用夹帽后的有效并发：MaxWaiting 队列容量由 WaitPlan 独立决定，
+	// 不受 cap 影响，但「账号是否已满」必须按 cap 判定，否则受限账号的等待队列永远填不满。
+	maxConcurrency = h.effectiveAccountConcurrency(ctx, accountID, maxConcurrency)
 
 	// Try to acquire immediately
 	releaseFunc, acquired, err := h.TryAcquireAccountSlot(ctx, accountID, maxConcurrency)
@@ -448,7 +451,18 @@ func (h *ConcurrencyHelper) waitForSlotWithPingTimeout(c *gin.Context, slotType 
 
 // AcquireAccountSlotWithWaitTimeout acquires an account slot with a custom timeout (keeps SSE ping).
 func (h *ConcurrencyHelper) AcquireAccountSlotWithWaitTimeout(c *gin.Context, accountID int64, maxConcurrency int, timeout time.Duration, isStream bool, streamStarted *bool) (func(), error) {
+	ctx := c.Request.Context()
+	maxConcurrency = h.effectiveAccountConcurrency(ctx, accountID, maxConcurrency)
 	return h.waitForSlotWithPingTimeout(c, "account", accountID, maxConcurrency, timeout, isStream, streamStarted, true)
+}
+
+// effectiveAccountConcurrency 收敛账号级有效并发：配置并发夹账号级 cap（无记录不夹帽）。
+// 未接线并发服务时原样返回。
+func (h *ConcurrencyHelper) effectiveAccountConcurrency(ctx context.Context, accountID int64, maxConcurrency int) int {
+	if h == nil || h.concurrencyService == nil {
+		return maxConcurrency
+	}
+	return h.concurrencyService.EffectiveAccountConcurrency(ctx, accountID, maxConcurrency)
 }
 
 // nextBackoff 计算下一次退避时间

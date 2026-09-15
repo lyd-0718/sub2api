@@ -187,6 +187,15 @@ func (m *mockAccountRepoForPlatform) ListModelAvailabilityCandidates(_ context.C
 func (m *mockAccountRepoForPlatform) SetRateLimited(ctx context.Context, id int64, resetAt time.Time) error {
 	return nil
 }
+func (m *mockAccountRepoForPlatform) SetRateLimitedIfLater(ctx context.Context, id int64, resetAt time.Time) error {
+	return nil
+}
+func (m *mockAccountRepoForPlatform) ListCNQuotaDisabled(ctx context.Context, platform string) ([]*Account, error) {
+	return nil, nil
+}
+func (m *mockAccountRepoForPlatform) RestoreRecoveredAccount(ctx context.Context, accountID int64, expectedUpdatedAt time.Time) (bool, error) {
+	return false, nil
+}
 func (m *mockAccountRepoForPlatform) SetModelRateLimit(ctx context.Context, id int64, scope string, resetAt time.Time, reason ...string) error {
 	return nil
 }

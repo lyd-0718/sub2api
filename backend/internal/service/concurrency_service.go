@@ -231,6 +231,10 @@ const (
 type ConcurrencyService struct {
 	cache ConcurrencyCache
 
+	// capStore 是账号级有效并发上限（cap）存储。启动装配时通过
+	// SetConcurrencyCapStore 注入一次；nil 等价于「所有账号都没有 cap 记录」（不夹帽）。
+	capStore ConcurrencyCapStore
+
 	accountLoadCacheTTL atomic.Int64
 	accountLoadCacheMu  sync.RWMutex
 	accountLoadCache    map[string]cachedAccountLoadBatch
@@ -306,6 +310,94 @@ func (s *ConcurrencyService) SetAccountLoadBatchCacheTTL(ttl time.Duration) {
 	}
 }
 
+// SetConcurrencyCapStore 接线账号级有效并发上限（cap）存储。
+// 只在启动装配阶段调用一次；传 nil 表示关闭账号级夹帽。
+func (s *ConcurrencyService) SetConcurrencyCapStore(store ConcurrencyCapStore) {
+	if s == nil {
+		return
+	}
+	s.capStore = store
+}
+
+// concurrencyCapStore 返回已接线的 cap 存储（未接线时 nil）。
+func (s *ConcurrencyService) concurrencyCapStore() ConcurrencyCapStore {
+	if s == nil {
+		return nil
+	}
+	return s.capStore
+}
+
+// EffectiveAccountConcurrency 返回账号的有效并发上限 min(配置并发, cap)。
+//
+// 语义与契约 1 的 EffectiveCap 对齐：
+//   - 有 cap 记录  → 夹帽（配置并发 <= 0 时直接取 cap，受限账号不允许无限放行）
+//   - 无记录       → 返回配置并发（不夹帽，非 CN 平台因此不受影响）
+//   - 存储不可用   → 返回配置并发（宁可不夹帽，也不能把全平台账号锁死）
+func (s *ConcurrencyService) EffectiveAccountConcurrency(ctx context.Context, accountID int64, configured int) int {
+	store := s.concurrencyCapStore()
+	if store == nil || accountID <= 0 {
+		return configured
+	}
+	capValue, known, err := store.EffectiveCap(ctx, accountID)
+	if err != nil || !known || capValue <= 0 {
+		return configured
+	}
+	return minAccountConcurrency(configured, capValue)
+}
+
+// EffectiveAccountConcurrencyBatch 批量返回 accountID → 有效并发上限。
+// 只包含成功读到 cap 记录的账号；未命中的账号由调用方回落配置值。
+func (s *ConcurrencyService) EffectiveAccountConcurrencyBatch(ctx context.Context, accounts []AccountWithConcurrency) map[int64]int {
+	store := s.concurrencyCapStore()
+	if store == nil || len(accounts) == 0 {
+		return nil
+	}
+	ids := make([]int64, 0, len(accounts))
+	configured := make(map[int64]int, len(accounts))
+	for _, account := range accounts {
+		if account.ID <= 0 {
+			continue
+		}
+		if _, seen := configured[account.ID]; seen {
+			continue
+		}
+		configured[account.ID] = account.MaxConcurrency
+		ids = append(ids, account.ID)
+	}
+	if len(ids) == 0 {
+		return nil
+	}
+
+	caps := make(map[int64]int, len(ids))
+	if reader, ok := store.(ConcurrencyCapBatchReader); ok {
+		caps = reader.EffectiveCaps(ctx, ids)
+	} else {
+		for _, accountID := range ids {
+			capValue, known, err := store.EffectiveCap(ctx, accountID)
+			if err == nil && known && capValue > 0 {
+				caps[accountID] = capValue
+			}
+		}
+	}
+	if len(caps) == 0 {
+		return nil
+	}
+
+	effective := make(map[int64]int, len(caps))
+	for accountID, capValue := range caps {
+		effective[accountID] = minAccountConcurrency(configured[accountID], capValue)
+	}
+	return effective
+}
+
+// minAccountConcurrency 取「配置并发」与「cap」的较小值；配置并发 <= 0（不限）时只能取 cap。
+func minAccountConcurrency(configured, capValue int) int {
+	if configured > 0 && configured < capValue {
+		return configured
+	}
+	return capValue
+}
+
 // AcquireResult represents the result of acquiring a concurrency slot
 type AcquireResult struct {
 	Acquired    bool
@@ -340,6 +432,10 @@ type UserLoadInfo struct {
 // If the account is at max concurrency, it waits until a slot is available or timeout.
 // Returns a release function that MUST be called when the request completes.
 func (s *ConcurrencyService) AcquireAccountSlot(ctx context.Context, accountID int64, maxConcurrency int) (*AcquireResult, error) {
+	// 账号级 cap 必须在「入参 <= 0 直通」之前收敛：受并发限流的账号即使配置并发为 0
+	// （不限），也必须受 cap 约束，否则这条准入路径会绕过治理。
+	maxConcurrency = s.EffectiveAccountConcurrency(ctx, accountID, maxConcurrency)
+
 	// If maxConcurrency is 0 or negative, no limit
 	if maxConcurrency <= 0 {
 		return &AcquireResult{
@@ -587,6 +683,9 @@ func (s *ConcurrencyService) getAccountsLoadBatch(ctx context.Context, accounts 
 	}
 
 	ttl := time.Duration(s.accountLoadCacheTTL.Load())
+	// 账号级 cap 必须在缓存 key 生成之前夹帽：key 摘要包含 MaxConcurrency，
+	// 先夹帽再进 key，受限账号才不会与非受限账号共用同一条负载缓存。
+	accounts = s.clampAccountLoadFactors(ctx, accounts)
 	if !allowCache || ttl <= 0 {
 		return s.fetchAccountsLoadBatch(ctx, accounts)
 	}
@@ -617,6 +716,32 @@ func (s *ConcurrencyService) getAccountsLoadBatch(ctx context.Context, accounts 
 		return map[int64]*AccountLoadInfo{}, nil
 	}
 	return loadMap, nil
+}
+
+// clampAccountLoadFactors 把账号级 cap 夹到「批量负载计算的除数」上。
+//
+// 入参 MaxConcurrency 是 EffectiveLoadFactor()（load_factor 优先于 concurrency），
+// 与准入侧的 account.Concurrency 不同源，因此夹帽对象必须是这里的除数本身。
+func (s *ConcurrencyService) clampAccountLoadFactors(ctx context.Context, accounts []AccountWithConcurrency) []AccountWithConcurrency {
+	effective := s.EffectiveAccountConcurrencyBatch(ctx, accounts)
+	if len(effective) == 0 {
+		return accounts
+	}
+	clamped := accounts
+	copied := false
+	for i := range accounts {
+		value, ok := effective[accounts[i].ID]
+		if !ok || value <= 0 || value == accounts[i].MaxConcurrency {
+			continue
+		}
+		if !copied {
+			clamped = make([]AccountWithConcurrency, len(accounts))
+			copy(clamped, accounts)
+			copied = true
+		}
+		clamped[i].MaxConcurrency = value
+	}
+	return clamped
 }
 
 func (s *ConcurrencyService) fetchAccountsLoadBatch(ctx context.Context, accounts []AccountWithConcurrency) (map[int64]*AccountLoadInfo, error) {

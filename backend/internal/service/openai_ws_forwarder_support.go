@@ -343,6 +343,11 @@ func (s *OpenAIGatewayService) handleOpenAIWSFailureAccountSideEffects(ctx conte
 		s.handleOpenAIStreamTerminalAccountSideEffects(nil, account, payload, message, headers, canonicalModel)
 		return true
 	case http.StatusForbidden:
+		// CN 分类器先于 openAIStream403AccountFailure 谓词：kimi 并发限流/额度耗尽文案
+		// 不命中该谓词，先过谓词会让流内 403 被静默丢弃（不写 cap、不换号）。
+		if s.applyCNClassifiedStream403AccountSideEffects(ctx, account, payload) {
+			return true
+		}
 		if !openAIStream403AccountFailure(payload, message) {
 			return false
 		}

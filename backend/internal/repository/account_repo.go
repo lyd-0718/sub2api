@@ -1306,6 +1306,35 @@ func (r *accountRepository) ListByPlatform(ctx context.Context, platform string)
 	return r.accountsToService(ctx, accounts)
 }
 
+// ListCNQuotaDisabled 返回指定平台下处于 status='error' 的账号（软删除行由
+// SoftDeleteMixin 拦截器自动排除），按优先级升序。
+// 额度耗尽自动归队（AccountErrorRecoveryService）专用：不得复用带
+// status='active' 过滤的 ListByPlatform，否则永远看不到被禁用的账号。
+func (r *accountRepository) ListCNQuotaDisabled(ctx context.Context, platform string) ([]*service.Account, error) {
+	if strings.TrimSpace(platform) == "" {
+		return []*service.Account{}, nil
+	}
+	rows, err := r.client.Account.Query().
+		Where(
+			dbaccount.PlatformEQ(platform),
+			dbaccount.StatusEQ(service.StatusError),
+		).
+		Order(dbent.Asc(dbaccount.FieldPriority)).
+		All(ctx)
+	if err != nil {
+		return nil, err
+	}
+	accounts, err := r.accountsToService(ctx, rows)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]*service.Account, 0, len(accounts))
+	for i := range accounts {
+		out = append(out, &accounts[i])
+	}
+	return out, nil
+}
+
 func (r *accountRepository) UpdateLastUsed(ctx context.Context, id int64) error {
 	now := time.Now()
 	_, err := r.client.Account.Update().
@@ -1763,6 +1792,56 @@ func (r *accountRepository) ClearError(ctx context.Context, id int64) error {
 	return nil
 }
 
+// RestoreRecoveredAccount 单语句（单事务）CAS 恢复一个因额度耗尽被禁用的账号：
+// 仅当账号仍处于 status='error' 且 updated_at 与调用方重读到的快照一致时，才置回
+// active + schedulable，并一次性清掉 error / 临时停调 / 限流 / 过载四类标记。
+// 影响行数 0 → (false, nil)（并发改写：探测落快照、人工操作或其它实例更新了该行）。
+//
+// 调用方必须在「额度探测 + 最小请求验证」之后【重新读取】updated_at 再调用：额度
+// 探测写快照走 UpdateExtra，会把 accounts.updated_at 推进到探测时刻，用探测前的
+// 旧值比对影响行数恒为 0。updated_at 为微秒精度，从库中读出再写回是无损的。
+func (r *accountRepository) RestoreRecoveredAccount(ctx context.Context, accountID int64, expectedUpdatedAt time.Time) (bool, error) {
+	if r == nil || r.sql == nil {
+		return false, errors.New("account repository SQL executor is not configured")
+	}
+	result, err := r.sql.ExecContext(ctx, `
+		WITH updated AS (
+		UPDATE accounts AS a
+		SET status = $1,
+			schedulable = TRUE,
+			error_message = NULL,
+			temp_unschedulable_until = NULL,
+			temp_unschedulable_reason = NULL,
+			rate_limited_at = NULL,
+			rate_limit_reset_at = NULL,
+			overload_until = NULL,
+			updated_at = NOW()
+		WHERE a.id = $2
+			AND a.deleted_at IS NULL
+			AND a.status = $3
+			AND a.updated_at = $4
+		RETURNING a.id
+		)
+		INSERT INTO scheduler_outbox (event_type, account_id, group_id, payload)
+		SELECT $5, updated.id, NULL, NULL FROM updated
+	`,
+		service.StatusActive,
+		accountID,
+		service.StatusError,
+		expectedUpdatedAt,
+		service.SchedulerOutboxEventAccountChanged,
+	)
+	if err != nil {
+		return false, err
+	}
+	affected, err := result.RowsAffected()
+	if err != nil || affected == 0 {
+		return false, err
+	}
+	r.syncSchedulerAccountSnapshotDetached(ctx, accountID)
+	return true, nil
+}
+
 func (r *accountRepository) AddToGroup(ctx context.Context, accountID, groupID int64, priority int) error {
 	tx, err := r.client.Tx(ctx)
 	if err != nil && !errors.Is(err, dbent.ErrTxStarted) {
@@ -2198,7 +2277,8 @@ func (r *accountRepository) SetRateLimited(ctx context.Context, id int64, resetA
 
 // SetRateLimitedIfLater atomically extends an account-level rate limit. Grok
 // requests may finish concurrently, so an older response must not overwrite a
-// later reset boundary observed by another request or instance.
+// later reset boundary observed by another request or instance. Callers that need
+// to know whether the boundary actually moved compare the fresh row instead.
 func (r *accountRepository) SetRateLimitedIfLater(ctx context.Context, id int64, resetAt time.Time) error {
 	now := time.Now()
 	updated, err := r.client.Account.Update().

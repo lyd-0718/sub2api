@@ -401,6 +401,9 @@ func registerAccountRoutes(admin *gin.RouterGroup, h *handler.Handlers, stepUpAu
 		accounts.POST("/:id/reset-quota", h.Admin.Account.ResetQuota)
 		accounts.GET("/:id/temp-unschedulable", h.Admin.Account.GetTempUnschedulable)
 		accounts.DELETE("/:id/temp-unschedulable", h.Admin.Account.ClearTempUnschedulable)
+		// 账号级有效并发上限（cap）：只读状态 + pinned/解熔断人工干预。
+		accounts.GET("/:id/concurrency-cap", h.Admin.ConcurrencyCap.Get)
+		accounts.PUT("/:id/concurrency-cap", h.Admin.ConcurrencyCap.Update)
 		accounts.POST("/:id/schedulable", h.Admin.Account.SetSchedulable)
 		accounts.POST("/models/sync-upstream-preview", h.Admin.Account.SyncUpstreamModelsPreview)
 		accounts.GET("/:id/models", h.Admin.Account.GetAvailableModels)
