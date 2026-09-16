@@ -77,7 +77,7 @@ python3 traceview.py <会话目录> [轮次N] [user|think|tool|text]
 
 ## 代码位置与更新流程
 
-- Fork：`github.com/lyd-0718/sub2api`，分支 `trace`（当前已合并官方 `v0.2.3`，merge 提交 `e39d6699`）
+- Fork：`github.com/lyd-0718/sub2api`，分支 `trace`（当前已合并官方 `v0.2.5`（2026-09-16）；历史上一个合并点是 `v0.2.3`）
 - 本地：`~/Desktop/sub2api`
 - 服务器构建目录：`/opt/sub2api-trace`
 - 部署配置：`/opt/sub2api/docker-compose.yml`（只改 image tag，其他不动）

@@ -227,6 +227,40 @@ func cnProviderQuotaSnapshotExhausted(account *Account, now time.Time, threshold
 	return false
 }
 
+// cnProviderQuotaSnapshotReset 读取 Coding Plan 账号快照中最早一个仍在未来的窗口
+// 重置时间（5h / weekly）。429 多数由 5h 滚动窗口触发，取较早的重置点可避免
+// 把账号冷却到 weekly 重置（可达数天）的过度停调；如果确是 weekly 窗口耗尽，
+// 周期额度探测刷新快照后阈值评估会再次停调到正确的时间点。
+// 无快照或均已过期返回 nil。
+//
+// 【上游 v0.2.5 保留】OpenCodeGo 的 429 分支（applyCNProviderReactive429）仍在使用
+// 本函数（含月度窗口）；CN 平台主路径已改用 cnQuotaPauseWindow 的周满分档规则。
+func cnProviderQuotaSnapshotReset(account *Account, now time.Time) *time.Time {
+	if account == nil || len(account.Extra) == 0 {
+		return nil
+	}
+	if !account.IsOpenCodeGo() && (!account.IsCNProvider() || !account.IsCodingPlan()) {
+		return nil
+	}
+	provider := account.Platform
+	suffixes := []string{cnExtraSuffix5hReset, cnExtraSuffixWeeklyReset}
+	if account.IsOpenCodeGo() {
+		suffixes = append(suffixes, cnExtraSuffixMonthlyReset)
+	}
+	var earliest *time.Time
+	for _, suffix := range suffixes {
+		t := parseSchedulingResetAt(account.Extra[cnExtraKey(provider, suffix)])
+		if t == nil || !t.After(now) {
+			continue
+		}
+		if earliest == nil || t.Before(*earliest) {
+			candidate := *t
+			earliest = &candidate
+		}
+	}
+	return earliest
+}
+
 // cnCodingPlan429Cooldown 决定 Coding Plan 账号 429 的冷却终点。
 // 返回 (冷却终点, 是否窗口耗尽, 是否可判定)。
 //
@@ -255,6 +289,36 @@ func (s *RateLimitService) applyCNProviderReactive429(
 	headers http.Header,
 	responseBody []byte,
 ) bool {
+	if account.IsOpenCodeGo() {
+		if until := cnProviderQuotaSnapshotReset(account, time.Now()); until != nil {
+			s.notifyAccountSchedulingBlocked(account, *until, "429")
+			if err := s.accountRepo.SetRateLimited(ctx, account.ID, *until); err != nil {
+				slog.Warn("rate_limit_set_failed", "account_id", account.ID, "error", err)
+				return true
+			}
+			slog.Info("opencode_go_rate_limited",
+				"account_id", account.ID,
+				"platform", account.Platform,
+				"reset_at", *until,
+			)
+			return true
+		}
+		if resetAt := parseOpenAIRateLimitResetTime(responseBody); resetAt != nil {
+			resetTime := time.Unix(*resetAt, 0)
+			s.notifyAccountSchedulingBlocked(account, resetTime, "429")
+			if err := s.accountRepo.SetRateLimited(ctx, account.ID, resetTime); err != nil {
+				slog.Warn("rate_limit_set_failed", "account_id", account.ID, "error", err)
+				return true
+			}
+			slog.Info("opencode_go_rate_limited",
+				"account_id", account.ID,
+				"platform", account.Platform,
+				"reset_at", resetTime,
+			)
+			return true
+		}
+		return false
+	}
 	if !account.IsCNProvider() {
 		return false
 	}
