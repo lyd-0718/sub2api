@@ -43,7 +43,7 @@
 - **恢复判定零探测**：直接读本地额度快照的 `reset_at`——reset_at 已过 = 窗口已重置，是确定事实（管理前端"额度刷新倒计时"读的就是它）；两窗口 reset 都过了 = 已恢复；任一窗口 reset 在未来 = 还没恢复，零上游调用按退避重排；快照新旧不影响判定（reset_at 是时间点事实，不是采样值）
 - **最小请求点火验证**（不是探额度）：防"鉴权已死"账号被误恢复形成恢复-再死循环；快照里连窗口重置键都没有的账号，也由它仲裁（`HTTPUpstream.Do` 零副作用出站 + `cnValidateProbeURL` 校验）
 - **CAS 恢复（关键顺序）**：验证**之后重读** `updated_at` 再 CAS；单事务置 `status='active'` + `schedulable=true` + 清 error/temp_unschedulable/rate-limit/overload，只发一次调度通知
-- 退避 10m→20m→40m→封顶 6h；CAS 冲突（并发改写）不消耗退避预算
+- 重排策略分两类：**额度仍满 → 排在快照 reset_at**（恢复时间已知，时间表即调度表，不用退避）；**verify 失败/内部错误 → 退避阶梯** 10m→20m→40m→封顶 6h（恢复时间未知，防对死账号无意义骚扰）；CAS 冲突（并发改写）立即重排不耗退避
 - 配置：`gateway.cn_providers.error_recovery_enabled`（true）/ `error_recovery_backoff` / `error_recovery_leader_lock_ttl`（90s）
 
 ## 四、功能 3：403 统一分类

@@ -232,8 +232,9 @@ func (s *AccountErrorRecoveryService) recoverOne(ctx context.Context, account *A
 
 	recovered, known := cnQuotaRecoveredFromSnapshot(account, now, s.quotaExhaustedPercent())
 	if known && !recovered {
-		// 快照显示窗口仍未重置（reset_at 在未来）：零上游调用，直接按退避重排。
-		s.scheduleNextAttempt(account.ID, now, cnRecoveryBackoffReasonQuotaFull)
+		// 额度耗尽的恢复时间由上游窗口重置点决定（快照里写死的确定事实），
+		// 不能把通用翻倍退避（10m→6h 封顶）套上来——那会把归队无谓推迟数小时。
+		s.scheduleAtQuotaReset(account.ID, account, now, s.quotaExhaustedPercent())
 		stats.deferred++
 		return
 	}
@@ -453,6 +454,54 @@ const (
 func (s *AccountErrorRecoveryService) scheduleNextAttempt(accountID int64, now time.Time, reason string) {
 	delay := s.advanceBackoff(accountID, now)
 	log.Printf("[CNRecovery] account %d deferred (%s), next attempt in %s", accountID, reason, delay)
+}
+
+// scheduleAtQuotaReset 把下次检查排在快照给出的恢复时刻（所有已耗尽窗口中最晚的
+// 重置点），而不是推进通用退避阶梯：「额度仍满」不是失败，翻倍退避会把归队推迟到
+// 6h 封顶。快照 refresh 后若窗口实际未滚（上游延迟），下一轮会按新快照重新排点，
+// 自我纠正。
+func (s *AccountErrorRecoveryService) scheduleAtQuotaReset(accountID int64, account *Account, now time.Time, threshold float64) {
+	at := cnQuotaNextResetAt(account, now, threshold)
+	if at.IsZero() {
+		// 判满即意味着存在未来重置点；兜底 10 分钟（防御，正常不会走到）。
+		at = now.Add(10 * time.Minute)
+	}
+	s.mu.Lock()
+	state := s.states[accountID]
+	if state == nil {
+		state = &cnRecoveryState{}
+		s.states[accountID] = state
+	}
+	state.nextAttemptAt = at // 不动 state.failures：不消耗退避阶梯
+	s.mu.Unlock()
+	log.Printf("[CNRecovery] account %d deferred (quota_still_full), next attempt at %s", accountID, at.Format(time.RFC3339))
+}
+
+// cnQuotaNextResetAt 返回账号解除「窗口耗尽」状态的时刻：所有已耗尽窗口中**最晚**
+// 的一个重置点（任一窗口仍满即未恢复）。没有已耗尽窗口时返回零值。
+func cnQuotaNextResetAt(account *Account, now time.Time, threshold float64) time.Time {
+	if account == nil || len(account.Extra) == 0 || threshold <= 0 {
+		return time.Time{}
+	}
+	var latest time.Time
+	provider := account.Platform
+	for _, w := range []struct{ usedSuffix, resetSuffix string }{
+		{cnExtraSuffix5hUsed, cnExtraSuffix5hReset},
+		{cnExtraSuffixWeeklyUsed, cnExtraSuffixWeeklyReset},
+	} {
+		used := schedulingPercentValue(account.Extra[cnExtraKey(provider, w.usedSuffix)])
+		if used < threshold {
+			continue
+		}
+		reset := parseSchedulingResetAt(account.Extra[cnExtraKey(provider, w.resetSuffix)])
+		if reset == nil || !reset.After(now) {
+			continue
+		}
+		if reset.After(latest) {
+			latest = *reset
+		}
+	}
+	return latest
 }
 
 // due 报告账号是否已越过退避窗口。

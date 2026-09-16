@@ -391,6 +391,71 @@ func TestParseCNRecoveryBackoff(t *testing.T) {
 	require.Nil(t, parseCNRecoveryBackoff("-5m"))
 }
 
+func TestCNQuotaNextResetAt(t *testing.T) {
+	now := time.Now()
+	threshold := 85.0
+
+	// 仅周窗口耗尽 → 排在周重置点。
+	weeklyOnly := cnRecoveryKimiCodingAccount(now, cnRecoverySnapshotExhaustedWeekly(now))
+	require.True(t, now.Add(48*time.Hour).Truncate(time.Second).Equal(cnQuotaNextResetAt(weeklyOnly, now, threshold)))
+
+	// 两个窗口都耗尽 → 排在【最晚】的重置点（任一窗口仍满即未恢复）。
+	both := cnRecoveryKimiCodingAccount(now, map[string]any{
+		cnExtraKey(PlatformKimi, cnExtraSuffixWeeklyUsed):  90.0,
+		cnExtraKey(PlatformKimi, cnExtraSuffixWeeklyReset): now.Add(48 * time.Hour).Format(time.RFC3339),
+		cnExtraKey(PlatformKimi, cnExtraSuffix5hUsed):      95.0,
+		cnExtraKey(PlatformKimi, cnExtraSuffix5hReset):     now.Add(2 * time.Hour).Format(time.RFC3339),
+	})
+	require.True(t, now.Add(48*time.Hour).Truncate(time.Second).Equal(cnQuotaNextResetAt(both, now, threshold)))
+
+	// 仅 5h 耗尽 → 排在 5h 重置点。
+	fiveHourOnly := cnRecoveryKimiCodingAccount(now, map[string]any{
+		cnExtraKey(PlatformKimi, cnExtraSuffixWeeklyUsed):  10.0,
+		cnExtraKey(PlatformKimi, cnExtraSuffixWeeklyReset): now.Add(48 * time.Hour).Format(time.RFC3339),
+		cnExtraKey(PlatformKimi, cnExtraSuffix5hUsed):      95.0,
+		cnExtraKey(PlatformKimi, cnExtraSuffix5hReset):     now.Add(2 * time.Hour).Format(time.RFC3339),
+	})
+	require.True(t, now.Add(2*time.Hour).Truncate(time.Second).Equal(cnQuotaNextResetAt(fiveHourOnly, now, threshold)))
+
+	// 无耗尽窗口 → 零值。
+	require.True(t, cnQuotaNextResetAt(cnRecoveryKimiCodingAccount(now, cnRecoverySnapshotAvailable(now)), now, threshold).IsZero())
+}
+
+func TestAccountErrorRecoveryService_QuotaFullSchedulesAtResetNotBackoff(t *testing.T) {
+	now := time.Now()
+	// 周窗口满，30 分钟后重置：退避阶梯如果生效会推到 10m/20m/40m/6h，
+	// 正确行为是恰好排在 reset_at，且不消耗退避阶梯（failures 保持 0）。
+	extra := map[string]any{
+		cnExtraKey(PlatformKimi, cnExtraSuffixUsageUpdated): now.Add(-time.Minute).Format(time.RFC3339),
+		cnExtraKey(PlatformKimi, cnExtraSuffixWeeklyUsed):   100.0,
+		cnExtraKey(PlatformKimi, cnExtraSuffixWeeklyReset):  now.Add(30 * time.Minute).Format(time.RFC3339),
+		cnExtraKey(PlatformKimi, cnExtraSuffix5hUsed):       0.0,
+		cnExtraKey(PlatformKimi, cnExtraSuffix5hReset):      now.Add(2 * time.Hour).Format(time.RFC3339),
+	}
+	account := cnRecoveryKimiCodingAccount(now.Add(-time.Hour), extra)
+	repo := &cnRecoveryRepoStub{
+		disabled:  []*Account{account},
+		byID:      map[int64]*Account{account.ID: account},
+		restoreOK: true,
+	}
+	upstream := &cnRecoveryUpstreamStub{body: `{"id":"msg_1"}`}
+
+	svc := newCNRecoveryTestService(t, now, repo, upstream)
+	svc.runOnce()
+
+	require.Zero(t, upstream.calls, "仍满时零上游调用")
+	require.False(t, svc.due(account.ID, now.Add(29*time.Minute)), "重置点前不得处理")
+	require.True(t, svc.due(account.ID, now.Add(31*time.Minute)), "reset_at 一过即应到点")
+	require.Zero(t, svc.states[account.ID].failures, "额度仍满不得消耗退避阶梯")
+
+	// 到点后：快照已刷新（用量归零）→ 验证 → 恢复。
+	account.Extra = cnRecoverySnapshotAvailable(now)
+	svc.now = func() time.Time { return now.Add(31 * time.Minute) }
+	svc.runOnce()
+	require.Equal(t, 1, upstream.calls)
+	require.Len(t, repo.restoreCalls, 1)
+}
+
 func TestCNQuotaRecoveredFromSnapshot(t *testing.T) {
 	now := time.Now()
 	threshold := 85.0
