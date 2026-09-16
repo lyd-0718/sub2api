@@ -1,9 +1,12 @@
 package service
 
 // 历史被禁用账号自动归队（AccountErrorRecoveryService）行为测试：
-// 额度判定（快照新鲜 / 过期刷新 / 探测重试上限）、最小请求验证的放行条件、
-// CAS 用「探测+验证之后重读的 updated_at」、CAS 失败不消耗退避预算、
+// 额度判定（本地快照 reset_at：过去=已重置即恢复，未来=仍满且零上游调用；无窗口键=验证仲裁）、
+// 最小请求验证的放行条件、CAS 用「验证之后重读的 updated_at」、CAS 失败不消耗退避预算、
 // 退避阶梯与 leader 锁。
+//
+// 设计前提（2026-09-16 需求方拍板）：恢复判定不探测上游额度接口——reset_at 是时间点
+// 事实（管理前端额度倒计时读的就是它），不是采样值，快照新旧不影响判定。
 
 import (
 	"context"
@@ -59,33 +62,6 @@ func (r *cnRecoveryRepoStub) RestoreRecoveredAccount(ctx context.Context, accoun
 	return r.restoreOK, nil
 }
 
-// cnRecoveryProberStub 依次返回预设结果，耗尽后重复最后一项。
-type cnRecoveryProberStub struct {
-	calls   int
-	results []*CNProviderQuotaProbeResult
-	errs    []error
-}
-
-func (p *cnRecoveryProberStub) QueryUsage(ctx context.Context, accountID int64) (*CNProviderQuotaProbeResult, error) {
-	index := p.calls
-	p.calls++
-	if len(p.errs) > 0 {
-		if index < len(p.errs) && p.errs[index] != nil {
-			return nil, p.errs[index]
-		}
-		if len(p.results) == 0 {
-			return nil, context.DeadlineExceeded
-		}
-	}
-	if len(p.results) == 0 {
-		return nil, context.DeadlineExceeded
-	}
-	if index >= len(p.results) {
-		index = len(p.results) - 1
-	}
-	return p.results[index], nil
-}
-
 // cnRecoveryUpstreamStub 记录验证请求，返回固定状态码与响应体。
 type cnRecoveryUpstreamStub struct {
 	calls    int
@@ -117,10 +93,6 @@ func (u *cnRecoveryUpstreamStub) DoWithTLS(req *http.Request, proxyURL string, a
 	return u.Do(req, proxyURL, accountID, accountConcurrency)
 }
 
-func cnRecoveryProbeResult(tiers ...CNQuotaTier) *CNProviderQuotaProbeResult {
-	return &CNProviderQuotaProbeResult{Provider: PlatformKimi, Success: true, CredentialValid: true, Tiers: tiers, StatusCode: http.StatusOK}
-}
-
 // cnRecoveryKimiCodingAccount 构造一个被禁用（status='error'）的 kimi Coding Plan 账号。
 func cnRecoveryKimiCodingAccount(updatedAt time.Time, extra map[string]any) *Account {
 	if extra == nil {
@@ -134,7 +106,7 @@ func cnRecoveryKimiCodingAccount(updatedAt time.Time, extra map[string]any) *Acc
 		Status:       StatusError,
 		Schedulable:  false,
 		ErrorMessage: "upstream returned 403 (quota exhausted)",
-		Concurrency:  3,
+		Concurrency:  1,
 		UpdatedAt:    updatedAt,
 		Extra:        extra,
 		Credentials: map[string]any{
@@ -146,30 +118,53 @@ func cnRecoveryKimiCodingAccount(updatedAt time.Time, extra map[string]any) *Acc
 	}
 }
 
-// cnRecoveryFreshSnapshot 构造一份「两档均未满」的新鲜额度快照。
-func cnRecoveryFreshSnapshot(now time.Time, weeklyUsed, fiveHourUsed float64) map[string]any {
+// cnRecoverySnapshotAvailable 构造「两档均未耗尽」的快照（用量低、重置点在未来）→ 已恢复。
+func cnRecoverySnapshotAvailable(now time.Time) map[string]any {
 	return map[string]any{
 		cnExtraKey(PlatformKimi, cnExtraSuffixUsageUpdated): now.Add(-time.Minute).Format(time.RFC3339),
-		cnExtraKey(PlatformKimi, cnExtraSuffixWeeklyUsed):   weeklyUsed,
-		cnExtraKey(PlatformKimi, cnExtraSuffix5hUsed):       fiveHourUsed,
+		cnExtraKey(PlatformKimi, cnExtraSuffixWeeklyUsed):   10.0,
+		cnExtraKey(PlatformKimi, cnExtraSuffix5hUsed):       20.0,
 		cnExtraKey(PlatformKimi, cnExtraSuffixWeeklyReset):  now.Add(48 * time.Hour).Format(time.RFC3339),
 		cnExtraKey(PlatformKimi, cnExtraSuffix5hReset):      now.Add(2 * time.Hour).Format(time.RFC3339),
 	}
 }
 
-func newCNRecoveryTestService(t *testing.T, now time.Time, repo AccountRepository, prober cnQuotaProber, upstream HTTPUpstream) *AccountErrorRecoveryService {
+// cnRecoverySnapshotExhaustedWeekly 构造「周窗口仍满」的快照（重置点在未来）→ 未恢复。
+func cnRecoverySnapshotExhaustedWeekly(now time.Time) map[string]any {
+	return map[string]any{
+		cnExtraKey(PlatformKimi, cnExtraSuffixUsageUpdated): now.Add(-time.Minute).Format(time.RFC3339),
+		cnExtraKey(PlatformKimi, cnExtraSuffixWeeklyUsed):   90.0,
+		cnExtraKey(PlatformKimi, cnExtraSuffix5hUsed):       20.0,
+		cnExtraKey(PlatformKimi, cnExtraSuffixWeeklyReset):  now.Add(48 * time.Hour).Format(time.RFC3339),
+		cnExtraKey(PlatformKimi, cnExtraSuffix5hReset):      now.Add(2 * time.Hour).Format(time.RFC3339),
+	}
+}
+
+// cnRecoverySnapshotResetPassed 构造「用量读数仍高但重置点已过」的快照（无论多旧）→
+// 已恢复：reset_at 是时间点事实，窗口已经滚过。
+func cnRecoverySnapshotResetPassed(now time.Time) map[string]any {
+	return map[string]any{
+		cnExtraKey(PlatformKimi, cnExtraSuffixUsageUpdated): now.Add(-72 * time.Hour).Format(time.RFC3339),
+		cnExtraKey(PlatformKimi, cnExtraSuffixWeeklyUsed):   99.0,
+		cnExtraKey(PlatformKimi, cnExtraSuffix5hUsed):       99.0,
+		cnExtraKey(PlatformKimi, cnExtraSuffixWeeklyReset):  now.Add(-time.Hour).Format(time.RFC3339),
+		cnExtraKey(PlatformKimi, cnExtraSuffix5hReset):      now.Add(-time.Minute).Format(time.RFC3339),
+	}
+}
+
+func newCNRecoveryTestService(t *testing.T, now time.Time, repo AccountRepository, upstream HTTPUpstream) *AccountErrorRecoveryService {
 	t.Helper()
-	svc := NewAccountErrorRecoveryService(repo, prober, upstream, &config.Config{}, time.Minute)
+	svc := NewAccountErrorRecoveryService(repo, upstream, &config.Config{}, time.Minute)
 	svc.now = func() time.Time { return now }
 	return svc
 }
 
 func TestAccountErrorRecoveryService_RestoresAccountUsingReloadedUpdatedAt(t *testing.T) {
 	now := time.Now()
-	probeTime := now.Add(-30 * time.Minute)
-	// 探测落快照会把 updated_at 推进到探测时刻：CAS 必须用重读后的值。
+	scannedUpdatedAt := now.Add(-30 * time.Minute)
+	// 扫描读到的是旧 updated_at；验证后重读到的才是 CAS 要比对的值。
 	reloadedUpdatedAt := now.Add(-2 * time.Second)
-	account := cnRecoveryKimiCodingAccount(probeTime, cnRecoveryFreshSnapshot(now, 10, 20))
+	account := cnRecoveryKimiCodingAccount(scannedUpdatedAt, cnRecoverySnapshotAvailable(now))
 	byID := &Account{}
 	*byID = *account
 	byID.UpdatedAt = reloadedUpdatedAt
@@ -179,18 +174,16 @@ func TestAccountErrorRecoveryService_RestoresAccountUsingReloadedUpdatedAt(t *te
 		byID:      map[int64]*Account{account.ID: byID},
 		restoreOK: true,
 	}
-	prober := &cnRecoveryProberStub{}
 	upstream := &cnRecoveryUpstreamStub{body: `{"id":"msg_1","type":"message"}`}
 
-	svc := newCNRecoveryTestService(t, now, repo, prober, upstream)
+	svc := newCNRecoveryTestService(t, now, repo, upstream)
 	svc.runOnce()
 
-	require.Zero(t, prober.calls, "新鲜快照应直接判定，不额外探测上游")
-	require.Equal(t, 1, upstream.calls, "额度未满时必须发出最小验证请求")
+	require.Equal(t, 1, upstream.calls, "快照判定已恢复后必须发出最小验证请求")
 	require.Len(t, repo.restoreCalls, 1)
 	require.Equal(t, account.ID, repo.restoreCalls[0].accountID)
 	require.True(t, repo.restoreCalls[0].expectedUpdatedAt.Equal(reloadedUpdatedAt),
-		"CAS 必须用探测+验证之后重读的 updated_at，而不是扫描开始时的旧值")
+		"CAS 必须用验证之后重读的 updated_at，而不是扫描开始时的旧值")
 	require.Empty(t, svc.states, "恢复成功后不再保留退避状态")
 
 	// 验证请求走 anthropic 原生端点，并带最小化请求体。
@@ -205,100 +198,97 @@ func TestAccountErrorRecoveryService_RestoresAccountUsingReloadedUpdatedAt(t *te
 	require.Contains(t, string(body), `"max_tokens":8`)
 }
 
-func TestAccountErrorRecoveryService_RefreshesStaleSnapshotBeforeJudging(t *testing.T) {
+func TestAccountErrorRecoveryService_ResetPassedSnapshotRecoversWithoutProbe(t *testing.T) {
 	now := time.Now()
-	// 快照已过期（30 分钟前），且内容显示周窗口已满 —— 必须刷新后再判，不能拿旧快照否决。
-	stale := cnRecoveryFreshSnapshot(now.Add(-30*time.Minute), 99, 99)
-	account := cnRecoveryKimiCodingAccount(now.Add(-time.Hour), stale)
+	// 快照很旧且用量读数仍是 99%，但 reset_at 已过——窗口已滚过，直接判定恢复，
+	// 全程零额度探测（本服务已不再持有额度探测依赖）。
+	account := cnRecoveryKimiCodingAccount(now.Add(-72*time.Hour), cnRecoverySnapshotResetPassed(now))
 	repo := &cnRecoveryRepoStub{
 		disabled:  []*Account{account},
 		byID:      map[int64]*Account{account.ID: account},
 		restoreOK: true,
 	}
-	prober := &cnRecoveryProberStub{results: []*CNProviderQuotaProbeResult{
-		cnRecoveryProbeResult(
-			CNQuotaTier{Window: "5h", UsedPercent: 12},
-			CNQuotaTier{Window: "weekly", UsedPercent: 31},
-		),
-	}}
 	upstream := &cnRecoveryUpstreamStub{body: `{"id":"msg_1"}`}
 
-	svc := newCNRecoveryTestService(t, now, repo, prober, upstream)
+	svc := newCNRecoveryTestService(t, now, repo, upstream)
 	svc.runOnce()
 
-	require.Equal(t, 1, prober.calls, "过期快照必须先刷新")
-	require.Equal(t, 1, upstream.calls)
+	require.Equal(t, 1, upstream.calls, "reset_at 已过即判定恢复，只需最小请求验证")
 	require.Len(t, repo.restoreCalls, 1)
 }
 
 func TestAccountErrorRecoveryService_ExhaustedQuotaSkipsVerifyAndBacksOff(t *testing.T) {
 	now := time.Now()
+	account := cnRecoveryKimiCodingAccount(now.Add(-time.Hour), cnRecoverySnapshotExhaustedWeekly(now))
+	repo := &cnRecoveryRepoStub{
+		disabled:  []*Account{account},
+		byID:      map[int64]*Account{account.ID: account},
+		restoreOK: true,
+	}
+	upstream := &cnRecoveryUpstreamStub{body: `{"id":"msg_1"}`}
+
+	svc := newCNRecoveryTestService(t, now, repo, upstream)
+	svc.runOnce()
+	require.Zero(t, upstream.calls, "周窗口仍满（reset_at 在未来）时不得发出任何上游请求")
+	require.Empty(t, repo.restoreCalls)
+
+	// 退避已生效：下一轮仍不处理。
+	svc.runOnce()
+	require.Zero(t, upstream.calls, "退避窗口内不得重复处理")
+}
+
+func TestAccountErrorRecoveryService_NoSnapshotFallsBackToVerify(t *testing.T) {
+	now := time.Now()
+	// 快照里连窗口重置键都没有（从未探测过）→ 恢复判定不可知，
+	// 由最小请求验证仲裁：验证成功即恢复。
 	account := cnRecoveryKimiCodingAccount(now.Add(-time.Hour), nil)
 	repo := &cnRecoveryRepoStub{
 		disabled:  []*Account{account},
 		byID:      map[int64]*Account{account.ID: account},
 		restoreOK: true,
 	}
-	prober := &cnRecoveryProberStub{results: []*CNProviderQuotaProbeResult{
-		cnRecoveryProbeResult(
-			CNQuotaTier{Window: "5h", UsedPercent: 20},
-			CNQuotaTier{Window: "weekly", UsedPercent: 90},
-		),
-	}}
 	upstream := &cnRecoveryUpstreamStub{body: `{"id":"msg_1"}`}
 
-	svc := newCNRecoveryTestService(t, now, repo, prober, upstream)
+	svc := newCNRecoveryTestService(t, now, repo, upstream)
 	svc.runOnce()
-	require.Equal(t, 1, prober.calls)
-	require.Zero(t, upstream.calls, "周窗口仍满时不得发出验证请求")
-	require.Empty(t, repo.restoreCalls)
 
-	// 退避已生效：下一轮不重复探测。
-	svc.runOnce()
-	require.Equal(t, 1, prober.calls, "退避窗口内不得重复探测")
+	require.Equal(t, 1, upstream.calls, "无快照时必须用最小请求验证仲裁")
+	require.Len(t, repo.restoreCalls, 1)
 }
 
 func TestAccountErrorRecoveryService_CASConflictDoesNotConsumeBackoffBudget(t *testing.T) {
 	now := time.Now()
-	account := cnRecoveryKimiCodingAccount(now.Add(-time.Hour), nil)
+	account := cnRecoveryKimiCodingAccount(now.Add(-time.Hour), cnRecoverySnapshotAvailable(now))
 	repo := &cnRecoveryRepoStub{
 		disabled:  []*Account{account},
 		byID:      map[int64]*Account{account.ID: account},
 		restoreOK: false, // 并发改写：影响行数 0
 	}
-	prober := &cnRecoveryProberStub{results: []*CNProviderQuotaProbeResult{
-		cnRecoveryProbeResult(
-			CNQuotaTier{Window: "5h", UsedPercent: 5},
-			CNQuotaTier{Window: "weekly", UsedPercent: 5},
-		),
-	}}
 	upstream := &cnRecoveryUpstreamStub{body: `{"id":"msg_1"}`}
 
-	svc := newCNRecoveryTestService(t, now, repo, prober, upstream)
+	svc := newCNRecoveryTestService(t, now, repo, upstream)
 	svc.runOnce()
 	require.Len(t, repo.restoreCalls, 1)
 
 	// CAS 冲突不消耗退避预算：下一轮立即重排并再次尝试。
 	svc.runOnce()
-	require.Equal(t, 2, prober.calls, "CAS 冲突不得消耗退避预算")
-	require.Equal(t, 2, upstream.calls)
+	require.Equal(t, 2, upstream.calls, "CAS 冲突不得消耗退避预算")
 	require.Len(t, repo.restoreCalls, 2)
 	require.True(t, svc.due(account.ID, now), "CAS 冲突后账号应在本轮即可重排")
 }
 
 func TestAccountErrorRecoveryService_VerifyFailureBacksOff(t *testing.T) {
 	now := time.Now()
-	account := cnRecoveryKimiCodingAccount(now.Add(-time.Hour), cnRecoveryFreshSnapshot(now, 5, 5))
+	account := cnRecoveryKimiCodingAccount(now.Add(-time.Hour), cnRecoverySnapshotAvailable(now))
 	repo := &cnRecoveryRepoStub{
 		disabled:  []*Account{account},
 		byID:      map[int64]*Account{account.ID: account},
 		restoreOK: true,
 	}
-	prober := &cnRecoveryProberStub{}
 	// HTTP 2xx 但携业务错误（流内错误落到响应体）同样算验证失败。
 	upstream := &cnRecoveryUpstreamStub{body: `{"type":"error","error":{"type":"rate_limit_error"}}`}
 
-	svc := newCNRecoveryTestService(t, now, repo, prober, upstream)
+	svc := newCNRecoveryTestService(t, now, repo, upstream)
 	svc.runOnce()
 
 	require.Equal(t, 1, upstream.calls)
@@ -311,7 +301,7 @@ func TestAccountErrorRecoveryService_VerifyFailureBacksOff(t *testing.T) {
 
 func TestAccountErrorRecoveryService_VerifyRequestRespectsURLAllowlist(t *testing.T) {
 	now := time.Now()
-	account := cnRecoveryKimiCodingAccount(now.Add(-time.Hour), cnRecoveryFreshSnapshot(now, 5, 5))
+	account := cnRecoveryKimiCodingAccount(now.Add(-time.Hour), cnRecoverySnapshotAvailable(now))
 	account.Credentials["base_url"] = "https://relay.attacker.example/api.kimi.com/coding"
 	repo := &cnRecoveryRepoStub{
 		disabled:  []*Account{account},
@@ -320,7 +310,7 @@ func TestAccountErrorRecoveryService_VerifyRequestRespectsURLAllowlist(t *testin
 	}
 	upstream := &cnRecoveryUpstreamStub{body: `{"id":"msg_1"}`}
 
-	svc := NewAccountErrorRecoveryService(repo, &cnRecoveryProberStub{}, upstream, cnProbeAllowlistConfig("api.kimi.com"), time.Minute)
+	svc := NewAccountErrorRecoveryService(repo, upstream, cnProbeAllowlistConfig("api.kimi.com"), time.Minute)
 	svc.now = func() time.Time { return now }
 	svc.runOnce()
 
@@ -330,9 +320,9 @@ func TestAccountErrorRecoveryService_VerifyRequestRespectsURLAllowlist(t *testin
 
 func TestAccountErrorRecoveryService_SkipsAccountsWithoutCodingPlanSignal(t *testing.T) {
 	now := time.Now()
-	payg := cnRecoveryKimiCodingAccount(now.Add(-time.Hour), cnRecoveryFreshSnapshot(now, 5, 5))
+	payg := cnRecoveryKimiCodingAccount(now.Add(-time.Hour), cnRecoverySnapshotAvailable(now))
 	payg.Credentials["account_mode"] = AccountModePayG
-	relay := cnRecoveryKimiCodingAccount(now.Add(-time.Hour), cnRecoveryFreshSnapshot(now, 5, 5))
+	relay := cnRecoveryKimiCodingAccount(now.Add(-time.Hour), cnRecoverySnapshotAvailable(now))
 	relay.Credentials["base_url"] = "https://relay.example.com/v1"
 
 	repo := &cnRecoveryRepoStub{
@@ -340,39 +330,18 @@ func TestAccountErrorRecoveryService_SkipsAccountsWithoutCodingPlanSignal(t *tes
 		byID:      map[int64]*Account{},
 		restoreOK: true,
 	}
-	prober := &cnRecoveryProberStub{}
 	upstream := &cnRecoveryUpstreamStub{body: `{"id":"msg_1"}`}
 
-	svc := newCNRecoveryTestService(t, now, repo, prober, upstream)
+	svc := newCNRecoveryTestService(t, now, repo, upstream)
 	svc.runOnce()
 
-	require.Zero(t, prober.calls, "无 coding plan 额度信号的账号不得探测")
-	require.Zero(t, upstream.calls)
-	require.Empty(t, repo.restoreCalls)
-}
-
-func TestAccountErrorRecoveryService_ProbeAttemptsAreBoundedPerRound(t *testing.T) {
-	now := time.Now()
-	account := cnRecoveryKimiCodingAccount(now.Add(-time.Hour), nil)
-	repo := &cnRecoveryRepoStub{
-		disabled:  []*Account{account},
-		byID:      map[int64]*Account{account.ID: account},
-		restoreOK: true,
-	}
-	prober := &cnRecoveryProberStub{errs: []error{context.DeadlineExceeded}}
-	upstream := &cnRecoveryUpstreamStub{body: `{"id":"msg_1"}`}
-
-	svc := newCNRecoveryTestService(t, now, repo, prober, upstream)
-	svc.runOnce()
-
-	require.Equal(t, cnRecoveryProbeAttemptsPerRound, prober.calls, "单账号单轮探测次数必须有上限")
-	require.Zero(t, upstream.calls)
+	require.Zero(t, upstream.calls, "无 coding plan 额度信号的账号不得发出任何上游请求")
 	require.Empty(t, repo.restoreCalls)
 }
 
 func TestAccountErrorRecoveryService_HonorsLeaderLock(t *testing.T) {
 	now := time.Now()
-	account := cnRecoveryKimiCodingAccount(now.Add(-time.Hour), cnRecoveryFreshSnapshot(now, 5, 5))
+	account := cnRecoveryKimiCodingAccount(now.Add(-time.Hour), cnRecoverySnapshotAvailable(now))
 	repo := &cnRecoveryRepoStub{
 		disabled:  []*Account{account},
 		byID:      map[int64]*Account{account.ID: account},
@@ -383,7 +352,7 @@ func TestAccountErrorRecoveryService_HonorsLeaderLock(t *testing.T) {
 	acquired, _ := cache.TryAcquireLeaderLock(context.Background(), cnRecoveryLeaderLockKey, "peer", time.Minute)
 	require.True(t, acquired)
 
-	svc := newCNRecoveryTestService(t, now, repo, &cnRecoveryProberStub{}, upstream)
+	svc := newCNRecoveryTestService(t, now, repo, upstream)
 	svc.SetLeaderLock(cache, nil)
 	svc.runOnce()
 
@@ -393,7 +362,7 @@ func TestAccountErrorRecoveryService_HonorsLeaderLock(t *testing.T) {
 
 func TestAccountErrorRecoveryService_BackoffLadderCapsAtLastEntry(t *testing.T) {
 	now := time.Now()
-	svc := newCNRecoveryTestService(t, now, &cnRecoveryRepoStub{}, &cnRecoveryProberStub{}, &cnRecoveryUpstreamStub{})
+	svc := newCNRecoveryTestService(t, now, &cnRecoveryRepoStub{}, &cnRecoveryUpstreamStub{})
 
 	delays := make([]time.Duration, 0, len(defaultCNRecoveryBackoff)+2)
 	for range len(defaultCNRecoveryBackoff) + 2 {
@@ -405,7 +374,7 @@ func TestAccountErrorRecoveryService_BackoffLadderCapsAtLastEntry(t *testing.T) 
 }
 
 func TestAccountErrorRecoveryService_RoundBudgetStaysInsideLeaderLockTTL(t *testing.T) {
-	svc := NewAccountErrorRecoveryService(&cnRecoveryRepoStub{}, &cnRecoveryProberStub{}, &cnRecoveryUpstreamStub{}, &config.Config{}, time.Minute)
+	svc := NewAccountErrorRecoveryService(&cnRecoveryRepoStub{}, &cnRecoveryUpstreamStub{}, &config.Config{}, time.Minute)
 	require.Equal(t, cnRecoveryRoundBudget, svc.roundBudget(), "单实例（无锁后端）用满单轮预算")
 
 	svc.SetLeaderLock(&fakeLeaderLockCache{}, nil)
@@ -422,26 +391,31 @@ func TestParseCNRecoveryBackoff(t *testing.T) {
 	require.Nil(t, parseCNRecoveryBackoff("-5m"))
 }
 
-func TestCNQuotaProbeResultExhausted(t *testing.T) {
-	require.True(t, cnQuotaProbeResultExhausted(
-		cnRecoveryProbeResult(CNQuotaTier{Window: "5h", UsedPercent: 10}, CNQuotaTier{Window: "weekly", UsedPercent: 85}), 85))
-	require.True(t, cnQuotaProbeResultExhausted(
-		cnRecoveryProbeResult(CNQuotaTier{Window: "5h", UsedPercent: 99}, CNQuotaTier{Window: "weekly", UsedPercent: 10}), 85))
-	require.False(t, cnQuotaProbeResultExhausted(
-		cnRecoveryProbeResult(CNQuotaTier{Window: "5h", UsedPercent: 84}, CNQuotaTier{Window: "weekly", UsedPercent: 84}), 85))
-	require.False(t, cnQuotaProbeResultExhausted(cnRecoveryProbeResult(), 85),
-		"缺失档位不算耗尽——最终放行门是最小请求验证")
-}
-
-func TestCNRecoverySnapshotFresh(t *testing.T) {
+func TestCNQuotaRecoveredFromSnapshot(t *testing.T) {
 	now := time.Now()
-	fresh := cnRecoveryKimiCodingAccount(now, cnRecoveryFreshSnapshot(now, 5, 5))
-	require.True(t, cnRecoverySnapshotFresh(fresh, now, cnRecoverySnapshotMaxAge))
+	threshold := 85.0
 
-	stale := cnRecoveryKimiCodingAccount(now, cnRecoveryFreshSnapshot(now.Add(-11*time.Minute), 5, 5))
-	require.False(t, cnRecoverySnapshotFresh(stale, now, cnRecoverySnapshotMaxAge),
-		"超过 10 分钟必须视为过期并刷新")
+	recovered, known := cnQuotaRecoveredFromSnapshot(
+		cnRecoveryKimiCodingAccount(now, cnRecoverySnapshotAvailable(now)), now, threshold)
+	require.True(t, known)
+	require.True(t, recovered, "两档均未耗尽即已恢复")
 
-	missing := cnRecoveryKimiCodingAccount(now, nil)
-	require.False(t, cnRecoverySnapshotFresh(missing, now, cnRecoverySnapshotMaxAge))
+	recovered, known = cnQuotaRecoveredFromSnapshot(
+		cnRecoveryKimiCodingAccount(now, cnRecoverySnapshotExhaustedWeekly(now)), now, threshold)
+	require.True(t, known)
+	require.False(t, recovered, "周窗口仍满（reset 在未来）即未恢复")
+
+	recovered, known = cnQuotaRecoveredFromSnapshot(
+		cnRecoveryKimiCodingAccount(now, cnRecoverySnapshotResetPassed(now)), now, threshold)
+	require.True(t, known)
+	require.True(t, recovered, "用量读数高但 reset 已过 = 窗口已滚过，与快照新旧无关")
+
+	_, known = cnQuotaRecoveredFromSnapshot(cnRecoveryKimiCodingAccount(now, nil), now, threshold)
+	require.False(t, known, "没有窗口重置键 → 不可知，交给验证请求仲裁")
+
+	onlyUsed := map[string]any{
+		cnExtraKey(PlatformKimi, cnExtraSuffixWeeklyUsed): 96.0,
+	}
+	_, known = cnQuotaRecoveredFromSnapshot(cnRecoveryKimiCodingAccount(now, onlyUsed), now, threshold)
+	require.False(t, known, "只有用量读数没有重置键 → 同样不可知")
 }

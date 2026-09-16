@@ -293,7 +293,7 @@ func initializeApplication(buildInfo handler.BuildInfo) (*Application, error) {
 	adminHandlers.TraceAdmin = admin.NewTraceAdminHandler(traceAdminService)
 	adminHandlers.AccountUsageExport = admin.NewAccountUsageExportHandler(accountUsageExportService)
 	// 二开模块：CN 账号治理（手写接线，wire codegen 重跑需补回以下 4 行）。
-	accountErrorRecoveryService := service.NewAccountErrorRecoveryService(accountRepository, cnProviderQuotaService, httpUpstream, configConfig, 10*time.Minute)
+	accountErrorRecoveryService := service.NewAccountErrorRecoveryService(accountRepository, httpUpstream, configConfig, 10*time.Minute)
 	accountErrorRecoveryService.SetLeaderLock(leaderLockCache, db)
 	accountErrorRecoveryService.Start()
 	usageRecordWorkerPool := service.NewUsageRecordWorkerPool(configConfig)

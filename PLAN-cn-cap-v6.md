@@ -13,7 +13,7 @@
 | # | 功能 | 说明 |
 |---|---|---|
 | 1 | **配额耗尽 = 停止调度（自动恢复）** | 周额度满 → 按**周窗口重置时间**停调；周未满但 5h 满 → 按 **5h 重置时间**停调；到点自动放行。**绝不**再因额度 403 把账号打成 `error` 永久卡死 |
-| 2 | **历史被禁用账号自动归队** | 周期扫描 status='error' 的 CN 账号 → 现有 coding-plan 额度探测判定恢复 → 发一条最小请求验证 → **重读 updated_at 后 CAS 原子恢复**（含 schedulable、清各临时标记） |
+| 2 | **历史被禁用账号自动归队** | 周期扫描 status='error' 的 CN 账号 → **读本地快照 reset_at 判定恢复（零探测）** → 最小请求点火验证 → **重读 updated_at 后 CAS 原子恢复** |
 | 3 | **403 统一分类** | 并发限流 / 额度耗尽 / 鉴权 三类互斥；覆盖 HTTP 403、Anthropic 流内、Responses 流内、WS；副作用幂等键 = 请求 ID + 账号 + 分类 |
 | + | **并发 403 处置**（简化） | 30s 临时停车（秒级瞬时信号），**不进** 403 连续计数。所有 kimi 账号配置并发已为 1，无降级概念 |
 
@@ -40,10 +40,10 @@
 ## 三、功能 2：历史账号自动归队
 
 - 周期任务（10 分钟间隔，leader 锁互斥），`ListCNQuotaDisabled` 拉 `status='error'` 的 CN 账号
-- 额度恢复判定：复用现有 coding-plan 额度探测；快照超过 10 分钟先刷新再判
-- 验证：最小请求（`HTTPUpstream.Do` 零副作用出站 + `cnValidateProbeURL` 校验；coding plan 不走余额探测）
-- **CAS 恢复（关键顺序）**：额度探测会写快照推进 `updated_at` → 必须探测+验证**之后重读** `updated_at` 再 CAS；单事务置 `status='active'` + `schedulable=true` + 清 error/temp_unschedulable/rate-limit/overload，只发一次调度通知
-- 退避 10m→20m→40m→封顶 6h，每账号每轮 ≤3 次；CAS 冲突（并发改写）不消耗退避预算
+- **恢复判定零探测**：直接读本地额度快照的 `reset_at`——reset_at 已过 = 窗口已重置，是确定事实（管理前端"额度刷新倒计时"读的就是它）；两窗口 reset 都过了 = 已恢复；任一窗口 reset 在未来 = 还没恢复，零上游调用按退避重排；快照新旧不影响判定（reset_at 是时间点事实，不是采样值）
+- **最小请求点火验证**（不是探额度）：防"鉴权已死"账号被误恢复形成恢复-再死循环；快照里连窗口重置键都没有的账号，也由它仲裁（`HTTPUpstream.Do` 零副作用出站 + `cnValidateProbeURL` 校验）
+- **CAS 恢复（关键顺序）**：验证**之后重读** `updated_at` 再 CAS；单事务置 `status='active'` + `schedulable=true` + 清 error/temp_unschedulable/rate-limit/overload，只发一次调度通知
+- 退避 10m→20m→40m→封顶 6h；CAS 冲突（并发改写）不消耗退避预算
 - 配置：`gateway.cn_providers.error_recovery_enabled`（true）/ `error_recovery_backoff` / `error_recovery_leader_lock_ttl`（90s）
 
 ## 四、功能 3：403 统一分类

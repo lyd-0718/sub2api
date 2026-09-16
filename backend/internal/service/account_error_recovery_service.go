@@ -8,12 +8,13 @@ package service
 //
 // 本服务周期扫描这些账号，在额度恢复后自动拉回调度池：
 //  1. ListCNQuotaDisabled 取候选（status='error' 的 CN 平台账号，不带 active 过滤）；
-//  2. 额度探测判定「周未满 且 5h 未满」。快照（<provider>_usage_updated_at）超过
-//     cnRecoverySnapshotMaxAge 视为过期 → 先用 coding plan 额度探测刷新再判；
-//  3. 发一条最小请求验证（独立出站：HTTPUpstream.Do 原语无计费/用量/健康上报钩子，
-//     出站 URL 过 cnValidateProbeURL）；kimi 是 coding plan，额度判定只能用
-//     CNProviderQuotaService（余额探测服务不认 coding plan 账号）；
-//  4. CAS 恢复：额度探测会写快照 → UpdateExtra 推进 accounts.updated_at →
+//  2. 用本地额度快照的 reset_at 判定「周未满 且 5h 未满」——reset_at 已过 = 窗口
+//     已重置，是确定事实（管理前端的额度倒计时读的就是它），无需探测上游；
+//     快照里没有窗口重置键的，交给第 3 步的验证请求仲裁；
+//  3. 发一条最小请求点火验证（独立出站：HTTPUpstream.Do 原语无计费/用量/健康上报
+//     钩子，出站 URL 过 cnValidateProbeURL）——防「鉴权已死」账号误恢复形成死循环；
+//  4. CAS 恢复：验证后重读 accounts.updated_at 再比对（任何并发写入都会推进它，
+//     用旧值比对影响行数恒为 0）。
 //     必须在「探测 + 验证」完成后【重新读取】updated_at 再做 CAS；
 //     影响行数 0 = 并发改写 → 重排下一轮且不消耗退避预算；
 //  5. 退避：10m → 20m → 40m → 封顶 6h，每账号每轮最多 3 次探测。
@@ -40,17 +41,10 @@ import (
 )
 
 const (
-	// cnRecoverySnapshotMaxAge 是额度快照的最大容忍时长：超过即先刷新再判定，
-	// 避免拿旧窗口的用量误放行（PLAN-cn-cap-v5 §2.4）。
-	cnRecoverySnapshotMaxAge = 10 * time.Minute
-	// cnRecoveryProbeAttemptsPerRound 是单账号单轮扫描内最多的额度探测次数。
-	cnRecoveryProbeAttemptsPerRound = 3
 	// cnRecoveryRoundBudget 是单轮扫描的总预算；耗尽后剩余账号顺延到下一轮
 	// （已处理的账号已进入退避窗口，不会造成尾部饥饿）。
 	cnRecoveryRoundBudget = 5 * time.Minute
-	// cnRecoveryQuotaProbeTimeout 是单次额度探测的上限。
-	cnRecoveryQuotaProbeTimeout = 20 * time.Second
-	// cnRecoveryVerifyTimeout 是单条最小验证请求的超时（与 cap 探测同口径）。
+	// cnRecoveryVerifyTimeout 是单条最小验证请求的超时。
 	cnRecoveryVerifyTimeout = 30 * time.Second
 	// cnRecoveryVerifyMaxTokens 是最小验证请求的 max_tokens（尽量不消耗额度）。
 	cnRecoveryVerifyMaxTokens = 8
@@ -86,7 +80,6 @@ type cnRecoveryState struct {
 // AccountErrorRecoveryService 周期恢复因额度耗尽被禁用的国产 Coding Plan 账号。
 type AccountErrorRecoveryService struct {
 	accountRepo  AccountRepository
-	quotaProber  cnQuotaProber
 	httpUpstream HTTPUpstream
 	cfg          *config.Config
 	interval     time.Duration
@@ -110,14 +103,12 @@ type AccountErrorRecoveryService struct {
 // interval <= 0 时 Start() 直接返回（不启动），便于通过配置关闭。
 func NewAccountErrorRecoveryService(
 	accountRepo AccountRepository,
-	quotaProber cnQuotaProber,
 	httpUpstream HTTPUpstream,
 	cfg *config.Config,
 	interval time.Duration,
 ) *AccountErrorRecoveryService {
 	return &AccountErrorRecoveryService{
 		accountRepo:  accountRepo,
-		quotaProber:  quotaProber,
 		httpUpstream: httpUpstream,
 		cfg:          cfg,
 		interval:     interval,
@@ -138,7 +129,7 @@ func (s *AccountErrorRecoveryService) SetLeaderLock(lockCache LeaderLockCache, d
 }
 
 func (s *AccountErrorRecoveryService) Start() {
-	if s == nil || s.accountRepo == nil || s.quotaProber == nil || s.httpUpstream == nil || s.cfg == nil {
+	if s == nil || s.accountRepo == nil || s.httpUpstream == nil || s.cfg == nil {
 		return
 	}
 	if !s.cfg.Gateway.CNProviders.ErrorRecoveryEnabled {
@@ -176,7 +167,7 @@ func (s *AccountErrorRecoveryService) Stop() {
 }
 
 func (s *AccountErrorRecoveryService) runOnce() {
-	if s == nil || s.accountRepo == nil || s.quotaProber == nil || s.cfg == nil {
+	if s == nil || s.accountRepo == nil || s.cfg == nil {
 		return
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), s.roundBudget())
@@ -239,19 +230,16 @@ func (s *AccountErrorRecoveryService) recoverOne(ctx context.Context, account *A
 		return
 	}
 
-	recovered, err := s.quotaRecovered(ctx, account, now)
-	if err != nil {
-		log.Printf("[CNRecovery] quota probe account %d (%s) failed: %v", account.ID, account.Platform, err)
-		s.scheduleNextAttempt(account.ID, now, cnRecoveryBackoffReasonProbeFailed)
-		stats.deferred++
-		return
-	}
-	if !recovered {
+	recovered, known := cnQuotaRecoveredFromSnapshot(account, now, s.quotaExhaustedPercent())
+	if known && !recovered {
+		// 快照显示窗口仍未重置（reset_at 在未来）：零上游调用，直接按退避重排。
 		s.scheduleNextAttempt(account.ID, now, cnRecoveryBackoffReasonQuotaFull)
 		stats.deferred++
 		return
 	}
 
+	// 快照判定已恢复，或快照里没有窗口数据（known=false）：用最小请求点火验证
+	// 仲裁——它不是探额度，是防「鉴权已死」账号被误恢复形成恢复-再死循环。
 	if err := s.verifyMinimalRequest(ctx, account); err != nil {
 		log.Printf("[CNRecovery] verify account %d (%s) failed: %v", account.ID, account.Platform, err)
 		s.scheduleNextAttempt(account.ID, now, cnRecoveryBackoffReasonVerifyFailed)
@@ -286,49 +274,27 @@ func (s *AccountErrorRecoveryService) recoverOne(ctx context.Context, account *A
 	log.Printf("[CNRecovery] restored account %d (%s)", account.ID, account.Platform)
 	stats.restored++
 }
-
-// quotaRecovered 判定账号额度是否已恢复（周未满 且 5h 未满）。
-// 快照新鲜时直接读快照（不产生额外上游调用）；快照过期/缺失时先用 coding plan
-// 额度探测刷新，再用探测结果判定。
-func (s *AccountErrorRecoveryService) quotaRecovered(ctx context.Context, account *Account, now time.Time) (bool, error) {
-	threshold := s.quotaExhaustedPercent()
-	if cnRecoverySnapshotFresh(account, now, cnRecoverySnapshotMaxAge) {
-		return !cnProviderQuotaSnapshotExhausted(account, now, threshold, cnRecoverySnapshotMaxAge), nil
+// cnQuotaRecoveredFromSnapshot 用本地额度快照判定账号是否已恢复（周未满 且 5h 未满）。
+// reset_at 已过 = 窗口已重置，是确定事实（管理前端显示的「额度刷新倒计时」读的就是
+// 它），不需要再探测上游。快照新旧不影响判定：reset_at 是时间点事实，不是采样值。
+// 返回 known=false 表示快照里连窗口重置键都没有（从未探测过/数据缺失）——
+// 由调用方交给最小请求验证仲裁。
+func cnQuotaRecoveredFromSnapshot(account *Account, now time.Time, threshold float64) (recovered, known bool) {
+	if account == nil || len(account.Extra) == 0 {
+		return false, false
 	}
-	result, err := s.probeUsage(ctx, account)
-	if err != nil {
-		return false, err
-	}
-	return !cnQuotaProbeResultExhausted(result, threshold), nil
-}
-
-// probeUsage 刷新额度快照（coding plan 额度探测，与管理页「查询额度」同源），
-// 单轮最多尝试 cnRecoveryProbeAttemptsPerRound 次。
-func (s *AccountErrorRecoveryService) probeUsage(ctx context.Context, account *Account) (*CNProviderQuotaProbeResult, error) {
-	var lastErr error
-	for range cnRecoveryProbeAttemptsPerRound {
-		if err := ctx.Err(); err != nil {
-			return nil, err
-		}
-		probeCtx, cancel := context.WithTimeout(ctx, cnRecoveryQuotaProbeTimeout)
-		result, err := s.quotaProber.QueryUsage(probeCtx, account.ID)
-		cancel()
-		switch {
-		case err != nil:
-			lastErr = err
-		case result == nil:
-			lastErr = errors.New("cn quota probe returned no result")
-		case !result.Success:
-			detail := strings.TrimSpace(result.Error)
-			if detail == "" {
-				detail = fmt.Sprintf("HTTP %d", result.StatusCode)
-			}
-			lastErr = fmt.Errorf("cn quota probe unsuccessful: %s", detail)
-		default:
-			return result, nil
+	hasResetKey := false
+	for _, suffix := range []string{cnExtraSuffixWeeklyReset, cnExtraSuffix5hReset} {
+		if _, ok := account.Extra[cnExtraKey(account.Platform, suffix)]; ok {
+			hasResetKey = true
+			break
 		}
 	}
-	return nil, lastErr
+	if !hasResetKey {
+		return false, false
+	}
+	// maxAge=0 跳过新鲜度检查：恢复判定只看「是否有窗口仍处耗尽且重置点在未来」。
+	return !cnProviderQuotaSnapshotExhausted(account, now, threshold, 0), true
 }
 
 // verifyMinimalRequest 发一条最小请求验证账号确实能再次服务上游。
@@ -470,46 +436,14 @@ func cnRecoveryBodyIndicatesError(body []byte) bool {
 	return false
 }
 
-// cnRecoverySnapshotFresh 报告额度快照是否在容忍窗口内
-// （<provider>_usage_updated_at 由 CNProviderQuotaService 写入，RFC3339）。
-func cnRecoverySnapshotFresh(account *Account, now time.Time, maxAge time.Duration) bool {
-	if account == nil || len(account.Extra) == 0 {
-		return false
-	}
-	updatedAt, err := time.Parse(
-		time.RFC3339,
-		strings.TrimSpace(fmt.Sprint(account.Extra[cnExtraKey(account.Platform, cnExtraSuffixUsageUpdated)])),
-	)
-	if err != nil {
-		return false
-	}
-	return now.Sub(updatedAt) <= maxAge
-}
-
-// cnQuotaProbeResultExhausted 判定额度探测结果是否给出「窗口耗尽」证据：
-// 5h 或 weekly 任一档用量 ≥ 阈值即视为未恢复。
-// 缺失档位不算耗尽——最终放行门仍是随后的最小请求验证。
-func cnQuotaProbeResultExhausted(result *CNProviderQuotaProbeResult, threshold float64) bool {
-	if result == nil || threshold <= 0 {
-		return false
-	}
-	for _, tier := range result.Tiers {
-		if tier.UsedPercent >= threshold {
-			return true
-		}
-	}
-	return false
-}
-
-// cnRecoveryPlatforms 是参与自动归队的 CN 平台（CNProviderQuotaService 支持
-// coding plan 额度探测的三家；deepseek 为余额型，无 coding 套餐）。
+// cnRecoveryPlatforms 是参与自动归队的 CN 平台（快照额度键同源的三家；
+// deepseek 为余额型，无 coding 套餐窗口）。
 func cnRecoveryPlatforms() []string {
 	return []string{PlatformKimi, PlatformZhipu, PlatformMiniMax}
 }
 
 // cnRecoveryBackoffReason* 仅用于日志与后续排查（退避表本身不区分原因）。
 const (
-	cnRecoveryBackoffReasonProbeFailed   = "quota_probe_failed"
 	cnRecoveryBackoffReasonQuotaFull     = "quota_still_full"
 	cnRecoveryBackoffReasonVerifyFailed  = "verify_failed"
 	cnRecoveryBackoffReasonReloadFailed  = "reload_failed"
