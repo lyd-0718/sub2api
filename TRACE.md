@@ -2,6 +2,11 @@
 
 按会话留存完整对话链路（用户输入 / 模型输出 / 思考链 / 工具调用），用于后续蒸馏微调。
 
+> **这个 fork 是什么**：`Wei-Shaw/sub2api` 官方版（当前合并到 **v0.2.5**，2026-09-16）+ 两个自研模块——
+> ① 本文档讲的 **Session Trace 录制**；② **CN（kimi 等国产 Coding Plan）账号并发受限治理**（403 三分类、额度耗尽停调自动恢复、历史 error 账号自动归队），设计文档见 **`PLAN-cn-cap-v6.md`**。
+> 部署分支：fork 的 **`trace` 分支**（GitHub 默认分支已设为 trace）。
+> 当前生产镜像：`sub2api-trace:0.2.5-4f97093`（2026-09-16 部署，健康运行中）。
+
 ## 这套东西是什么
 
 sub2api 官方镜像 + 一个"录音笔"中间件。所有经过 `/v1/messages`（Claude Code）、`/v1/chat/completions`（OpenAI 格式）、`/v1/responses`（Codex CLI）的请求，请求体和响应体被原样复制一份，按会话归档成 gzip 压缩的 JSON 文件。
@@ -10,7 +15,9 @@ sub2api 官方镜像 + 一个"录音笔"中间件。所有经过 `/v1/messages`�
 
 ## 数据存在哪
 
-服务器：`/opt/sub2api/data/traces/<日期>/<会话ID>/<时间戳>-<请求ID>.json.gz`
+服务器：`/opt/sub2api/data/traces/key-<API Key ID>/<日期YYYYMMDD>/<会话ID>/<时间戳>-<请求ID>.json.gz`
+
+（v0.2.x 起为 key/日期/会话 三级；更早的部署是 日期/会话 两级，翻旧数据时注意。）
 
 每个文件一轮请求，结构：
 
@@ -90,10 +97,15 @@ git fetch https://github.com/Wei-Shaw/sub2api.git --tags
 git checkout trace
 git merge upstream/main   # 注意：合 main 而非 tag——上游先打 tag 后 bump VERSION，
                           # 合 tag 会带进旧 VERSION（v0.2.1 曾因此界面显示 0.2.0）
-cd backend && go build ./... && go test ./internal/pkg/trace/ ./internal/service/ -run 'TestCNCodingPlan429|TestCN429'
-cd ../frontend && npx vitest run src/i18n/__tests__/localeKeyCompleteness.spec.ts  # 上游有语言键完整性测试，镜像构建会跑，本地先跑避免白构建
+# 合并后验证（v0.2.5 实测命令）：
+cd backend && go build ./... && go vet ./...
+go test ./internal/config/ ./internal/repository/ ./internal/server/... ./cmd/server/ ./internal/handler/ ./migrations/ -count=1
+go test -tags unit ./internal/service/ -count=1 && go test ./internal/service/ -count=1   # service 包两种标签各跑一遍
+cd ../frontend && npx vitest run && npx vue-tsc --noEmit   # i18n 完整性/类型检查在镜像构建里会跑，本地先跑
 git push origin trace
 ```
+
+（v0.2.5 合并实录：197 个提交只有 1 个冲突——`ratelimit_cn_providers.go` 的额度快照辅助函数：我方删旧函数换周满分档、上游给 OpenCodeGo 加月度窗口。双边保留解决：CN 平台走 `cnQuotaPauseWindow` 新规则，OpenCodeGo 走旧函数。上游 v0.2.5 自带 2 个挂掉的前端测试（ChannelMonitorView.grok 的供应商计数、GroupsView.codexManifest 的 Pinia），干净 upstream/main 上同样挂，不是合并问题，不要替上游修——修了反而制造未来的合并噪音。）
 
 **merge 冲突面（trace 分支对上游的全部改动）：**
 
@@ -108,27 +120,36 @@ git push origin trace
 （kimi 缓存保活模块已于 2026-09-04 移除：实测有用但探测费相对省下的冷启动费性价比不高。历史见 git log。）
 （`x-session-id` 粘性路由曾作为第 4 条改动，v0.2.1 合并时确认为重复代码已删除——上游名单的 `openCodeSessionIDHeader` 常量值就是 `X-Session-Id`。）
 
-**服务器部署（标准流程，2026-09-05 起）：**
+**服务器部署（标准流程，2026-09-16 按 v0.2.5 实际部署更新）：**
 
 ```bash
 ssh relay
 # 1) 全新构建目录（不要增量解压！tar 不删除已移除的文件，残留旧文件会编译失败）
 rm -rf /opt/sub2api-trace && mkdir -p /opt/sub2api-trace && cd /opt/sub2api-trace
 curl -sL https://github.com/lyd-0718/sub2api/archive/refs/heads/trace.tar.gz | tar xz --strip-components=1
-# 2) 构建新镜像（构建期间旧服务照常运行）；tag 用 <版本>-<短提交>
+# 2) 构建新镜像（约 3-4 分钟，构建期间旧服务照常运行）；tag 用 <版本>-<短提交>
 docker build -t sub2api-trace:<版本>-<短提交> .
-# 3) 维护窗口：备份数据库（迁移不可逆）+ compose + data 目录
-# 4) 改 /opt/sub2api/docker-compose.yml 的 image tag，切换：
+# 3) 备份（迁移前必做）：
+cp /opt/sub2api/docker-compose.yml /opt/sub2api/docker-compose.yml.bak-$(date +%Y%m%d)
+docker exec sub2api-postgres pg_dump -U sub2api sub2api | gzip > /opt/sub2api/backup-pre-<版本>-$(date +%Y%m%d-%H%M).sql.gz
+#    （pg 用户/库名都是 sub2api，不是 postgres；data 目录 2.7G+ 不整备，回滚不依赖它）
+# 4) 改 /opt/sub2api/docker-compose.yml 的 image tag（服务器是 GNU sed，别带 macOS 的 -i ''）：
+sed -i 's|image: sub2api-trace:.*|image: sub2api-trace:<版本>-<短提交>|' /opt/sub2api/docker-compose.yml
 cd /opt/sub2api && docker compose up -d sub2api
-# 5) 验收：健康检查 200、docker logs 确认迁移 applied、发一个真实请求确认
-#    traces/ 下生成新会话文件、429 面板可打开、模型调用正常
+# 5) 验收清单：
+#    - curl http://127.0.0.1:8081/health → 200（注意宿主机端口是 8081，不是容器内 8080；
+#      域名走前面的反代）
+#    - docker logs 确认迁移 applied（schema_migrations 表可查 filename）
+#    - docker logs 看到 [CNRecovery] started (interval=10m0s)（CN 归队服务在线）
+#    - 真实流量几分钟后 traces/ 下生成新会话文件、后台页面可打开
 ```
 
-回滚：迁移均为**加可空列**，旧代码兼容新表结构——直接改回旧 image tag `up -d` 即可，无需恢复数据库。
+回滚：迁移均为**加可空列/新表**，旧代码兼容新表结构——直接改回旧 image tag `up -d` 即可，无需恢复数据库。
 
 ## 测试
 
-`backend/internal/pkg/trace/` 下 18 个测试覆盖：三种格式 SSE 重组（含 Responses 断流退化）、思考链/工具参数分片合并、格式嗅探、错误事件、截断、空 keepalive、会话 ID 五级优先级、中间件端到端（验证客户端收到的响应零改动）。
+- **Trace 模块**：`backend/internal/pkg/trace/` 下 18 个测试覆盖：三种格式 SSE 重组（含 Responses 断流退化）、思考链/工具参数分片合并、格式嗅探、错误事件、截断、空 keepalive、会话 ID 五级优先级、中间件端到端（验证客户端收到的响应零改动）。
+- **CN 治理模块**：`service/ratelimit_classifier_test.go`（分类器 17 行表测：kimi 精确/宽松、周/5h 额度、鉴权、未知、HTML、空 body、非 CN、裸 5h 不匹配）、`service/cn_quota_pause_window_test.go`（周满分档、快照缺失、阈值配置）、`service/ratelimit_cn_403_side_effects_test.go`（额度 403 永不进禁用计数、并发 403 只停车、幂等合并、WS/流内落点）、`service/account_error_recovery_service_test.go`（reset_at 已过即恢复、仍满零请求退避、无快照走验证仲裁、CAS 顺序与冲突预算、leader 锁）。完整验证命令见上文「跟进官方更新」。
 
 ## 后台管理功能（已上线）
 
