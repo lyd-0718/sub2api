@@ -32,7 +32,6 @@ type RateLimitService struct {
 	settingService        *SettingService
 	tokenCacheInvalidator TokenCacheInvalidator
 	runtimeBlocker        AccountRuntimeBlocker
-	concurrencyCapStore   ConcurrencyCapStore
 	usageCacheMu          sync.RWMutex
 	usageCache            map[int64]*geminiUsageCacheEntry
 
@@ -133,12 +132,6 @@ func (s *RateLimitService) SetOpenAI403CounterCache(cache OpenAI403CounterCache)
 // SetSettingService 设置系统设置服务（可选依赖）
 func (s *RateLimitService) SetSettingService(settingService *SettingService) {
 	s.settingService = settingService
-}
-
-// SetConcurrencyCapStore 注入账号级有效并发上限存储（可选依赖）。
-// 未注入时撞并发 403 仍然只做 30s 临时停车（保留旧行为），不写 cap。
-func (s *RateLimitService) SetConcurrencyCapStore(store ConcurrencyCapStore) {
-	s.concurrencyCapStore = store
 }
 
 // SetTokenCacheInvalidator 设置 token 缓存清理器（可选依赖）

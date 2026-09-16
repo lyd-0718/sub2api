@@ -1150,32 +1150,6 @@ export interface OllamaCloudUsageSettings {
   debounce_minutes: number
 }
 
-export interface AccountConcurrencyCapState {
-  account_id: number
-  platform: string
-  cap_max: number
-  known: boolean
-  cap?: number
-  restricted: boolean
-  pinned: boolean
-  reason?: string
-  restricted_at?: string
-  next_probe_at?: string
-  configured_concurrency: number
-  effective_concurrency: number
-  flap_count_7d: number
-  fuse_flap_threshold: number
-  fused: boolean
-  version: number
-  updated_at?: string
-}
-
-export interface UpdateAccountConcurrencyCapRequest {
-  cap?: number
-  pinned?: boolean
-  clear_fuse?: boolean
-}
-
 export interface Account {
   id: number
   name: string

@@ -4743,12 +4743,6 @@ watch(
       form.concurrency = 1
       form.load_factor = null
     }
-    // kimi 并发上限统一 3（与后端账号级 cap 阶梯上限 cap_max 一致）。
-    // 表单初值是 10 且被全平台共用，存量账号由 240 迁移下调，新建必须在这里同步，
-    // 否则新建的 kimi 账号仍会以 10 条车道入场。
-    if (newPlatform === 'kimi') {
-      form.concurrency = 3
-    }
     if (newPlatform !== 'gemini' && newPlatform !== 'anthropic' && accountCategory.value === 'service_account') {
       accountCategory.value = 'oauth-based'
     }

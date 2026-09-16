@@ -33,38 +33,15 @@ const kimiConcurrentRequestLimitMessage = "You've reached your concurrent reques
 
 const cnConcurrencyLimitReasonPrefix = "cn_concurrency_limit"
 
-// cnConcurrencyCapReason 是撞并发 403 后把有效并发降为 1 时写入 cap store 的原因
-// （管理端展示受限原因时按它区分自动降级与人工覆盖）。
-const cnConcurrencyCapReason = "concurrent_403"
-
 func (s *RateLimitService) handleCNProviderConcurrencyLimit403(
 	ctx context.Context,
 	account *Account,
 ) {
-	// 撞并发 403 → 该账号有效并发降为受限档（cap），等待后续探测阶梯回升。
-	// SetCap 是幂等的（同值重写只推进版本号），去重由调用方的副作用幂等键负责。
-	restricted := 1
-	if s.cfg != nil && s.cfg.Gateway.ConcurrencyCap.Restricted > 0 {
-		restricted = s.cfg.Gateway.ConcurrencyCap.Restricted
-	}
-	switch {
-	case s.concurrencyCapStore == nil:
-		// store 未接线（wire 漏注入）时不能让 cap 静默不写：显式暴露配置缺口。
-		slog.Warn("cn_concurrency_cap_store_missing", "account_id", account.ID, "platform", account.Platform)
-	default:
-		// flap 口径②：从更高档位被打回受限档（回升后 72h 内又撞）也计 flap；
-		// 原本就在受限档的重复撞击、以及首次受限（无记录）不计。
-		if record, err := s.concurrencyCapStore.GetCap(ctx, account.ID); err == nil && record != nil && record.Cap > restricted {
-			if _, ferr := s.concurrencyCapStore.RecordFlap(ctx, account.ID, time.Now()); ferr != nil {
-				slog.Warn("cn_concurrency_cap_flap_failed", "account_id", account.ID, "error", ferr)
-			}
-		}
-		if err := s.concurrencyCapStore.SetCap(ctx, account.ID, restricted, cnConcurrencyCapReason); err != nil {
-			slog.Warn("cn_concurrency_cap_set_failed", "account_id", account.ID, "error", err)
-		}
-	}
 	// 并发超限是秒级瞬时信号（在途流结束即释放槽位），用短冷却而非 403 默认的
 	// 10 分钟——长冷却会引发级联停车（停 A → 压 B → B 也超限），号池快速缩编。
+	// 不进入 handleOpenAI403 的连续计数（计数到阈值会把账号永久置 status=error，
+	// 而并发受限在在途流结束后必然恢复）。所有 kimi 账号配置并发已为 1，
+	// 无需再写账号级 cap。
 	until := time.Now().Add(s.cnConcurrencyLimitCooldown())
 	reason := cnConcurrencyLimitReasonPrefix + ": " + kimiConcurrentRequestLimitMessage
 	s.notifyAccountSchedulingBlocked(account, until, cnConcurrencyLimitReasonPrefix)

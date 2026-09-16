@@ -46,8 +46,6 @@ type AdminHandlers struct {
 	// 二开：会话 trace 管理与账号用量导出（独立模块，不与官方计费耦合）
 	TraceAdmin         *admin.TraceAdminHandler
 	AccountUsageExport *admin.AccountUsageExportHandler
-	// 二开：账号级有效并发上限（cap）管理接口。
-	ConcurrencyCap *AdminConcurrencyCapHandler
 }
 
 // Handlers contains all HTTP handlers

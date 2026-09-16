@@ -141,7 +141,7 @@ func (s *AccountErrorRecoveryService) Start() {
 	if s == nil || s.accountRepo == nil || s.quotaProber == nil || s.httpUpstream == nil || s.cfg == nil {
 		return
 	}
-	if !s.cfg.Gateway.ConcurrencyCap.Enabled {
+	if !s.cfg.Gateway.CNProviders.ErrorRecoveryEnabled {
 		return
 	}
 	if s.interval <= 0 {
@@ -574,7 +574,7 @@ func (s *AccountErrorRecoveryService) clearState(accountID int64) {
 func (s *AccountErrorRecoveryService) backoffSchedule() []time.Duration {
 	raw := ""
 	if s != nil && s.cfg != nil {
-		raw = s.cfg.Gateway.ConcurrencyCap.RecoveryProbeBackoff
+		raw = s.cfg.Gateway.CNProviders.ErrorRecoveryBackoff
 	}
 	if parsed := parseCNRecoveryBackoff(raw); len(parsed) > 0 {
 		return parsed
@@ -605,8 +605,8 @@ func parseCNRecoveryBackoff(raw string) []time.Duration {
 }
 
 func (s *AccountErrorRecoveryService) leaderLockTTL() time.Duration {
-	if s != nil && s.cfg != nil && s.cfg.Gateway.ConcurrencyCap.LeaderLockTTL > 0 {
-		return s.cfg.Gateway.ConcurrencyCap.LeaderLockTTL
+	if s != nil && s.cfg != nil && s.cfg.Gateway.CNProviders.ErrorRecoveryLeaderLockTTL > 0 {
+		return s.cfg.Gateway.CNProviders.ErrorRecoveryLeaderLockTTL
 	}
 	return cnRecoveryDefaultLeaderLockTTL
 }

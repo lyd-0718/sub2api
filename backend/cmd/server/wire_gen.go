@@ -292,25 +292,10 @@ func initializeApplication(buildInfo handler.BuildInfo) (*Application, error) {
 	accountUsageExportService := service.NewAccountUsageExportService(db)
 	adminHandlers.TraceAdmin = admin.NewTraceAdminHandler(traceAdminService)
 	adminHandlers.AccountUsageExport = admin.NewAccountUsageExportHandler(accountUsageExportService)
-	// 二开模块：CN 并发 cap 治理（手写接线，wire codegen 重跑需补回以下 13 行）。
-	concurrencyCapRepository := repository.NewAccountConcurrencyCapRepository(db, redisClient)
-	concurrencyCapStore := service.NewConcurrencyCapStore(concurrencyCapRepository, service.ConcurrencyCapStoreConfig{
-		Enabled:      configConfig.Gateway.ConcurrencyCap.Enabled,
-		Restricted:   configConfig.Gateway.ConcurrencyCap.Restricted,
-		CapMax:       configConfig.Gateway.ConcurrencyCap.CapMax,
-		HoldHours:    configConfig.Gateway.ConcurrencyCap.HoldHours,
-		ObserveHours: configConfig.Gateway.ConcurrencyCap.ObserveHours,
-		CacheTTL:     configConfig.Gateway.ConcurrencyCap.CacheTTL,
-	})
-	concurrencyService.SetConcurrencyCapStore(concurrencyCapStore)
-	rateLimitService.SetConcurrencyCapStore(concurrencyCapStore)
-	concurrencyCapService := service.NewConcurrencyCapService(concurrencyCapStore, accountRepository, concurrencyService, proxyRepository, httpUpstream, configConfig)
-	concurrencyCapService.SetLeaderLock(leaderLockCache, db)
-	concurrencyCapService.Start()
+	// 二开模块：CN 账号治理（手写接线，wire codegen 重跑需补回以下 4 行）。
 	accountErrorRecoveryService := service.NewAccountErrorRecoveryService(accountRepository, cnProviderQuotaService, httpUpstream, configConfig, 10*time.Minute)
 	accountErrorRecoveryService.SetLeaderLock(leaderLockCache, db)
 	accountErrorRecoveryService.Start()
-	adminHandlers.ConcurrencyCap = handler.NewAdminConcurrencyCapHandler(concurrencyCapStore, adminService, configConfig)
 	usageRecordWorkerPool := service.NewUsageRecordWorkerPool(configConfig)
 	userMsgQueueCache := repository.NewUserMsgQueueCache(redisClient)
 	userMessageQueueService := service.ProvideUserMessageQueueService(userMsgQueueCache, rpmCache, configConfig)
@@ -373,7 +358,7 @@ func initializeApplication(buildInfo handler.BuildInfo) (*Application, error) {
 	channelMonitorRunner := service.ProvideChannelMonitorRunner(channelMonitorService, settingService, channelMonitorQuotaFetcher)
 	channelMonitorV2Aggregator := service.ProvideChannelMonitorV2Aggregator(channelMonitorV2Repository, db, settingService)
 	userPlatformQuotaUsageFlusher := service.ProvideUserPlatformQuotaUsageFlusher(configConfig, billingCache, serviceUserPlatformQuotaRepository, timingWheelService)
-	v := provideCleanup(client, redisClient, opsMetricsCollector, opsAggregationService, opsAlertEvaluatorService, opsCleanupService, opsScheduledReportService, opsSystemLogSink, opsService, opsIngressRejectAggregator, apiKeyService, authCacheInvalidationWorker, schedulerSnapshotService, tokenRefreshService, accountExpiryService, cnProviderBalanceCheckService, openAICodexVersionSyncService, proxyExpiryService, subscriptionExpiryService, usageCleanupService, idempotencyCleanupService, batchImageCleanupService, batchImageWorkerRuntime, pricingService, emailQueueService, billingCacheService, usageRecordWorkerPool, subscriptionService, oAuthService, openAIOAuthService, geminiOAuthService, antigravityOAuthService, grokOAuthService, openAIGatewayService, scheduledTestRunnerService, backupService, paymentOrderExpiryService, channelMonitorRunner, channelMonitorV2Aggregator, userPlatformQuotaUsageFlusher, upstreamBillingProbeService, ollamaCloudUsageService, auditLogService, openAIQuotaAutoResetService, promptService, pluginManager, concurrencyCapService, accountErrorRecoveryService)
+	v := provideCleanup(client, redisClient, opsMetricsCollector, opsAggregationService, opsAlertEvaluatorService, opsCleanupService, opsScheduledReportService, opsSystemLogSink, opsService, opsIngressRejectAggregator, apiKeyService, authCacheInvalidationWorker, schedulerSnapshotService, tokenRefreshService, accountExpiryService, cnProviderBalanceCheckService, openAICodexVersionSyncService, proxyExpiryService, subscriptionExpiryService, usageCleanupService, idempotencyCleanupService, batchImageCleanupService, batchImageWorkerRuntime, pricingService, emailQueueService, billingCacheService, usageRecordWorkerPool, subscriptionService, oAuthService, openAIOAuthService, geminiOAuthService, antigravityOAuthService, grokOAuthService, openAIGatewayService, scheduledTestRunnerService, backupService, paymentOrderExpiryService, channelMonitorRunner, channelMonitorV2Aggregator, userPlatformQuotaUsageFlusher, upstreamBillingProbeService, ollamaCloudUsageService, auditLogService, openAIQuotaAutoResetService, promptService, pluginManager, accountErrorRecoveryService)
 	application := &Application{
 		Server:        httpServer,
 		PromptAudit:   promptService,
@@ -457,7 +442,6 @@ func provideCleanup(
 	openAIAutoReset *service.OpenAIQuotaAutoResetService,
 	promptAudit *securityaudit.PromptService,
 	pluginManager *service.PluginManager,
-	concurrencyCapSvc *service.ConcurrencyCapService,
 	accountErrorRecovery *service.AccountErrorRecoveryService,
 ) func() {
 	return func() {
@@ -470,12 +454,6 @@ func provideCleanup(
 		}
 
 		parallelSteps := []cleanupStep{
-			{"ConcurrencyCapService", func() error {
-				if concurrencyCapSvc != nil {
-					concurrencyCapSvc.Stop()
-				}
-				return nil
-			}},
 			{"AccountErrorRecoveryService", func() error {
 				if accountErrorRecovery != nil {
 					accountErrorRecovery.Stop()

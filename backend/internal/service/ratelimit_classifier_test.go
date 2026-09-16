@@ -75,7 +75,8 @@ func TestCNQuotaWordingWindow(t *testing.T) {
 	require.Equal(t, "weekly", cnQuotaWordingWindow([]byte(`{"error":{"message":"Weekly usage limit reached."}}`)))
 	require.Equal(t, "weekly", cnQuotaWordingWindow([]byte(`{"error":{"message":"7-day limit exceeded"}}`)))
 	require.Equal(t, "5h", cnQuotaWordingWindow([]byte(`{"error":{"message":"5-hour usage limit reached"}}`)))
-	require.Equal(t, "5h", cnQuotaWordingWindow([]byte(`{"error":{"message":"5h quota exhausted"}}`)))
+	// 裸 "5h" 紧凑写法【有意不匹配】：3 字符子串会被 request_id/URL 片段误命中（真实文案均为 "5-hour"）。
+	require.Equal(t, "", cnQuotaWordingWindow([]byte(`{"error":{"message":"5h quota exhausted"}}`)))
 	require.Equal(t, "", cnQuotaWordingWindow([]byte(`{"error":{"message":"weekly plan renewed"}}`)), "只有窗口标识不足以判额度耗尽")
 	require.Equal(t, "", cnQuotaWordingWindow([]byte(`{"error":{"message":"request limit exceeded for this endpoint"}}`)), "只有耗尽语义不足以判额度耗尽")
 	require.Equal(t, "", cnQuotaWordingWindow(nil))

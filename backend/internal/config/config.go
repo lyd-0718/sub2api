@@ -1099,50 +1099,6 @@ type GatewayConfig struct {
 	// CNProviders: 国产 OpenAI 兼容供应商（kimi/zhipu/deepseek）的余额检测配置。
 	// 仅作用于 payg（按量付费）账号：周期探测余额，低于阈值则临时停调。
 	CNProviders GatewayCNProvidersConfig `mapstructure:"cn_providers"`
-
-	// ConcurrencyCap: 账号级有效并发上限（cap）治理配置。
-	// 撞并发 403 → 有效并发降为 restricted → 冷却 hold_hours → 主动探测 → 阶梯回升到 cap_max。
-	ConcurrencyCap GatewayConcurrencyCapConfig `mapstructure:"concurrency_cap"`
-}
-
-// GatewayConcurrencyCapConfig 账号级有效并发上限（cap）治理配置。
-//
-// 存储口径：DB 表 account_concurrency_caps 为唯一真源，Redis 键 cap:{account_id}
-// 写穿给硬准入路径，进程内缓存（cache_ttl）只服务负载估算等软路径。
-// 探测口径：协议/端点必须与生产出现 403 的路径同源，否则探测结论不可信。
-type GatewayConcurrencyCapConfig struct {
-	// Enabled: 总开关。关闭后不夹帽也不写 cap。
-	Enabled bool `mapstructure:"enabled"`
-	// Restricted: 撞并发限流后的有效并发（默认 1）。
-	Restricted int `mapstructure:"restricted"`
-	// CapMax: 阶梯回升上限（默认 3）。
-	CapMax int `mapstructure:"cap_max"`
-	// HoldHours: 受限后的冷却时长（小时，默认 72），到点才允许主动探测。
-	HoldHours int `mapstructure:"hold_hours"`
-	// ObserveHours: cap 回升到中间档后的观察时长（小时，默认 12），到点探测下一档。
-	ObserveHours int `mapstructure:"observe_hours"`
-	// ProbeProtocol: 探测请求使用的协议族（默认 anthropic）。
-	ProbeProtocol string `mapstructure:"probe_protocol"`
-	// ProbeEndpoint: 探测请求端点（默认 /v1/messages），须与生产 403 同源。
-	ProbeEndpoint string `mapstructure:"probe_endpoint"`
-	// ProbeMaxTokens: 单条探测流的最大输出 token（默认 1，Kimi 最小合法值）。
-	ProbeMaxTokens int `mapstructure:"probe_max_tokens"`
-	// ProbeTimeout: 单条探测请求超时。
-	ProbeTimeout time.Duration `mapstructure:"probe_timeout"`
-	// ProbeLeaseTTL: 探测任务租约时长（需续租）。
-	ProbeLeaseTTL time.Duration `mapstructure:"probe_lease_ttl"`
-	// ProbeDrainTimeout: 占槽失败后的重试间隔；本轮总预算 60s。
-	ProbeDrainTimeout time.Duration `mapstructure:"probe_drain_timeout"`
-	// ProbeInconclusiveRetryHours: 「不确定」结论的重试间隔（小时）。
-	ProbeInconclusiveRetryHours int `mapstructure:"probe_inconclusive_retry_hours"`
-	// FuseFlapThreshold: 滚动 7 天内 flap 达到该值即熔断（停止自动回升）。
-	FuseFlapThreshold int `mapstructure:"fuse_flap_threshold"`
-	// CacheTTL: 进程内 cap 缓存 TTL（须 ≤5s；多实例下广播不可靠，硬准入走 Redis）。
-	CacheTTL time.Duration `mapstructure:"cache_ttl"`
-	// RecoveryProbeBackoff: 历史账号归队的退避阶梯（逗号分隔，封顶 6h，每轮 ≤3 次）。
-	RecoveryProbeBackoff string `mapstructure:"recovery_probe_backoff"`
-	// LeaderLockTTL: 回升/恢复任务的多实例互斥锁 TTL（需续租）。
-	LeaderLockTTL time.Duration `mapstructure:"leader_lock_ttl"`
 }
 
 // GatewayGrokConfig holds Grok-specific gateway scheduling knobs.
@@ -1195,6 +1151,12 @@ type GatewayCNProvidersConfig struct {
 	// QuotaExhaustedPercent: 5h/weekly 窗口用量 ≥ 该百分比才认定为「窗口耗尽」，
 	// 按窗口重置时间停调（默认 85）。
 	QuotaExhaustedPercent float64 `mapstructure:"quota_exhausted_percent"`
+	// ErrorRecoveryEnabled: 历史被禁用 CN 账号自动归队开关（默认 true）。
+	ErrorRecoveryEnabled bool `mapstructure:"error_recovery_enabled"`
+	// ErrorRecoveryBackoff: 归队探测的退避阶梯（逗号分隔，封顶 6h，每轮 ≤3 次）。
+	ErrorRecoveryBackoff string `mapstructure:"error_recovery_backoff"`
+	// ErrorRecoveryLeaderLockTTL: 归队任务的多实例互斥锁 TTL（需续租）。
+	ErrorRecoveryLeaderLockTTL time.Duration `mapstructure:"error_recovery_leader_lock_ttl"`
 }
 
 type GatewayLiveConfig struct {
@@ -2514,23 +2476,9 @@ func setDefaults() {
 	viper.SetDefault("gateway.cn_providers.rate_limit_cooldown_seconds", 60)
 	viper.SetDefault("gateway.cn_providers.concurrency_limit_cooldown_seconds", 30)
 	viper.SetDefault("gateway.cn_providers.quota_exhausted_percent", 85)
-	// 账号级有效并发上限（cap）治理。探测协议/端点与生产 403 同源（Anthropic 流式 /v1/messages）。
-	viper.SetDefault("gateway.concurrency_cap.enabled", true)
-	viper.SetDefault("gateway.concurrency_cap.restricted", 1)
-	viper.SetDefault("gateway.concurrency_cap.cap_max", 3)
-	viper.SetDefault("gateway.concurrency_cap.hold_hours", 72)
-	viper.SetDefault("gateway.concurrency_cap.observe_hours", 12)
-	viper.SetDefault("gateway.concurrency_cap.probe_protocol", "anthropic")
-	viper.SetDefault("gateway.concurrency_cap.probe_endpoint", "/v1/messages")
-	viper.SetDefault("gateway.concurrency_cap.probe_max_tokens", 1)
-	viper.SetDefault("gateway.concurrency_cap.probe_timeout", 30*time.Second)
-	viper.SetDefault("gateway.concurrency_cap.probe_lease_ttl", 90*time.Second)
-	viper.SetDefault("gateway.concurrency_cap.probe_drain_timeout", 10*time.Second)
-	viper.SetDefault("gateway.concurrency_cap.probe_inconclusive_retry_hours", 1)
-	viper.SetDefault("gateway.concurrency_cap.fuse_flap_threshold", 3)
-	viper.SetDefault("gateway.concurrency_cap.cache_ttl", 5*time.Second)
-	viper.SetDefault("gateway.concurrency_cap.recovery_probe_backoff", "10m,20m,40m,6h")
-	viper.SetDefault("gateway.concurrency_cap.leader_lock_ttl", 90*time.Second)
+	viper.SetDefault("gateway.cn_providers.error_recovery_enabled", true)
+	viper.SetDefault("gateway.cn_providers.error_recovery_backoff", "10m,20m,40m,6h")
+	viper.SetDefault("gateway.cn_providers.error_recovery_leader_lock_ttl", 90*time.Second)
 	viper.SetDefault("gateway.image_concurrency.enabled", false)
 	viper.SetDefault("gateway.image_concurrency.max_concurrent_requests", 0)
 	viper.SetDefault("gateway.image_concurrency.overflow_mode", ImageConcurrencyOverflowModeReject)

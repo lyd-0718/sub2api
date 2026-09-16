@@ -49,21 +49,6 @@ func (r *cn403RepoStub) SetRateLimited(context.Context, int64, time.Time) error 
 	return nil
 }
 
-// cn403CapStoreStub 只覆盖 SetCap：嵌入契约接口，A 侧新增方法不影响本文件编译。
-type cn403CapStoreStub struct {
-	ConcurrencyCapStore
-	accountIDs []int64
-	caps       []int
-	reasons    []string
-}
-
-func (s *cn403CapStoreStub) SetCap(_ context.Context, accountID int64, cap int, reason string) error {
-	s.accountIDs = append(s.accountIDs, accountID)
-	s.caps = append(s.caps, cap)
-	s.reasons = append(s.reasons, reason)
-	return nil
-}
-
 const (
 	cn403WeeklyQuotaBody       = `{"error":{"message":"Weekly usage limit reached. Resets in 2 days."}}`
 	cn403FiveHourQuotaBody     = `{"error":{"message":"5-hour usage limit reached. Resets in 4hr 59min."}}`
@@ -73,12 +58,9 @@ const (
 	cn403KimiQuotaEvent        = `{"type":"error","error":{"type":"permission_error","status_code":403,"message":"5-hour usage limit reached. Resets in 4hr 59min."}}`
 )
 
-func newCN403TestService(repo AccountRepository, capStore ConcurrencyCapStore) *RateLimitService {
+func newCN403TestService(repo AccountRepository) *RateLimitService {
 	svc := NewRateLimitService(repo, nil, &config.Config{}, nil, nil)
 	svc.SetOpenAI403CounterCache(&openAI403CounterCacheStub{counts: []int64{openAI403DisableThreshold}})
-	if capStore != nil {
-		svc.SetConcurrencyCapStore(capStore)
-	}
 	return svc
 }
 
@@ -104,7 +86,7 @@ func TestRateLimitService_CNQuota403NeverTouches403Counter(t *testing.T) {
 		"kimi_5h_reset_at":         now.Add(3 * time.Hour).Format(time.RFC3339),
 	})
 	repo := &cn403RepoStub{}
-	svc := newCN403TestService(repo, nil)
+	svc := newCN403TestService(repo)
 	counter := svc.openAI403CounterCache.(*openAI403CounterCacheStub)
 
 	shouldDisable := svc.HandleUpstreamError(context.Background(), account, http.StatusForbidden, http.Header{}, []byte(cn403WeeklyQuotaBody))
@@ -125,7 +107,7 @@ func TestRateLimitService_CNQuota403_MissingSnapshotUsesShortCooldown(t *testing
 	t.Parallel()
 	account := cn403CodingAccount(nil)
 	repo := &cn403RepoStub{}
-	svc := newCN403TestService(repo, nil)
+	svc := newCN403TestService(repo)
 	counter := svc.openAI403CounterCache.(*openAI403CounterCacheStub)
 
 	before := time.Now()
@@ -138,23 +120,19 @@ func TestRateLimitService_CNQuota403_MissingSnapshotUsesShortCooldown(t *testing
 	require.Equal(t, []int64{openAI403DisableThreshold}, counter.counts, "快照缺失同样不得进入 403 计数")
 }
 
-// TestRateLimitService_CNConcurrency403SetsCapAndParks 并发文案命中：写 cap=1（探测
-// 阶梯的起点）+ 保留 30s 临时停车，且不消耗 403 计数。
-func TestRateLimitService_CNConcurrency403SetsCapAndParks(t *testing.T) {
+// TestRateLimitService_CNConcurrency403ParksWithoutCounting 并发文案命中：30s 临时
+// 停车（秒级瞬时信号），且【绝不】消耗 403 计数（计数到阈值会把账号永久置 error）。
+func TestRateLimitService_CNConcurrency403ParksWithoutCounting(t *testing.T) {
 	t.Parallel()
 	account := cn403CodingAccount(nil)
 	account.Platform = PlatformKimi
 	repo := &cn403RepoStub{}
-	capStore := &cn403CapStoreStub{}
-	svc := newCN403TestService(repo, capStore)
+	svc := newCN403TestService(repo)
 	counter := svc.openAI403CounterCache.(*openAI403CounterCacheStub)
 
 	shouldDisable := svc.HandleUpstreamError(context.Background(), account, http.StatusForbidden, http.Header{}, []byte(cn403KimiConcurrencyBody))
 
 	require.True(t, shouldDisable)
-	require.Equal(t, []int64{account.ID}, capStore.accountIDs)
-	require.Equal(t, []int{1}, capStore.caps)
-	require.Equal(t, []string{cnConcurrencyCapReason}, capStore.reasons)
 	require.Equal(t, 1, repo.tempCalls)
 	require.Contains(t, repo.lastTempReason, cnConcurrencyLimitReasonPrefix)
 	require.Less(t, time.Until(repo.tempUntil), time.Minute, "并发超限是秒级信号，冷却必须远短于 403 默认 10 分钟")
@@ -175,7 +153,7 @@ func TestRateLimitService_CNQuota403AppliesInPoolMode(t *testing.T) {
 	require.True(t, account.IsPoolMode())
 
 	repo := &cn403RepoStub{}
-	svc := newCN403TestService(repo, nil)
+	svc := newCN403TestService(repo)
 
 	shouldDisable := svc.HandleUpstreamError(context.Background(), account, http.StatusForbidden, http.Header{}, []byte(cn403WeeklyQuotaBody))
 
@@ -190,14 +168,12 @@ func TestRateLimitService_CN403SideEffectDedupedPerRequest(t *testing.T) {
 	t.Parallel()
 	account := cn403CodingAccount(nil)
 	repo := &cn403RepoStub{}
-	capStore := &cn403CapStoreStub{}
-	svc := newCN403TestService(repo, capStore)
+	svc := newCN403TestService(repo)
 
 	ctx := context.WithValue(context.Background(), ctxkey.ClientRequestID, "req-cn-403-1")
 	require.True(t, svc.HandleCNClassifiedUpstreamError(ctx, account, http.StatusForbidden, []byte(cn403KimiConcurrencyBody)))
 	require.True(t, svc.HandleCNClassifiedUpstreamError(ctx, account, http.StatusForbidden, []byte(cn403KimiConcurrencyBody)))
 	require.Equal(t, 1, repo.tempCalls, "同一请求同一分类只写一次副作用")
-	require.Len(t, capStore.caps, 1)
 
 	otherCtx := context.WithValue(context.Background(), ctxkey.ClientRequestID, "req-cn-403-2")
 	require.True(t, svc.HandleCNClassifiedUpstreamError(otherCtx, account, http.StatusForbidden, []byte(cn403KimiConcurrencyBody)))
@@ -223,8 +199,7 @@ func TestOpenAIGatewayService_WSStream403CNClassesApplySideEffects(t *testing.T)
 	t.Parallel()
 	account := cn403CodingAccount(nil)
 	repo := &cn403RepoStub{}
-	capStore := &cn403CapStoreStub{}
-	svc := newCN403TestService(repo, capStore)
+	svc := newCN403TestService(repo)
 	gateway := &OpenAIGatewayService{rateLimitService: svc}
 
 	require.False(t, openAIStream403AccountFailure([]byte(cn403KimiConcurrencyEvent), ""),
@@ -234,8 +209,7 @@ func TestOpenAIGatewayService_WSStream403CNClassesApplySideEffects(t *testing.T)
 		context.Background(), account, "kimi-k2", http.Header{}, []byte(cn403KimiConcurrencyEvent))
 
 	require.True(t, applied)
-	require.Equal(t, []int{1}, capStore.caps, "WS 流内 403 必须写出 cap=1")
-	require.Equal(t, 1, repo.tempCalls)
+	require.Equal(t, 1, repo.tempCalls, "WS 流内并发 403 必须落地临时停车")
 }
 
 // TestOpenAIGatewayService_WSStream403PairedEventsMergeOnce 同一逻辑错误产生的
@@ -244,8 +218,7 @@ func TestOpenAIGatewayService_WSStream403PairedEventsMergeOnce(t *testing.T) {
 	t.Parallel()
 	account := cn403CodingAccount(nil)
 	repo := &cn403RepoStub{}
-	capStore := &cn403CapStoreStub{}
-	svc := newCN403TestService(repo, capStore)
+	svc := newCN403TestService(repo)
 	gateway := &OpenAIGatewayService{rateLimitService: svc}
 	ctx := context.WithValue(context.Background(), ctxkey.ClientRequestID, "req-ws-pair-1")
 
@@ -253,7 +226,6 @@ func TestOpenAIGatewayService_WSStream403PairedEventsMergeOnce(t *testing.T) {
 	require.True(t, gateway.handleOpenAIWSFailureAccountSideEffects(ctx, account, "kimi-k2", http.Header{}, []byte(cn403KimiConcurrencyPaired)))
 
 	require.Equal(t, 1, repo.tempCalls, "error + response.failed 必须合并为一次副作用")
-	require.Len(t, capStore.caps, 1)
 }
 
 // TestOpenAIGatewayService_ResponsesStream403CNQuotaPauses 回归保护：Responses 流内
@@ -267,7 +239,7 @@ func TestOpenAIGatewayService_ResponsesStream403CNQuotaPauses(t *testing.T) {
 		"kimi_5h_reset_at":     resetAt.Format(time.RFC3339),
 	})
 	repo := &cn403RepoStub{}
-	svc := newCN403TestService(repo, nil)
+	svc := newCN403TestService(repo)
 	gateway := &OpenAIGatewayService{rateLimitService: svc}
 
 	status, applied := gateway.handleOpenAIStreamTerminalAccountSideEffects(
