@@ -2,10 +2,10 @@
 
 按会话留存完整对话链路（用户输入 / 模型输出 / 思考链 / 工具调用），用于后续蒸馏微调。
 
-> **这个 fork 是什么**：`Wei-Shaw/sub2api` 官方版（当前合并到 **v0.2.5**，2026-09-16）+ 两个自研模块——
+> **这个 fork 是什么**：`Wei-Shaw/sub2api` 官方版（当前合并到 **v0.2.7**，2026-09-19）+ 两个自研模块——
 > ① 本文档讲的 **Session Trace 录制**；② **CN（kimi 等国产 Coding Plan）账号并发受限治理**（403 三分类、额度耗尽停调自动恢复、历史 error 账号自动归队），设计文档见 **`PLAN-cn-cap-v6.md`**。
 > 部署分支：fork 的 **`trace` 分支**（GitHub 默认分支已设为 trace）。
-> 当前生产镜像：`sub2api-trace:0.2.5-4f97093`（2026-09-16 部署，健康运行中）。
+> 当前生产镜像：`sub2api-trace:0.2.7-577c9d5`（2026-09-19 部署，健康运行中）。
 
 ## 这套东西是什么
 
@@ -107,6 +107,8 @@ git push origin trace
 
 （v0.2.5 合并实录：197 个提交只有 1 个冲突——`ratelimit_cn_providers.go` 的额度快照辅助函数：我方删旧函数换周满分档、上游给 OpenCodeGo 加月度窗口。双边保留解决：CN 平台走 `cnQuotaPauseWindow` 新规则，OpenCodeGo 走旧函数。上游 v0.2.5 自带 2 个挂掉的前端测试（ChannelMonitorView.grok 的供应商计数、GroupsView.codexManifest 的 Pinia），干净 upstream/main 上同样挂，不是合并问题，不要替上游修——修了反而制造未来的合并噪音。）
 
+（v0.2.7 合并实录 2026-09-19：71 个提交 2 个文件冲突——上游 PR #7340（kimi 配额耗尽 403 停车）与我方 CN 治理模块正面撞车，同一功能两种实现。解决：`handle403`/`applyCNProviderReactive429`/`handleCNProviderConcurrencyLimit403` 保留我方（分类器收口早退 + 周/5h 分档 + 并发短冷却防级联停车，上游 10 分钟冷却会缩号池）；上游新增 `cooldownCNProviderToQuotaSnapshotReset` 双边保留（OpenCodeGo 429 分支依赖，CN Coding Plan 仍走我方 `cnCodingPlan429Cooldown` 分档）；删上游 `ratelimit_service_cn_quota_403_test.go`（测被删的 3 参同名符号，Go 无重载）。v0.2.5 时代那 2 个上游坏前端测试已被上游修复，本轮 297/2231 全过。教训：`go test -tags unit` 出现 FAIL 先落盘复跑再定位——本轮首轮 unit 挂、复跑 0 失败，是 flaky 不是合并问题。）
+
 **merge 冲突面（trace 分支对上游的全部改动）：**
 
 1. `backend/internal/server/routes/gateway.go`：3 行（trace 中间件注册）。
@@ -120,7 +122,7 @@ git push origin trace
 （kimi 缓存保活模块已于 2026-09-04 移除：实测有用但探测费相对省下的冷启动费性价比不高。历史见 git log。）
 （`x-session-id` 粘性路由曾作为第 4 条改动，v0.2.1 合并时确认为重复代码已删除——上游名单的 `openCodeSessionIDHeader` 常量值就是 `X-Session-Id`。）
 
-**服务器部署（标准流程，2026-09-16 按 v0.2.5 实际部署更新）：**
+**服务器部署（标准流程，2026-09-19 按 v0.2.7 实际部署更新）：**
 
 ```bash
 ssh relay
