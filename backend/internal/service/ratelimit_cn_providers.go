@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"strings"
 	"time"
+
 )
 
 // 国产供应商（kimi/zhipu/deepseek）的响应式冷却辅助。
@@ -32,6 +33,7 @@ const cnBalanceLowReasonPrefix = "cn_balance_low"
 const kimiConcurrentRequestLimitMessage = "You've reached your concurrent request limit. Please wait for your ongoing requests to finish and try again."
 
 const cnConcurrencyLimitReasonPrefix = "cn_concurrency_limit"
+
 
 func (s *RateLimitService) handleCNProviderConcurrencyLimit403(
 	ctx context.Context,
@@ -281,6 +283,31 @@ func cnCodingPlan429Cooldown(account *Account, now time.Time, threshold float64,
 	return now.Add(transient), false, true
 }
 
+// cooldownCNProviderToQuotaSnapshotReset 把账号冷却到配额快照中最早的未来窗口
+// 重置点（SetRateLimited，窗口过期后调度自动恢复），供 429（OpenCodeGo /
+// Coding Plan）与配额耗尽 403 共用。仅在冷却成功持久化后返回非 nil；
+// 无快照或写库失败时返回 nil，由调用方落入各自的兜底逻辑（避免写库失败
+// 时账号完全失去持久冷却）。
+// （trace 分支注：来自上游 v0.2.7，OpenCodeGo 429 分支依赖；CN Coding Plan
+// 429 走上方 cnCodingPlan429Cooldown 的分档逻辑，不经此函数。）
+func (s *RateLimitService) cooldownCNProviderToQuotaSnapshotReset(ctx context.Context, account *Account, reason, logEvent string) *time.Time {
+	until := cnProviderQuotaSnapshotReset(account, time.Now())
+	if until == nil {
+		return nil
+	}
+	s.notifyAccountSchedulingBlocked(account, *until, reason)
+	if err := s.accountRepo.SetRateLimited(ctx, account.ID, *until); err != nil {
+		slog.Warn("rate_limit_set_failed", "account_id", account.ID, "error", err)
+		return nil
+	}
+	slog.Info(logEvent,
+		"account_id", account.ID,
+		"platform", account.Platform,
+		"reset_at", until.UTC(),
+	)
+	return until
+}
+
 // applyCNProviderReactive429 处理国产供应商的 429 响应。
 // 返回 true 表示已处理（调用方应 return），false 表示未命中、继续走默认 429 逻辑。
 func (s *RateLimitService) applyCNProviderReactive429(
@@ -290,17 +317,7 @@ func (s *RateLimitService) applyCNProviderReactive429(
 	responseBody []byte,
 ) bool {
 	if account.IsOpenCodeGo() {
-		if until := cnProviderQuotaSnapshotReset(account, time.Now()); until != nil {
-			s.notifyAccountSchedulingBlocked(account, *until, "429")
-			if err := s.accountRepo.SetRateLimited(ctx, account.ID, *until); err != nil {
-				slog.Warn("rate_limit_set_failed", "account_id", account.ID, "error", err)
-				return true
-			}
-			slog.Info("opencode_go_rate_limited",
-				"account_id", account.ID,
-				"platform", account.Platform,
-				"reset_at", *until,
-			)
+		if s.cooldownCNProviderToQuotaSnapshotReset(ctx, account, "429", "opencode_go_rate_limited") != nil {
 			return true
 		}
 		if resetAt := parseOpenAIRateLimitResetTime(responseBody); resetAt != nil {
