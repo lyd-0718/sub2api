@@ -330,7 +330,7 @@ describe('EditAccountModal', () => {
 
   afterEach(() => vi.useRealTimers())
 
-  it('shows TLS fingerprinting for Kimi API-key accounts', () => {
+  it('shows and saves TLS fingerprinting for Kimi API-key accounts', async () => {
     const account = buildAccount()
     account.platform = 'kimi'
     account.name = 'Kimi relay'
@@ -340,9 +340,47 @@ describe('EditAccountModal', () => {
       account_mode: 'payg',
       api_protocol: 'chat_completions'
     }
+    account.extra = { keep_runtime_state: 'untouched' }
+    updateAccountMock.mockReset().mockResolvedValue(account)
+    checkMixedChannelRiskMock.mockReset().mockResolvedValue({ has_risk: false })
 
     const wrapper = mountModal(account)
-    expect(wrapper.get('[data-testid="tls-fingerprint-control"]').isVisible()).toBe(true)
+    const control = wrapper.get('[data-testid="tls-fingerprint-control"]')
+    expect(control.isVisible()).toBe(true)
+    await control.get('button').trigger('click')
+    await wrapper.get('form#edit-account-form').trigger('submit.prevent')
+
+    expect(updateAccountMock).toHaveBeenCalledTimes(1)
+    expect(updateAccountMock.mock.calls[0]?.[1]?.extra).toMatchObject({
+      enable_tls_fingerprint: true,
+      keep_runtime_state: 'untouched'
+    })
+    wrapper.unmount()
+  })
+
+  it('turns off TLS fingerprinting without losing unrelated account settings', async () => {
+    const account = buildAccount()
+    account.platform = 'kimi'
+    account.enable_tls_fingerprint = true
+    account.tls_fingerprint_profile_id = 42
+    account.extra = {
+      enable_tls_fingerprint: true,
+      tls_fingerprint_profile_id: 42,
+      keep_runtime_state: 'untouched'
+    }
+    updateAccountMock.mockReset().mockResolvedValue(account)
+    checkMixedChannelRiskMock.mockReset().mockResolvedValue({ has_risk: false })
+
+    const wrapper = mountModal(account)
+    const control = wrapper.get('[data-testid="tls-fingerprint-control"]')
+    expect(control.isVisible()).toBe(true)
+    await control.get('button').trigger('click')
+    await wrapper.get('form#edit-account-form').trigger('submit.prevent')
+
+    const extra = updateAccountMock.mock.calls[0]?.[1]?.extra
+    expect(extra).toMatchObject({ keep_runtime_state: 'untouched' })
+    expect(extra).not.toHaveProperty('enable_tls_fingerprint')
+    expect(extra).not.toHaveProperty('tls_fingerprint_profile_id')
     wrapper.unmount()
   })
 

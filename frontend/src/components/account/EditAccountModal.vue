@@ -4693,7 +4693,7 @@ function loadTempUnschedRules(credentials?: Record<string, unknown>) {
   })
 }
 
-// Load quota control settings from account (Anthropic OAuth/SetupToken only)
+// Load Anthropic quota controls and the account-wide TLS fingerprint setting.
 function loadQuotaControlSettings(account: Account) {
   // Reset all quota control state first
   windowCostEnabled.value = false
@@ -4707,8 +4707,8 @@ function loadQuotaControlSettings(account: Account) {
   rpmStrategy.value = 'tiered'
   rpmStickyBuffer.value = null
   userMsgQueueMode.value = ''
-  tlsFingerprintEnabled.value = false
-  tlsFingerprintProfileId.value = null
+  tlsFingerprintEnabled.value = account.enable_tls_fingerprint === true
+  tlsFingerprintProfileId.value = account.tls_fingerprint_profile_id ?? null
   sessionIdMaskingEnabled.value = false
   cacheTTLOverrideEnabled.value = false
   cacheTTLOverrideTarget.value = '5m'
@@ -4749,11 +4749,6 @@ function loadQuotaControlSettings(account: Account) {
   // UMQ mode（独立于 RPM 加载，防止编辑无 RPM 账号时丢失已有配置）
   userMsgQueueMode.value = account.user_msg_queue_mode ?? ''
 
-  // Load TLS fingerprint setting
-  if (account.enable_tls_fingerprint === true) {
-    tlsFingerprintEnabled.value = true
-  }
-  tlsFingerprintProfileId.value = account.tls_fingerprint_profile_id ?? null
 
   // Load session ID masking setting
   if (account.session_id_masking_enabled === true) {
@@ -5423,18 +5418,6 @@ const handleSubmit = async () => {
       }
       delete newExtra.user_msg_queue_enabled  // 清理旧字段
 
-      // TLS fingerprint setting
-      if (tlsFingerprintEnabled.value) {
-        newExtra.enable_tls_fingerprint = true
-        if (tlsFingerprintProfileId.value) {
-          newExtra.tls_fingerprint_profile_id = tlsFingerprintProfileId.value
-        } else {
-          delete newExtra.tls_fingerprint_profile_id
-        }
-      } else {
-        delete newExtra.enable_tls_fingerprint
-        delete newExtra.tls_fingerprint_profile_id
-      }
 
       // Session ID masking setting
       if (sessionIdMaskingEnabled.value) {
@@ -5678,6 +5661,28 @@ const handleSubmit = async () => {
         newExtra.upstream_request_id_header = nextUpstreamRequestIdHeader
       } else {
         delete newExtra.upstream_request_id_header
+      }
+      updatePayload.extra = newExtra
+    }
+
+    // TLS fingerprinting is account-wide; Anthropic quota controls above are not.
+    const tlsEnabledBefore = props.account.enable_tls_fingerprint === true
+    const tlsProfileBefore = props.account.tls_fingerprint_profile_id ?? null
+    if (tlsFingerprintEnabled.value !== tlsEnabledBefore ||
+      (tlsFingerprintEnabled.value && tlsFingerprintProfileId.value !== tlsProfileBefore)) {
+      const currentExtra = (updatePayload.extra as Record<string, unknown>) ||
+        (props.account.extra as Record<string, unknown>) || {}
+      const newExtra: Record<string, unknown> = { ...currentExtra }
+      if (tlsFingerprintEnabled.value) {
+        newExtra.enable_tls_fingerprint = true
+        if (tlsFingerprintProfileId.value) {
+          newExtra.tls_fingerprint_profile_id = tlsFingerprintProfileId.value
+        } else {
+          delete newExtra.tls_fingerprint_profile_id
+        }
+      } else {
+        delete newExtra.enable_tls_fingerprint
+        delete newExtra.tls_fingerprint_profile_id
       }
       updatePayload.extra = newExtra
     }
