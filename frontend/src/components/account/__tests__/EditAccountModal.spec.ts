@@ -330,6 +330,22 @@ describe('EditAccountModal', () => {
 
   afterEach(() => vi.useRealTimers())
 
+  it('shows TLS fingerprinting for Kimi API-key accounts', () => {
+    const account = buildAccount()
+    account.platform = 'kimi'
+    account.name = 'Kimi relay'
+    account.credentials = {
+      api_key: 'sk-kimi',
+      base_url: 'https://api.example.com/v1',
+      account_mode: 'payg',
+      api_protocol: 'chat_completions'
+    }
+
+    const wrapper = mountModal(account)
+    expect(wrapper.get('[data-testid="tls-fingerprint-control"]').isVisible()).toBe(true)
+    wrapper.unmount()
+  })
+
   it('sets expiry presets from now instead of extending the saved expiry', async () => {
     vi.useFakeTimers({ toFake: ['Date'] })
     vi.setSystemTime(new Date('2028-02-29T12:34:00'))

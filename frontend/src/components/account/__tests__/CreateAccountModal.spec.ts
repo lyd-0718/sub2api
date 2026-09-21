@@ -504,6 +504,23 @@ describe('CreateAccountModal OpenAI long-context billing', () => {
     })
   })
 
+  it('shows and persists TLS fingerprinting for Kimi API-key accounts', async () => {
+    const wrapper = mountModal()
+    await selectButtonByText(wrapper, 'Kimi')
+
+    const control = wrapper.get('[data-testid="tls-fingerprint-control"]')
+    expect(control.isVisible()).toBe(true)
+    await control.get('button').trigger('click')
+    await wrapper.get('form#create-account-form input[type="text"]').setValue('Kimi TLS')
+    await wrapper.get('form#create-account-form input[type="password"]').setValue('sk-kimi')
+    await wrapper.get('form#create-account-form').trigger('submit.prevent')
+    await flushPromises()
+
+    expect(createAccountMock.mock.calls[0]?.[0]?.extra).toMatchObject({
+      enable_tls_fingerprint: true
+    })
+  })
+
   it('submits adaptive Kimi protocol endpoints', async () => {
     const wrapper = mountModal()
     await selectButtonByText(wrapper, 'Kimi')
