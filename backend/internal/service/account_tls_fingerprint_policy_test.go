@@ -73,7 +73,7 @@ func TestOpenAIUpstreamUsesAccountTLSFingerprintPolicy(t *testing.T) {
 	require.Equal(t, 1, upstream.tlsCalls)
 	require.Zero(t, upstream.plainCalls)
 	require.NotNil(t, upstream.profile)
-	require.Equal(t, "Built-in Default (Node.js 24.x)", upstream.profile.Name)
+	require.Equal(t, "Built-in BusyBox Wget 1.37", upstream.profile.Name)
 }
 
 func TestOpenAIUpstreamKeepsDefaultTransportWhenFingerprintDisabled(t *testing.T) {

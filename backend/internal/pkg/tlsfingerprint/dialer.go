@@ -116,6 +116,31 @@ var (
 	}
 )
 
+// BuiltinBusyBoxWgetProfile returns the stable HTTP/1.1 TLS fingerprint captured
+// from BusyBox Wget 1.37 in the production container. Cloudflare deployments
+// that reject Go/Node client signatures accept this API-client fingerprint.
+// Keep the values and order synchronized with the captured JA3/JA4 evidence.
+func BuiltinBusyBoxWgetProfile() *Profile {
+	return &Profile{
+		Name: "Built-in BusyBox Wget 1.37",
+		CipherSuites: []uint16{
+			4866, 4867, 4865, 49196, 49200, 159, 52393, 52392, 52394,
+			49195, 49199, 158, 49188, 49192, 107, 49187, 49191, 103,
+			49162, 49172, 57, 49161, 49171, 51, 157, 156, 61, 60, 53, 47, 255,
+		},
+		Curves:       []uint16{29, 23, 30, 25, 24, 256, 257, 258, 259, 260},
+		PointFormats: []uint16{0, 1, 2},
+		SignatureAlgorithms: []uint16{
+			1027, 1283, 1539, 2055, 2056, 2074, 2075, 2076, 2057, 2058,
+			2059, 2052, 2053, 2054, 1025, 1281, 1537, 771, 769, 770, 1026, 1282, 1538,
+		},
+		SupportedVersions: []uint16{utls.VersionTLS13, utls.VersionTLS12},
+		KeyShareGroups:    []uint16{uint16(utls.X25519)},
+		PSKModes:          []uint16{uint16(utls.PskModeDHE)},
+		Extensions:        []uint16{0, 11, 10, 35, 22, 23, 13, 43, 45, 51},
+	}
+}
+
 // NewDialer creates a new TLS fingerprint dialer.
 // baseDialer is used for TCP connection establishment (supports proxy scenarios).
 // If baseDialer is nil, direct TCP dial is used.

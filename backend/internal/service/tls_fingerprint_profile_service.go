@@ -160,8 +160,8 @@ func (s *TLSFingerprintProfileService) ResolveTLSProfile(account *Account) *tlsf
 			return p
 		}
 	}
-	// TLS 启用但无绑定 profile → 空 Profile → dialer 使用内置默认值
-	return &tlsfingerprint.Profile{Name: "Built-in Default (Node.js 24.x)"}
+	// TLS 启用但无绑定 profile → 使用生产容器中已验证可通过 Cloudflare 的 Wget 指纹。
+	return tlsfingerprint.BuiltinBusyBoxWgetProfile()
 }
 
 // --- 缓存管理 ---
