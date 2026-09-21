@@ -2,10 +2,10 @@
 
 按会话留存完整对话链路（用户输入 / 模型输出 / 思考链 / 工具调用），用于后续蒸馏微调。
 
-> **这个 fork 是什么**：`Wei-Shaw/sub2api` 官方版（当前合并到 **v0.2.7**，2026-09-19）+ 两个自研模块——
-> ① 本文档讲的 **Session Trace 录制**；② **CN（kimi 等国产 Coding Plan）账号并发受限治理**（403 三分类、额度耗尽停调自动恢复、历史 error 账号自动归队），设计文档见 **`PLAN-cn-cap-v6.md`**。
+> **这个 fork 是什么**：`Wei-Shaw/sub2api` 官方版（当前合并到 **v0.2.7**，2026-09-19）+ 三个自研/增强模块——
+> ① 本文档讲的 **Session Trace 录制**；② **CN（kimi 等国产 Coding Plan）账号并发受限治理**（403 三分类、额度耗尽停调自动恢复、历史 error 账号自动归队），设计文档见 **`PLAN-cn-cap-v6.md`**；③ **账号级 TLS 指纹出站**（任意账号按需勾选，解决 Cloudflare 对 Go TLS/HTTP 指纹的 403/1010 封禁）。
 > 部署分支：fork 的 **`trace` 分支**（GitHub 默认分支已设为 trace）。
-> 当前生产镜像：`sub2api-trace:0.2.7-577c9d5`（2026-09-19 部署，健康运行中）。
+> 当前生产镜像：`sub2api-trace:0.2.7-ad5fe7a`（2026-09-21 部署，健康运行中）。
 
 ## 这套东西是什么
 
@@ -118,11 +118,13 @@ git push origin trace
 5. 前端：`TraceView.vue` / `AccountUsageExportView.vue` / `api/traceAdmin.ts` / i18n / 侧边栏入口（AppSidebar.vue），均为新增文件或纯追加。
 6. **OpenRouter 余额探测**（2026-09-14 新增）：上游文件 `cn_provider_balance_service.go` 仅 4 处小改（`CNProviderBalanceEntry.Label` 字段、`cnBalanceURL` 的 openrouter 分支、deepseek 解析分流、快照写入 label）；识别/解析/`/key` 限额查询全在新文件 `cn_provider_balance_openrouter.go`（自有文件，零冲突）。前端 `CNProviderBalanceCell.vue` + `api/admin/cnProviders.ts` + zh/en i18n 各一处小改（label 前缀渲染，无 label 时行为不变）。
 7. **CN 并发受限治理**（2026-09-16 定稿，设计见 `PLAN-cn-cap-v6.md`）：自有文件零冲突——`service/ratelimit_classifier.go`（403 三分类）、`service/cn_quota_pause_window.go`（周满看周窗口分档）、`service/account_error_recovery_service.go`（历史 error 账号自动归队：本地快照 reset_at 判定恢复、零额度探测，最小请求点火验证防鉴权死账号死循环，验证后重读 updated_at 再 CAS）。无数据库迁移（v5 时代的 238/240 均已废弃删除；账号并发由需求方手动管理，系统不碰）。上游文件改动：`repository/scheduler_cache.go`（白名单 +15 个 CN 额度键）；`service/ratelimit_service.go`（CN 403 分类器闸 + 幂等去重）；`service/ratelimit_cn_providers.go`（并发 403 → 30s 停车不进 403 计数；额度分支走窗口分档）；`service/gateway_forward.go` / `openai_ws_forwarder_support.go` / `openai_gateway_passthrough.go` / `openai_gateway_messages.go` / `openai_gateway_chat_completions.go` / `openai_gateway_upstream_errors.go`（流内/WS/SSE bare error 在 `openAIStream403AccountFailure`/`shouldFailover` 判定**之前**接分类器）；`service/setting_update.go`（默认阈值表 +kimi:85）；`repository/account_repo.go` + `service/account_service.go`（+`ListCNQuotaDisabled`/`RestoreRecoveredAccount` 及接口签名）；`config/config.go`（`cn_providers` +3 个归队配置键，纯追加）；`cmd/server/wire_gen.go`（归队服务手工接线 4 行，注释标记）；`server/routes/trace_admin.go`（nil 守卫，顺带修 trace 模块既有 panic）。前端：与上游基线完全一致（v5 时代的 cap 展示与 kimi 新建默认值均已按需求方决定回退）。**注意**：v5 时代的 cap 限速器（表/store/夹帽/管理接口）、探测回升/熔断、迁移 238/240、前端 cap 相关改动已于 2026-09-16 按需求方决定整体移除，如在上游看到相关设计文档残留以本节为准。
+8. **账号级 TLS 指纹出站**（2026-09-21，`ad5fe7a`）：TLS 指纹开关不再绑定平台、账号类型或模型；`service/http_upstream_port.go` 的 `doAccountHTTPUpstream` 统一真实流量、账号测试、额度/余额探测与 error 恢复。OpenAI-compatible、Gemini、Antigravity、Grok、Bedrock、CN Provider、Ollama HTTP/SSE 路径均接入；开关关闭直接保持原 `Do`，开启才走 `DoWithTLS`。`repository/http_upstream.go` 按账号 + profile 内容摘要隔离连接池，模板变更不复用旧 ClientHello；HTTPS 代理不再静默降级为 Go 指纹（明确报错，支持直连/HTTP CONNECT/SOCKS5）。前端所有账号创建/编辑流程都保存开关，移除每请求随机 profile，只允许固定内置或指定模板。生产验收：x5m5x 专属组非流式/流式均 200，流式完整 `[DONE]`；12,032 token 首写后二次命中 10,823 cached tokens，4 笔成功、0 错误。
+
 
 （kimi 缓存保活模块已于 2026-09-04 移除：实测有用但探测费相对省下的冷启动费性价比不高。历史见 git log。）
 （`x-session-id` 粘性路由曾作为第 4 条改动，v0.2.1 合并时确认为重复代码已删除——上游名单的 `openCodeSessionIDHeader` 常量值就是 `X-Session-Id`。）
 
-**服务器部署（标准流程，2026-09-19 按 v0.2.7 实际部署更新）：**
+**服务器部署（标准流程，2026-09-21 按 v0.2.7 实际部署更新）：**
 
 ```bash
 ssh relay
@@ -146,12 +148,13 @@ cd /opt/sub2api && docker compose up -d sub2api
 #    - 真实流量几分钟后 traces/ 下生成新会话文件、后台页面可打开
 ```
 
-回滚：迁移均为**加可空列/新表**，旧代码兼容新表结构——直接改回旧 image tag `up -d` 即可，无需恢复数据库。
+回滚：本次 TLS 指纹改动无数据库迁移，账号 `extra.enable_tls_fingerprint` 会被旧代码忽略；直接改回旧 image tag `sub2api-trace:0.2.7-577c9d5` 后 `up -d` 即可，无需恢复数据库。
 
 ## 测试
 
 - **Trace 模块**：`backend/internal/pkg/trace/` 下 18 个测试覆盖：三种格式 SSE 重组（含 Responses 断流退化）、思考链/工具参数分片合并、格式嗅探、错误事件、截断、空 keepalive、会话 ID 五级优先级、中间件端到端（验证客户端收到的响应零改动）。
 - **CN 治理模块**：`service/ratelimit_classifier_test.go`（分类器 17 行表测：kimi 精确/宽松、周/5h 额度、鉴权、未知、HTML、空 body、非 CN、裸 5h 不匹配）、`service/cn_quota_pause_window_test.go`（周满分档、快照缺失、阈值配置）、`service/ratelimit_cn_403_side_effects_test.go`（额度 403 永不进禁用计数、并发 403 只停车、幂等合并、WS/流内落点）、`service/account_error_recovery_service_test.go`（reset_at 已过即恢复、仍满零请求退避、无快照走验证仲裁、CAS 顺序与冲突预算、leader 锁）。完整验证命令见上文「跟进官方更新」。
+- **账号级 TLS 指纹**：`service/account_tls_fingerprint_policy_test.go` 覆盖跨平台开关、OpenAI-compatible 真实出站与关闭回退；`repository/http_upstream_test.go` 覆盖 profile 变更重建连接、跨账号连接隔离、HTTPS 代理禁止静默降级。验证：`go test ./...`、`go test -tags unit ./internal/service/`、`go build ./...`、`go vet ./...`、前端 297/2231、`vue-tsc --noEmit` 全过；生产隔离组实测见上文第 8 项。
 
 ## 后台管理功能（已上线）
 
