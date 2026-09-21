@@ -63,11 +63,12 @@ type CNProviderBalanceResult struct {
 
 // CNProviderBalanceService 探测 Kimi / DeepSeek payg 账号的账户余额。
 type CNProviderBalanceService struct {
-	accountRepo  AccountRepository
-	proxyRepo    ProxyRepository
-	httpUpstream HTTPUpstream
-	cfg          *config.Config
-	flight       singleflight.Group
+	accountRepo         AccountRepository
+	proxyRepo           ProxyRepository
+	httpUpstream        HTTPUpstream
+	tlsFPProfileService *TLSFingerprintProfileService
+	cfg                 *config.Config
+	flight              singleflight.Group
 }
 
 // NewCNProviderBalanceService 构造余额探测服务。
@@ -155,7 +156,7 @@ func (s *CNProviderBalanceService) queryBalanceForAccount(ctx context.Context, a
 	req.Header.Set("Accept", "application/json")
 	account.ApplyHeaderOverrides(req.Header)
 
-	resp, err := s.httpUpstream.Do(req, proxyURL, account.ID, maxInt(account.Concurrency, 1))
+	resp, err := doAccountHTTPUpstream(s.httpUpstream, s.tlsFPProfileService, req, proxyURL, account, maxInt(account.Concurrency, 1))
 	if err != nil {
 		return nil, infraerrors.Newf(http.StatusBadGateway, "CN_BALANCE_REQUEST_FAILED", "upstream request failed: %v", err)
 	}

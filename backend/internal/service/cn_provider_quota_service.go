@@ -66,11 +66,12 @@ type CNProviderQuotaProbeResult struct {
 
 // CNProviderQuotaService 探测 Kimi / Zhipu Coding Plan 的滚动窗口用量。
 type CNProviderQuotaService struct {
-	accountRepo  AccountRepository
-	proxyRepo    ProxyRepository
-	httpUpstream HTTPUpstream
-	cfg          *config.Config
-	flight       singleflight.Group
+	accountRepo         AccountRepository
+	proxyRepo           ProxyRepository
+	httpUpstream        HTTPUpstream
+	tlsFPProfileService *TLSFingerprintProfileService
+	cfg                 *config.Config
+	flight              singleflight.Group
 }
 
 // NewCNProviderQuotaService 构造 Coding Plan 额度探测服务。
@@ -198,7 +199,7 @@ func (s *CNProviderQuotaService) queryUsageForAccount(ctx context.Context, accou
 	// 探测与真实转发保持同一套账号级请求头覆写，避免探测通过但转发失败。
 	account.ApplyHeaderOverrides(req.Header)
 
-	resp, err := s.httpUpstream.Do(req, proxyURL, account.ID, maxInt(account.Concurrency, 1))
+	resp, err := doAccountHTTPUpstream(s.httpUpstream, s.tlsFPProfileService, req, proxyURL, account, maxInt(account.Concurrency, 1))
 	if err != nil {
 		return nil, infraerrors.Newf(http.StatusBadGateway, "CN_QUOTA_REQUEST_FAILED", "upstream request failed: %v", err)
 	}

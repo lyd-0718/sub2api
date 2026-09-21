@@ -376,6 +376,7 @@ func scheduleOllamaCloudUsageActivity(deferred *DeferredService, account *Accoun
 type OllamaCloudUsageService struct {
 	accountRepo             AccountRepository
 	httpUpstream            HTTPUpstream
+	tlsFPProfileService     *TLSFingerprintProfileService
 	settingService          *SettingService
 	encryptor               SecretEncryptor
 	encryptionKeyConfigured bool
@@ -437,10 +438,12 @@ func ProvideOllamaCloudUsageService(
 	cfg *config.Config,
 	lockCache LeaderLockCache,
 	db *sql.DB,
+	tlsFPProfileService *TLSFingerprintProfileService,
 ) *OllamaCloudUsageService {
 	keyConfigured := cfg != nil && cfg.Totp.EncryptionKeyConfigured
 	svc := NewOllamaCloudUsageService(accountRepo, httpUpstream, settingService, encryptor, keyConfigured)
 	svc.lockCache = lockCache
+	svc.tlsFPProfileService = tlsFPProfileService
 	svc.db = db
 	svc.Start()
 	return svc
@@ -903,7 +906,7 @@ func (s *OllamaCloudUsageService) refreshLoadedAccount(ctx context.Context, acco
 	req.Header.Set("Accept", "text/html,application/xhtml+xml")
 	req.Header.Set("Cookie", cookie)
 	req.Header.Set("User-Agent", "sub2api-ollama-usage/1")
-	resp, err := s.httpUpstream.Do(req, proxyURL, account.ID, account.Concurrency)
+	resp, err := doAccountHTTPUpstream(s.httpUpstream, s.tlsFPProfileService, req, proxyURL, account, account.Concurrency)
 	if err != nil {
 		return s.persistFailure(ctx, account, intervalMinutes, now, 0, "request_failed", 0, false)
 	}

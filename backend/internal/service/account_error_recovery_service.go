@@ -79,10 +79,11 @@ type cnRecoveryState struct {
 
 // AccountErrorRecoveryService 周期恢复因额度耗尽被禁用的国产 Coding Plan 账号。
 type AccountErrorRecoveryService struct {
-	accountRepo  AccountRepository
-	httpUpstream HTTPUpstream
-	cfg          *config.Config
-	interval     time.Duration
+	accountRepo         AccountRepository
+	httpUpstream        HTTPUpstream
+	tlsFPProfileService *TLSFingerprintProfileService
+	cfg                 *config.Config
+	interval            time.Duration
 
 	lockCache  LeaderLockCache
 	db         *sql.DB
@@ -116,6 +117,12 @@ func NewAccountErrorRecoveryService(
 		states:       make(map[int64]*cnRecoveryState),
 		stopCh:       make(chan struct{}),
 	}
+}
+
+// SetTLSFingerprintProfileService keeps recovery probes on the same account
+// transport policy as production traffic.
+func (s *AccountErrorRecoveryService) SetTLSFingerprintProfileService(profiles *TLSFingerprintProfileService) {
+	s.tlsFPProfileService = profiles
 }
 
 // SetLeaderLock 注入 leader 锁缓存与 DB（与其它周期任务一致）。
@@ -275,6 +282,7 @@ func (s *AccountErrorRecoveryService) recoverOne(ctx context.Context, account *A
 	log.Printf("[CNRecovery] restored account %d (%s)", account.ID, account.Platform)
 	stats.restored++
 }
+
 // cnQuotaRecoveredFromSnapshot 用本地额度快照判定账号是否已恢复（周未满 且 5h 未满）。
 // reset_at 已过 = 窗口已重置，是确定事实（管理前端显示的「额度刷新倒计时」读的就是
 // 它），不需要再探测上游。快照新旧不影响判定：reset_at 是时间点事实，不是采样值。
@@ -316,7 +324,7 @@ func (s *AccountErrorRecoveryService) verifyMinimalRequest(ctx context.Context, 
 	if account.ProxyID != nil && account.Proxy != nil {
 		proxyURL = account.Proxy.URL()
 	}
-	resp, err := s.httpUpstream.Do(req, proxyURL, account.ID, maxInt(account.Concurrency, 1))
+	resp, err := doAccountHTTPUpstream(s.httpUpstream, s.tlsFPProfileService, req, proxyURL, account, maxInt(account.Concurrency, 1))
 	if err != nil {
 		return err
 	}

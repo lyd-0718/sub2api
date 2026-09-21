@@ -2782,7 +2782,6 @@
           <div v-if="tlsFingerprintEnabled" class="mt-3">
             <select v-model="tlsFingerprintProfileId" class="input">
               <option :value="null">{{ t('admin.accounts.quotaControl.tlsFingerprint.defaultProfile') }}</option>
-              <option v-if="tlsFingerprintProfiles.length > 0" :value="-1">{{ t('admin.accounts.quotaControl.tlsFingerprint.randomProfile') }}</option>
               <option v-for="p in tlsFingerprintProfiles" :key="p.id" :value="p.id">{{ p.name }}</option>
             </select>
           </div>

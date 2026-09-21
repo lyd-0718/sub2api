@@ -212,6 +212,113 @@ func ProvideOpenAIQuotaAutoResetService(
 	return service
 }
 
+// ProvideOpenAIGatewayService wires the optional account-level TLS fingerprint
+// resolver without widening NewOpenAIGatewayService's heavily used constructor.
+func ProvideOpenAIGatewayService(
+	accountRepo AccountRepository,
+	usageLogRepo UsageLogRepository,
+	usageBillingRepo UsageBillingRepository,
+	userRepo UserRepository,
+	userSubRepo UserSubscriptionRepository,
+	userGroupRateRepo UserGroupRateRepository,
+	cache GatewayCache,
+	cfg *config.Config,
+	schedulerSnapshot *SchedulerSnapshotService,
+	concurrencyService *ConcurrencyService,
+	billingService *BillingService,
+	rateLimitService *RateLimitService,
+	billingCacheService *BillingCacheService,
+	httpUpstream HTTPUpstream,
+	deferredService *DeferredService,
+	openAITokenProvider *OpenAITokenProvider,
+	grokTokenProvider *GrokTokenProvider,
+	resolver *ModelPricingResolver,
+	channelService *ChannelService,
+	balanceNotifyService *BalanceNotifyService,
+	settingService *SettingService,
+	userPlatformQuotaRepo UserPlatformQuotaRepository,
+	tlsFPProfileService *TLSFingerprintProfileService,
+) *OpenAIGatewayService {
+	service := NewOpenAIGatewayService(
+		accountRepo,
+		usageLogRepo,
+		usageBillingRepo,
+		userRepo,
+		userSubRepo,
+		userGroupRateRepo,
+		cache,
+		cfg,
+		schedulerSnapshot,
+		concurrencyService,
+		billingService,
+		rateLimitService,
+		billingCacheService,
+		httpUpstream,
+		deferredService,
+		openAITokenProvider,
+		grokTokenProvider,
+		resolver,
+		channelService,
+		balanceNotifyService,
+		settingService,
+		userPlatformQuotaRepo,
+	)
+	service.SetTLSFingerprintProfileService(tlsFPProfileService)
+	return service
+}
+
+func ProvideAntigravityGatewayService(
+	accountRepo AccountRepository,
+	cache GatewayCache,
+	schedulerSnapshot *SchedulerSnapshotService,
+	tokenProvider *AntigravityTokenProvider,
+	rateLimitService *RateLimitService,
+	httpUpstream HTTPUpstream,
+	settingService *SettingService,
+	internal500Cache Internal500CounterCache,
+	tlsFPProfileService *TLSFingerprintProfileService,
+) *AntigravityGatewayService {
+	service := NewAntigravityGatewayService(
+		accountRepo,
+		cache,
+		schedulerSnapshot,
+		tokenProvider,
+		rateLimitService,
+		httpUpstream,
+		settingService,
+		internal500Cache,
+	)
+	service.tlsFPProfileService = tlsFPProfileService
+	return service
+}
+
+func ProvideGeminiMessagesCompatService(
+	accountRepo AccountRepository,
+	groupRepo GroupRepository,
+	cache GatewayCache,
+	schedulerSnapshot *SchedulerSnapshotService,
+	tokenProvider *GeminiTokenProvider,
+	rateLimitService *RateLimitService,
+	httpUpstream HTTPUpstream,
+	antigravityGatewayService *AntigravityGatewayService,
+	cfg *config.Config,
+	tlsFPProfileService *TLSFingerprintProfileService,
+) *GeminiMessagesCompatService {
+	service := NewGeminiMessagesCompatService(
+		accountRepo,
+		groupRepo,
+		cache,
+		schedulerSnapshot,
+		tokenProvider,
+		rateLimitService,
+		httpUpstream,
+		antigravityGatewayService,
+		cfg,
+	)
+	service.tlsFPProfileService = tlsFPProfileService
+	return service
+}
+
 func ProvideAccountUsageService(
 	accountRepo AccountRepository,
 	usageLogRepo UsageLogRepository,
@@ -281,9 +388,11 @@ func ProvideGrokQuotaService(
 	cfg *config.Config,
 	usageLogRepo UsageLogRepository,
 	settingService *SettingService,
+	tlsFPProfileService *TLSFingerprintProfileService,
 ) *GrokQuotaService {
 	service := NewGrokQuotaService(accountRepo, proxyRepo, tokenProvider, httpUpstream, cfg, usageLogRepo)
 	service.SetSettingService(settingService)
+	service.tlsFPProfileService = tlsFPProfileService
 	return service
 }
 
@@ -293,8 +402,11 @@ func ProvideCNProviderQuotaService(
 	proxyRepo ProxyRepository,
 	httpUpstream HTTPUpstream,
 	cfg *config.Config,
+	tlsFPProfileService *TLSFingerprintProfileService,
 ) *CNProviderQuotaService {
-	return NewCNProviderQuotaService(accountRepo, proxyRepo, httpUpstream, cfg)
+	service := NewCNProviderQuotaService(accountRepo, proxyRepo, httpUpstream, cfg)
+	service.tlsFPProfileService = tlsFPProfileService
+	return service
 }
 
 // ProvideCNProviderBalanceService 构造国产供应商余额探测服务。
@@ -303,8 +415,11 @@ func ProvideCNProviderBalanceService(
 	proxyRepo ProxyRepository,
 	httpUpstream HTTPUpstream,
 	cfg *config.Config,
+	tlsFPProfileService *TLSFingerprintProfileService,
 ) *CNProviderBalanceService {
-	return NewCNProviderBalanceService(accountRepo, proxyRepo, httpUpstream, cfg)
+	service := NewCNProviderBalanceService(accountRepo, proxyRepo, httpUpstream, cfg)
+	service.tlsFPProfileService = tlsFPProfileService
+	return service
 }
 
 // ProvideCNProviderBalanceCheckService 构造并启动周期余额/额度检测任务。
@@ -843,7 +958,7 @@ var ProviderSet = wire.NewSet(
 	NewAnnouncementService,
 	NewAdminService,
 	NewGatewayService,
-	NewOpenAIGatewayService,
+	ProvideOpenAIGatewayService,
 	ProvideImageStorageSettingService,
 	ProvideImageTaskService,
 	ProvideBatchImageModelPricingResolver,
@@ -863,7 +978,7 @@ var ProviderSet = wire.NewSet(
 	NewAntigravityOAuthService,
 	ProvideOAuthRefreshAPI,
 	ProvideGeminiTokenProvider,
-	NewGeminiMessagesCompatService,
+	ProvideGeminiMessagesCompatService,
 	ProvideAntigravityTokenProvider,
 	ProvideGrokTokenProvider,
 	ProvideOpenAITokenProvider,
@@ -874,7 +989,7 @@ var ProviderSet = wire.NewSet(
 	ProvideCNProviderBalanceService,
 	ProvideCNProviderBalanceCheckService,
 	ProvideClaudeTokenProvider,
-	NewAntigravityGatewayService,
+	ProvideAntigravityGatewayService,
 	ProvideRateLimitService,
 	ProvideAccountUsageService,
 	ProvideAccountTestService,

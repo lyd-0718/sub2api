@@ -2383,23 +2383,16 @@ func (a *Account) IsAnthropicOAuthOrSetupToken() bool {
 	return a.Platform == PlatformAnthropic && (a.Type == AccountTypeOAuth || a.Type == AccountTypeSetupToken)
 }
 
-// IsTLSFingerprintEnabled 检查是否启用 TLS 指纹伪装
-// 仅适用于 Anthropic OAuth/SetupToken 类型账号
-// 启用后将模拟 Claude Code (Node.js) 客户端的 TLS 握手特征
+// IsTLSFingerprintEnabled 检查账号是否显式启用 TLS 指纹伪装。
+//
+// TLS 指纹是账号级出站传输策略，与平台、账号类型和模型无关。未配置时默认关闭；
+// 明文 HTTP 请求即使开启也会由 HTTPUpstream 自动回退到普通 Transport。
 func (a *Account) IsTLSFingerprintEnabled() bool {
-	// 仅支持 Anthropic OAuth/SetupToken 账号
-	if !a.IsAnthropicOAuthOrSetupToken() {
+	if a == nil || a.Extra == nil {
 		return false
 	}
-	if a.Extra == nil {
-		return false
-	}
-	if v, ok := a.Extra["enable_tls_fingerprint"]; ok {
-		if enabled, ok := v.(bool); ok {
-			return enabled
-		}
-	}
-	return false
+	enabled, _ := a.Extra["enable_tls_fingerprint"].(bool)
+	return enabled
 }
 
 // GetTLSFingerprintProfileID 获取账号绑定的 TLS 指纹模板 ID

@@ -141,7 +141,7 @@ func (s *CNProviderBalanceService) fetchOpenRouterJSON(ctx context.Context, acco
 	req.Header.Set("Accept", "application/json")
 	account.ApplyHeaderOverrides(req.Header)
 
-	resp, err := s.httpUpstream.Do(req, s.resolveProxyURL(ctx, account), account.ID, maxInt(account.Concurrency, 1))
+	resp, err := doAccountHTTPUpstream(s.httpUpstream, s.tlsFPProfileService, req, s.resolveProxyURL(ctx, account), account, maxInt(account.Concurrency, 1))
 	if err != nil {
 		return nil, fmt.Errorf("upstream request failed: %w", err)
 	}

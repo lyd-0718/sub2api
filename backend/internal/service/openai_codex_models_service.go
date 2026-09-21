@@ -1865,11 +1865,15 @@ func (s *OpenAIGatewayService) fetchOpenAIModelsUpstream(ctx context.Context, re
 			return nil, infraerrors.New(http.StatusInternalServerError, "OPENAI_CODEX_MODELS_UPSTREAM_NOT_CONFIGURED", "Codex models upstream HTTP client is not configured")
 		}
 		req = req.WithContext(WithHTTPUpstreamProfile(req.Context(), HTTPUpstreamProfileOpenAI))
-		resp, err = s.httpUpstream.Do(req, request.proxyURL, request.accountID, request.accountConcurrency)
+		resp, err = doAccountHTTPUpstream(s.httpUpstream, s.tlsFPProfileService, req, request.proxyURL, request.credentialAccount, request.accountConcurrency)
 	} else {
 		handled := false
 		if s.pluginManager != nil {
 			resp, handled, err = s.pluginManager.RoundTripOpenAIOAuth(reqCtx, req, request.proxyURL, request.credentialAccount)
+		}
+		if !handled && request.credentialAccount != nil && request.credentialAccount.IsTLSFingerprintEnabled() {
+			resp, err = doAccountHTTPUpstream(s.httpUpstream, s.tlsFPProfileService, req, request.proxyURL, request.credentialAccount, request.accountConcurrency)
+			handled = true
 		}
 		if !handled {
 			client, clientErr := httpclient.GetClient(httpclient.Options{

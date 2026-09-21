@@ -6,6 +6,7 @@ import (
 	"compress/flate"
 	"compress/gzip"
 	"context"
+	"crypto/sha256"
 	"crypto/tls"
 	"encoding/json"
 	"errors"
@@ -509,9 +510,12 @@ func (s *httpUpstreamService) getClientEntryWithTLS(proxyURL string, accountID i
 	}
 	settings := s.resolvePoolSettings(isolation, accountConcurrency)
 	settings = s.applyProfilePoolSettings(settings, upstreamProfile)
-	// TLS 指纹客户端使用独立的缓存键，加 "tls:" 前缀
-	cacheKey := "tls:" + buildCacheKey(isolation, proxyKey, accountID, upstreamProtocolModeDefault)
-	poolKey := buildPoolKey(settings, upstreamProtocolModeDefault) + ":tls"
+	// TLS 指纹连接始终按账号隔离：同一 TLS 会话不可在不同凭据间复用。
+	// Profile 内容也是连接身份的一部分，模板切换后必须创建新 Transport，
+	// 否则旧连接会继续发送旧 ClientHello，表现为“后台已换模板但仍被拦截”。
+	profileKey := tlsFingerprintProfileCacheKey(profile)
+	cacheKey := fmt.Sprintf("tls:%s|account:%d|proxy:%s", profileKey, accountID, proxyKey)
+	poolKey := buildPoolKey(settings, upstreamProtocolModeDefault) + ":tls:" + profileKey
 
 	now := time.Now()
 	nowUnix := now.UnixNano()
@@ -1415,9 +1419,9 @@ func buildUpstreamTransportWithTLSFingerprint(settings poolSettings, proxyURL *u
 			socks5Dialer := tlsfingerprint.NewSOCKS5ProxyDialer(profile, proxyURL)
 			transport.DialTLSContext = socks5Dialer.DialTLSContext
 		case "https":
-			// The fingerprint dialer emits a plaintext CONNECT preface and cannot
-			// establish TLS to an HTTPS proxy. Keep proxy routing via net/http.
-			return buildUpstreamTransport(settings, proxyURL, upstreamProtocolModeDefault)
+			// HTTPS 代理需要先 TLS 到代理、CONNECT，再对目标执行第二层 uTLS。
+			// 当前 dialer 不支持双层 TLS；禁止静默退回 Go 指纹造成配置假生效。
+			return nil, errors.New("TLS fingerprint transport does not support HTTPS proxies; use direct, HTTP CONNECT, or SOCKS5")
 		case "http":
 			// HTTP/HTTPS 代理：使用 HTTPProxyDialer（CONNECT 隧道）
 			slog.Debug("tls_fingerprint_transport_http_connect", "proxy", proxyURL.Host)
@@ -1433,6 +1437,19 @@ func buildUpstreamTransportWithTLSFingerprint(settings poolSettings, proxyURL *u
 	}
 
 	return transport, nil
+}
+
+func tlsFingerprintProfileCacheKey(profile *tlsfingerprint.Profile) string {
+	if profile == nil {
+		return "none"
+	}
+	raw, err := json.Marshal(profile)
+	if err != nil {
+		// Profile 目前只包含基础标量与切片，不应失败；保留确定性兜底。
+		return fmt.Sprintf("name:%q", profile.Name)
+	}
+	sum := sha256.Sum256(raw)
+	return fmt.Sprintf("%x", sum[:8])
 }
 
 // trackedBody 带跟踪功能的响应体包装器
