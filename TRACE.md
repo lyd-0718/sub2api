@@ -5,7 +5,7 @@
 > **这个 fork 是什么**：`Wei-Shaw/sub2api` 官方版（当前合并到 **v0.2.7**，2026-09-19）+ 三个自研/增强模块——
 > ① 本文档讲的 **Session Trace 录制**；② **CN（kimi 等国产 Coding Plan）账号并发受限治理**（403 三分类、额度耗尽停调自动恢复、历史 error 账号自动归队），设计文档见 **`PLAN-cn-cap-v6.md`**；③ **账号级 TLS 指纹出站**（任意账号按需勾选，解决 Cloudflare 对 Go TLS/HTTP 指纹的 403/1010 封禁）。
 > 部署分支：fork 的 **`trace` 分支**（GitHub 默认分支已设为 trace）。
-> 当前生产镜像：`sub2api-trace:0.2.7-997f45a`（2026-09-21 部署，健康运行中）。
+> 当前生产镜像：`sub2api-trace:0.2.7-f2d1cb7`（2026-09-23 部署，健康运行中；上一版 `0.2.7-004afb6`）。
 
 ## 这套东西是什么
 
@@ -149,7 +149,7 @@ cd /opt/sub2api && docker compose up -d sub2api
 #    - 真实流量几分钟后 traces/ 下生成新会话文件、后台页面可打开
 ```
 
-回滚：本次 TLS 指纹改动无数据库迁移，账号 `extra.enable_tls_fingerprint` 会被旧代码忽略；直接改回旧 image tag `sub2api-trace:0.2.7-577c9d5` 后 `up -d` 即可，无需恢复数据库。
+回滚：`f2d1cb7`（Gemini 裸名选变体）无数据库迁移，但**分组白名单依赖新代码**——白名单只写了裸名 `gemini-3.8-flash`，旧代码不会放行 `-high` 等变体。回滚镜像到 `sub2api-trace:0.2.7-004afb6` 时，须同时用 `/opt/sub2api/backups/groups_model_allowlist_20260923-183332.tsv` 恢复分组 7/9/12 的 `model_allowlist` 并清 `apikey:auth:*` 缓存（或在后台逐个分组保存一次，自动失效缓存）。更早的 TLS 指纹改动同样无迁移，账号 `extra.enable_tls_fingerprint` 会被旧代码忽略。
 
 ## 测试
 
