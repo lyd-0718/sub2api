@@ -91,7 +91,8 @@ func (g *Group) ModelAllowlistEnabled() bool {
 // Allows 判断客户端请求的模型是否命中白名单。
 // 准入只看客户端书写的模型名，与账号映射、渠道映射、合成路由改写无关；
 // 候选形式覆盖代码中已有的模型名等价规则（Gemini models/ 前缀、
-// Antigravity/Claude -thinking 宽容规则、OpenAI 推理后缀），不做模糊匹配。
+// Antigravity/Claude -thinking 宽容规则、OpenAI 推理后缀、Gemini 思考深度后缀），不做模糊匹配。
+// 因此白名单写裸名 gemini-3.8-flash 即放行其 -low/-medium/-high/-tiered 变体，列表只展示裸名。
 func (a GroupModelAllowlist) Allows(model string) bool {
 	if !a.Enabled {
 		return true
@@ -145,6 +146,7 @@ func groupModelAllowlistCandidates(model string) []string {
 	add(strings.TrimPrefix(model, "models/"))
 	add(claude.NormalizeModelID(strings.TrimSuffix(model, "-thinking")))
 	add(NormalizeOpenAICompatRequestedModel(model))
+	add(trimGeminiThinkingVariantSuffix(strings.TrimPrefix(model, "models/")))
 	return candidates
 }
 

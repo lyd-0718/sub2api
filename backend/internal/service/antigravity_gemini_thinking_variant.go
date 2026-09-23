@@ -3,21 +3,23 @@ package service
 import (
 	"encoding/json"
 	"strings"
+
+	"github.com/tidwall/gjson"
 )
 
-// Gemini 原生请求（/v1beta/models/{model}:generateContent 等）经 Antigravity 账号转发时，
-// 客户端（如 Antigravity CLI / go-genai）习惯发"裸"模型名（gemini-3.8-flash）并用
-// generationConfig.thinkingConfig 表达思考深度；而 Antigravity 上游的模型目录只有
-// gemini-3.8-flash-low / -medium / -high / -tiered 这类带后缀的变体，裸名直接转发会被上游
-// 以 404 "Requested entity was not found." 拒绝。
+// Antigravity 上游的 Gemini 模型目录只有 gemini-3.8-flash-low / -medium / -high / -tiered
+// 这类带后缀的变体，裸名（gemini-3.8-flash）直接转发会被上游以 404
+// "Requested entity was not found." 拒绝；思考深度也只能靠变体表达——
+// Chat Completions / Responses / Messages 转 Gemini 时 effort 不会进入 generationConfig。
 //
-// 这里在账号 model_mapping 没有为裸名配置显式条目、但配置了它的后缀变体时，
-// 按 thinkingConfig 自动挑一个变体：
-//   - thinkingLevel: "low" / "medium" / "high" → 同名后缀
-//   - thinkingBudget: -1（动态）→ high；0 → low；1..1024 → low；1025..8192 → medium；>8192 → high
-//   - 未携带 thinkingConfig → high（与 Gemini 3 系列默认开启动态思考一致）
+// 这里让客户端用"裸名 + 协议自带的思考深度参数"调用，由网关按参数挑变体：
+//   - Gemini 原生：generationConfig.thinkingConfig 的 thinkingLevel / thinkingBudget
+//   - Chat Completions / Responses：reasoning_effort / reasoning.effort
+//   - Anthropic Messages：output_config.effort，其次 thinking（budget_tokens / adaptive / disabled）
+//
+// 未携带任何思考参数 → high（与 Gemini 3 系列默认开启动态思考一致）。
 // 选中的后缀在映射表里不存在时按 high → medium → low → tiered 的顺序降级到存在的变体。
-// 显式映射（裸名本身在 model_mapping 里）始终优先，行为与现在完全一致。
+// 客户端直接写带后缀的变体名时原样处理，不做推导。
 
 var geminiThinkingVariantSuffixes = []string{"-low", "-medium", "-high", "-tiered"}
 
@@ -43,6 +45,49 @@ func hasGeminiThinkingVariantSuffix(model string) bool {
 		}
 	}
 	return false
+}
+
+// trimGeminiThinkingVariantSuffix 返回 Gemini 思考深度变体对应的裸名
+// （gemini-3.8-flash-high → gemini-3.8-flash），其他模型名原样返回。
+func trimGeminiThinkingVariantSuffix(model string) string {
+	if !strings.HasPrefix(strings.ToLower(model), "gemini-") {
+		return model
+	}
+	for _, suffix := range geminiThinkingVariantSuffixes {
+		if len(model) > len(suffix) && strings.EqualFold(model[len(model)-len(suffix):], suffix) {
+			return model[:len(model)-len(suffix)]
+		}
+	}
+	return model
+}
+
+// geminiThinkingLevelFromEffort 把 OpenAI reasoning effort / Anthropic output_config.effort
+// 归到 low/medium/high；无法识别时返回 ""。上游没有"无思考"变体，none/minimal 取最浅档。
+func geminiThinkingLevelFromEffort(raw string) string {
+	switch strings.ToLower(strings.TrimSpace(raw)) {
+	case "none", "minimal", "low":
+		return "low"
+	case "medium":
+		return "medium"
+	case "high", "xhigh", "max":
+		return "high"
+	}
+	return ""
+}
+
+// geminiThinkingLevelFromBudget 把思考 token 预算归到 low/medium/high。
+// 负数（Gemini 的 -1 动态思考）视为 high；0（关闭思考）取最浅档。
+func geminiThinkingLevelFromBudget(budget float64) string {
+	switch {
+	case budget < 0:
+		return "high"
+	case budget <= geminiThinkingBudgetLowMax:
+		return "low"
+	case budget <= geminiThinkingBudgetMediumMax:
+		return "medium"
+	default:
+		return "high"
+	}
 }
 
 // geminiThinkingLevelFromBody 从 Gemini 原生请求体推导期望的思考档位（low/medium/high）。
@@ -71,32 +116,44 @@ func geminiThinkingLevelFromBody(body []byte) string {
 	if err != nil {
 		return "high"
 	}
-	switch {
-	case budget < 0:
-		return "high" // -1 = 动态思考
-	case budget <= geminiThinkingBudgetLowMax:
-		return "low" // 含 0（关闭思考）：上游没有"无思考"变体，取最浅档，budget 本身仍原样透传
-	case budget <= geminiThinkingBudgetMediumMax:
-		return "medium"
-	default:
-		return "high"
-	}
+	return geminiThinkingLevelFromBudget(budget)
 }
 
-// accountRawModelMappingHasKey 判断 key 是否由用户写在账号 credentials.model_mapping 里
-// （而不是 resolveModelMapping 运行时补进来的默认透传条目）。
-func accountRawModelMappingHasKey(account *Account, key string) bool {
-	if account == nil || account.Credentials == nil {
-		return false
+// geminiThinkingLevelFromOpenAIBody 从 Chat Completions / Responses 请求体推导思考档位，
+// 依次读 reasoning.effort、reasoning_effort；未携带或无法识别时返回 ""。
+func geminiThinkingLevelFromOpenAIBody(body []byte) string {
+	raw := gjson.GetBytes(body, "reasoning.effort").String()
+	if strings.TrimSpace(raw) == "" {
+		raw = gjson.GetBytes(body, "reasoning_effort").String()
 	}
-	raw, _ := account.Credentials["model_mapping"].(map[string]any)
-	_, ok := raw[key]
-	return ok
+	return geminiThinkingLevelFromEffort(raw)
+}
+
+// geminiThinkingLevelFromClaudeBody 从 Anthropic Messages 请求体推导思考档位：
+// output_config.effort 优先，其次 thinking；都未携带时返回 ""。
+func geminiThinkingLevelFromClaudeBody(body []byte) string {
+	if level := geminiThinkingLevelFromEffort(gjson.GetBytes(body, "output_config.effort").String()); level != "" {
+		return level
+	}
+	thinking := gjson.GetBytes(body, "thinking")
+	switch strings.ToLower(strings.TrimSpace(thinking.Get("type").String())) {
+	case "disabled":
+		return "low"
+	case "enabled":
+		if budget := thinking.Get("budget_tokens"); budget.Exists() && budget.Float() > 0 {
+			return geminiThinkingLevelFromBudget(budget.Float())
+		}
+		return "high"
+	case "adaptive":
+		return "high"
+	}
+	return ""
 }
 
 // resolveGeminiThinkingVariant 为裸 Gemini 模型名挑选账号映射表里存在的思考深度变体。
+// level 为期望档位（low/medium/high），空串按 high 处理。
 // 返回 (映射后的上游模型名, 是否命中)。未命中时调用方应回退到常规 getMappedModel 流程。
-func resolveGeminiThinkingVariant(account *Account, requestedModel string, body []byte) (string, bool) {
+func resolveGeminiThinkingVariant(account *Account, requestedModel string, level string) (string, bool) {
 	if account == nil {
 		return "", false
 	}
@@ -108,30 +165,38 @@ func resolveGeminiThinkingVariant(account *Account, requestedModel string, body 
 	if len(mapping) == 0 {
 		return "", false
 	}
-	// 裸名本身已有"真正的"映射 → 尊重现有配置，不做推导。判定分两层：
-	//   1. 映射目标不是自己（如 gemini-3.8-flash → gemini-3.8-flash-tiered）：用户明确指定了目标；
-	//   2. 映射目标是自己（原样透传）：仅当这条是用户亲手写进 credentials.model_mapping 的才尊重。
-	//      resolveModelMapping 会给每个 Antigravity 账号自动补 gemini-3.x-flash 裸名自映射
-	//      （ensureAntigravityDefaultPassthroughs），而上游目录里并没有裸名模型，那条自映射
-	//      正是导致 404 的来源，不能算作用户意图。
-	if mapped, matched := resolveRequestedModelInMapping(mapping, model); matched {
-		if strings.TrimSpace(mapped) != model || accountRawModelMappingHasKey(account, model) {
-			return "", false
-		}
+	// 裸名映射到别的模型（如 gemini-3.8-flash → gemini-3.8-flash-tiered）是用户明确指定的目标，
+	// 尊重现有配置不做推导。映射到自己（原样透传）不算：上游目录里没有裸名，这条透传
+	// 只会 404；而且 DefaultAntigravityModelMapping 和 ensureAntigravityDefaultPassthroughs
+	// 都会写入这条自映射，后台按默认表创建的账号 credentials 里也带着它，并非用户意图。
+	if mapped, matched := resolveRequestedModelInMapping(mapping, model); matched && strings.TrimSpace(mapped) != model {
+		return "", false
 	}
 
-	preferred := geminiThinkingLevelFromBody(body)
+	preferred := strings.TrimSpace(level)
+	if preferred == "" {
+		preferred = "high"
+	}
 	order := []string{preferred}
-	for _, level := range []string{"high", "medium", "low", "tiered"} {
-		if level != preferred {
-			order = append(order, level)
+	for _, fallback := range []string{"high", "medium", "low", "tiered"} {
+		if fallback != preferred {
+			order = append(order, fallback)
 		}
 	}
-	for _, level := range order {
-		candidate := model + "-" + level
+	for _, candidateLevel := range order {
+		candidate := model + "-" + candidateLevel
 		if mapped, matched := resolveRequestedModelInMapping(mapping, candidate); matched && strings.TrimSpace(mapped) != "" {
 			return mapped, true
 		}
 	}
 	return "", false
+}
+
+// mapAntigravityModelWithThinkingLevel 先按思考档位为裸 Gemini 名挑变体，未命中时回退常规映射。
+// 第二个返回值表示是否走了变体推导。
+func (s *AntigravityGatewayService) mapAntigravityModelWithThinkingLevel(account *Account, requestedModel string, level string) (string, bool) {
+	if mapped, ok := resolveGeminiThinkingVariant(account, requestedModel, level); ok {
+		return mapped, true
+	}
+	return s.getMappedModel(account, requestedModel), false
 }

@@ -786,3 +786,89 @@ func TestAntigravityCompatKeepaliveAfterFirstEvent(t *testing.T) {
 	require.Contains(t, recorder.Header().Get("Content-Type"), "text/event-stream")
 	require.NoError(t, reader.Close())
 }
+
+func newAntigravityGeminiVariantAccount() *Account {
+	account := newAntigravityCompatAccount(AccountTypeOAuth)
+	// 与生产账号一致：后台按默认表建号，credentials 里带着裸名自映射。
+	account.Credentials["model_mapping"] = map[string]any{
+		"gemini-3.8-flash":        "gemini-3.8-flash",
+		"gemini-3.8-flash-low":    "gemini-3.8-flash-low",
+		"gemini-3.8-flash-medium": "gemini-3.8-flash-medium",
+		"gemini-3.8-flash-high":   "gemini-3.8-flash-high",
+		"gemini-3.8-flash-tiered": "gemini-3.8-flash-tiered",
+	}
+	return account
+}
+
+func TestAntigravityCompatResolvesBareGeminiByReasoningEffort(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	chat := func(model, extra string) string {
+		return `{"model":"` + model + `"` + extra + `,"messages":[{"role":"user","content":"ok"}],"max_tokens":8}`
+	}
+	tests := []struct {
+		name      string
+		path      string
+		body      string
+		wantModel string
+	}{
+		{"chat low", "/v1/chat/completions", chat("gemini-3.8-flash", `,"reasoning_effort":"low"`), "gemini-3.8-flash-low"},
+		{"chat minimal", "/v1/chat/completions", chat("gemini-3.8-flash", `,"reasoning_effort":"minimal"`), "gemini-3.8-flash-low"},
+		{"chat medium", "/v1/chat/completions", chat("gemini-3.8-flash", `,"reasoning_effort":"medium"`), "gemini-3.8-flash-medium"},
+		{"chat xhigh", "/v1/chat/completions", chat("gemini-3.8-flash", `,"reasoning_effort":"xhigh"`), "gemini-3.8-flash-high"},
+		{"chat without effort defaults to high", "/v1/chat/completions", chat("gemini-3.8-flash", ``), "gemini-3.8-flash-high"},
+		{"chat explicit variant is untouched", "/v1/chat/completions", chat("gemini-3.8-flash-tiered", `,"reasoning_effort":"low"`), "gemini-3.8-flash-tiered"},
+		{"responses medium", "/v1/responses", `{"model":"gemini-3.8-flash","reasoning":{"effort":"medium"},"input":"ok"}`, "gemini-3.8-flash-medium"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			upstream := &queuedHTTPUpstreamStub{responses: []*http.Response{antigravityCompatSuccessResponse()}}
+			svc := newAntigravityCompatService(config.GatewayConfig{MaxLineSize: defaultMaxLineSize}, upstream)
+			body := []byte(tt.body)
+			c, _ := newAntigravityCompatContext(http.MethodPost, tt.path, body)
+
+			var (
+				result *ForwardResult
+				err    error
+			)
+			if tt.path == "/v1/responses" {
+				result, err = svc.ForwardAsResponses(context.Background(), c, newAntigravityGeminiVariantAccount(), body, nil)
+			} else {
+				result, err = svc.ForwardAsChatCompletions(context.Background(), c, newAntigravityGeminiVariantAccount(), body, nil)
+			}
+
+			require.NoError(t, err)
+			require.NotNil(t, result)
+			require.Len(t, upstream.requestBodies, 1)
+			require.Equal(t, tt.wantModel, gjson.GetBytes(upstream.requestBodies[0], "model").String())
+		})
+	}
+}
+
+func TestAntigravityClaudeForwardResolvesBareGeminiByThinking(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	tests := []struct {
+		name      string
+		extra     string
+		wantModel string
+	}{
+		{"output_config effort low", `,"output_config":{"effort":"low"}`, "gemini-3.8-flash-low"},
+		{"thinking budget 4096", `,"thinking":{"type":"enabled","budget_tokens":4096}`, "gemini-3.8-flash-medium"},
+		{"no thinking defaults to high", ``, "gemini-3.8-flash-high"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			upstream := &queuedHTTPUpstreamStub{responses: []*http.Response{antigravityCompatSuccessResponse()}}
+			svc := newAntigravityCompatService(config.GatewayConfig{MaxLineSize: defaultMaxLineSize}, upstream)
+			body := []byte(`{"model":"gemini-3.8-flash","max_tokens":8,"stream":true,"messages":[{"role":"user","content":"ok"}]` + tt.extra + `}`)
+			c, _ := newAntigravityCompatContext(http.MethodPost, "/v1/messages", body)
+
+			_, err := svc.Forward(context.Background(), c, newAntigravityGeminiVariantAccount(), body, false)
+
+			require.NoError(t, err)
+			require.Len(t, upstream.requestBodies, 1)
+			require.Equal(t, tt.wantModel, gjson.GetBytes(upstream.requestBodies[0], "model").String())
+		})
+	}
+}

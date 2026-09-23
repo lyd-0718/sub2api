@@ -88,7 +88,7 @@ func TestNormalizeGroupModelAllowlist(t *testing.T) {
 func TestGroupModelAllowlistAllows(t *testing.T) {
 	allowlist := GroupModelAllowlist{
 		Enabled: true,
-		Models:  []string{"claude-sonnet-4.5", "gemini-2.5-pro", "gpt-5.5", "grok-*"},
+		Models:  []string{"claude-sonnet-4.5", "gemini-2.5-pro", "gpt-5.5", "grok-*", "gemini-3.8-flash"},
 	}
 
 	tests := []struct {
@@ -104,6 +104,9 @@ func TestGroupModelAllowlistAllows(t *testing.T) {
 		{name: "gemini models/ prefix not in list", model: "models/gemini-2.5-flash", want: false},
 		{name: "openai reasoning suffix normalizes to base model", model: "gpt-5.5-codex-high", want: true},
 		{name: "openai reasoning suffix on unlisted model", model: "gpt-4.1-low", want: false},
+		{name: "gemini thinking variant admitted via bare entry", model: "gemini-3.8-flash-high", want: true},
+		{name: "gemini thinking variant with models/ prefix", model: "models/gemini-3.8-flash-tiered", want: true},
+		{name: "gemini thinking variant of unlisted model", model: "gemini-3.7-flash-low", want: false},
 		{name: "trailing wildcard prefix match", model: "grok-4.6", want: true},
 		{name: "trailing wildcard requires prefix", model: "grok", want: false},
 		{name: "empty model passes (handler decides required-ness)", model: "", want: true},
@@ -128,6 +131,16 @@ func TestGroupModelAllowlistAllows(t *testing.T) {
 		empty := GroupModelAllowlist{Enabled: true}
 		if empty.Allows("anything") {
 			t.Fatal("enabled empty allowlist must deny all models")
+		}
+	})
+
+	t.Run("listing a single gemini variant does not admit its siblings or bare name", func(t *testing.T) {
+		lowOnly := GroupModelAllowlist{Enabled: true, Models: []string{"gemini-3.8-flash-low"}}
+		if !lowOnly.Allows("gemini-3.8-flash-low") {
+			t.Fatal("listed variant must be allowed")
+		}
+		if lowOnly.Allows("gemini-3.8-flash-high") || lowOnly.Allows("gemini-3.8-flash") {
+			t.Fatal("a variant entry must not widen to other variants or the bare name")
 		}
 	})
 
@@ -171,6 +184,15 @@ func TestGroupModelAllowlistFilterForListing(t *testing.T) {
 		want := []string{"gpt-5.5-codex", "claude-sonnet-4.5"}
 		if len(got) != len(want) || got[0] != want[0] || got[1] != want[1] {
 			t.Fatalf("got %#v want %#v", got, want)
+		}
+	})
+
+	t.Run("gemini bare entry lists only the bare name", func(t *testing.T) {
+		geminiSource := []string{"gemini-3.8-flash", "gemini-3.8-flash-high", "gemini-3.8-flash-low", "gemini-3.8-flash-medium", "gemini-3.8-flash-tiered"}
+		cfg := GroupModelAllowlist{Enabled: true, Models: []string{"gemini-3.8-flash"}}
+		got := cfg.FilterForListing(geminiSource)
+		if strings.Join(got, ",") != "gemini-3.8-flash" {
+			t.Fatalf("thinking variants must stay hidden behind the bare entry, got %#v", got)
 		}
 	})
 

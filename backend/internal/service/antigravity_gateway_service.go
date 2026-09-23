@@ -358,8 +358,8 @@ func (s *AntigravityGatewayService) TestConnection(ctx context.Context, account 
 		return nil, err
 	}
 
-	// 模型映射
-	mappedModel := s.getMappedModel(account, modelID)
+	// 模型映射（裸 Gemini 名按默认档位 high 挑变体，与真实请求一致）
+	mappedModel, _ := s.mapAntigravityModelWithThinkingLevel(account, modelID, "")
 	if mappedModel == "" {
 		return nil, fmt.Errorf("model %s not in whitelist", modelID)
 	}
