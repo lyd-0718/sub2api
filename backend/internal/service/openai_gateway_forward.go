@@ -138,7 +138,9 @@ func (s *OpenAIGatewayService) Forward(ctx context.Context, c *gin.Context, acco
 	}
 
 	nativeCNResponses := account.UsesNativeCNResponses()
-	nativeDeepSeekResponses := account.Platform == PlatformDeepseek && nativeCNResponses
+	// OpenRouter（二开）沿用 DeepSeek 原生 Responses 的 Codex 客户端工具改写：迁移前这些账号挂在
+	// deepseek 平台下已按此处理，OpenRouter 背后的多数模型同样不接受 custom / tool_search 工具类型。
+	nativeDeepSeekResponses := (account.Platform == PlatformDeepseek || account.IsOpenRouter()) && nativeCNResponses
 	if nativeDeepSeekResponses && account.Type == AccountTypeAPIKey && !compactPath &&
 		needsOpenAIResponsesClientToolAdaptation(body) {
 		adaptedBody, mapping, adaptErr := adaptOpenAIResponsesClientTools(body)
@@ -588,7 +590,7 @@ func (s *OpenAIGatewayService) Forward(ctx context.Context, c *gin.Context, acco
 		maxOutputTokens := gjson.GetBytes(body, "max_output_tokens")
 		if maxOutputTokens.Exists() {
 			switch account.Platform {
-			case PlatformOpenAI, PlatformDeepseek:
+			case PlatformOpenAI, PlatformDeepseek, PlatformOpenRouter:
 				// Preserve Responses-native output limits unless the selected upstream
 				// explicitly rejects the field in the bounded HTTP retry loop below.
 			case PlatformAnthropic:
@@ -1352,7 +1354,7 @@ func shouldForwardOpenAIResponsesViaRawChatCompletions(account *Account) bool {
 		// Grok/GPT/Muse into Chat Completions.
 		return false
 	}
-	if account.IsCNProvider() {
+	if account.IsCNProvider() || account.IsOpenRouter() {
 		// CN 的显式协议配置优先于异步探针 Extra；adaptive 仅 DeepSeek / Kimi
 		// 有原生 Responses，GLM 回退 Chat Completions。
 		switch account.GetAPIProtocol() {
@@ -1403,6 +1405,7 @@ func (s *OpenAIGatewayService) buildUpstreamRequest(ctx context.Context, c *gin.
 	// DeepSeek / Kimi 原生 Responses 端点为无状态实现：强制 store=false、清除
 	// previous_response_id，避免携带状态字段被上游拒绝。
 	body = normalizeDeepSeekResponsesRequestBody(account, body)
+	body = applyOpenRouterProviderRouting(account, targetURL, body) // 二开：OpenRouter 供应商路由
 
 	req, err := http.NewRequestWithContext(ctx, "POST", targetURL, bytes.NewReader(body))
 	if err != nil {

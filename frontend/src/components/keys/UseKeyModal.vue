@@ -470,6 +470,7 @@ const clientTabs = computed((): TabConfig[] => {
       ]
     case 'deepseek':
     case 'minimax':
+    case 'openrouter':
     case 'composite':
       return [
         { id: 'claude', label: t('keys.useKeyModal.cliTabs.claudeCode'), icon: TerminalIcon },
@@ -519,6 +520,7 @@ const platformDescription = computed(() => {
     props.platform !== 'grok' &&
     props.platform !== 'deepseek' &&
     props.platform !== 'minimax' &&
+    props.platform !== 'openrouter' &&
     props.platform !== 'composite') {
     return t('keys.useKeyModal.routedCodex.description')
   }
@@ -548,6 +550,10 @@ const platformDescription = computed(() => {
       return activeClientTab.value === 'codex'
         ? t('keys.useKeyModal.minimax.codexDescription')
         : t('keys.useKeyModal.minimax.description')
+    case 'openrouter':
+      return activeClientTab.value === 'codex'
+        ? t('keys.useKeyModal.openrouter.codexDescription')
+        : t('keys.useKeyModal.openrouter.description')
     case 'composite':
       return activeClientTab.value === 'codex'
         ? t('keys.useKeyModal.composite.codexDescription')
@@ -563,6 +569,7 @@ const platformNote = computed(() => {
     props.platform !== 'grok' &&
     props.platform !== 'deepseek' &&
     props.platform !== 'minimax' &&
+    props.platform !== 'openrouter' &&
     props.platform !== 'composite') {
     return t('keys.useKeyModal.routedCodex.note')
   }
@@ -604,6 +611,10 @@ const platformNote = computed(() => {
     case 'minimax':
       return activeClientTab.value === 'codex'
         ? t('keys.useKeyModal.minimax.codexNote')
+        : t('keys.useKeyModal.note')
+    case 'openrouter':
+      return activeClientTab.value === 'codex'
+        ? t('keys.useKeyModal.openrouter.codexNote')
         : t('keys.useKeyModal.note')
     case 'composite':
       return activeClientTab.value === 'codex'
@@ -773,6 +784,11 @@ const currentFiles = computed((): FileConfig[] => {
     case 'minimax':
       if (activeClientTab.value === 'codex') {
         return generateRoutedCodexFiles(apiBase, apiKey, 'minimax')
+      }
+      return generateAnthropicFiles(baseRoot, apiKey)
+    case 'openrouter':
+      if (activeClientTab.value === 'codex') {
+        return generateRoutedCodexFiles(apiBase, apiKey, 'openrouter')
       }
       return generateAnthropicFiles(baseRoot, apiKey)
     case 'composite':
@@ -1239,6 +1255,7 @@ function generateRoutedCodexFiles(
     deepseek: 'deepseek-v4-pro',
     minimax: 'MiniMax-M3',
     opencode_go: 'glm-5.3',
+    openrouter: 'z-ai/glm-5.3',
     composite: 'gpt-5.5'
   }
   const preferredModel = preferredModels[platform] || ''
@@ -1254,6 +1271,7 @@ function generateRoutedCodexFiles(
     deepseek: 'DeepSeek',
     minimax: 'MiniMax',
     opencode_go: 'OpenCode',
+    openrouter: 'OpenRouter',
     composite: 'Composite'
   }
   const label = labels[platform]
@@ -1282,7 +1300,7 @@ supports_websockets = false`
       path: joinConfigPath(configDir, 'config.toml', isWindows),
       content: configContent,
       hint: t(
-        platform === 'deepseek' || platform === 'minimax' || platform === 'composite'
+        platform === 'deepseek' || platform === 'minimax' || platform === 'openrouter' || platform === 'composite'
           ? `keys.useKeyModal.${platform}.codexConfigTomlHint`
           : 'keys.useKeyModal.routedCodex.configTomlHint'
       )

@@ -696,6 +696,7 @@ func (s *adminServiceImpl) UpdateAccount(ctx context.Context, id int64, input *U
 			OpenAIAutoResetCreditStateExtraKey,
 			OpenCodeGoUsageAutoRefreshExtraKey,
 			OpenCodeGoUsageSnapshotExtraKey,
+			OpenRouterProviderRoutingExtraKey, // 二开：只由供应商路由专用接口写入
 		} {
 			if v, ok := account.Extra[key]; ok {
 				normalizedExtra[key] = v

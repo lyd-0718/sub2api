@@ -3157,6 +3157,7 @@ import {
   isHeaderOverrideCapable,
   splitHeaderOverridesObject,
   validateHeaderOverrideRows,
+  cnPaygOnlyPlatform,
   cnSupportsNativeResponses,
   defaultCNAdaptiveBaseUrls,
   defaultCNBaseUrl,
@@ -3327,7 +3328,7 @@ const baseUrlHint = computed(() => {
   if (!props.account) return t('admin.accounts.baseUrlHint')
   if (props.account.platform === 'openai') return t('admin.accounts.openai.baseUrlHint')
   if (props.account.platform === 'gemini') return t('admin.accounts.gemini.baseUrlHint')
-  if (props.account.platform === 'grok') return ''
+  if (props.account.platform === 'grok' || props.account.platform === 'openrouter') return ''
   return t('admin.accounts.baseUrlHint')
 })
 
@@ -3395,8 +3396,8 @@ const editAdaptiveBaseUrls = ref<Record<CnNativeApiProtocol, string>>({
 const syncingForm = ref(false)
 const cnAccountModeOptions = computed<Array<{ value: CnAccountMode; labelKey: 'payg' | 'coding' }>>(
   () => {
-    // DeepSeek 无 coding 套餐（与创建弹窗一致），仅保留按量付费。
-    if (props.account?.platform === 'deepseek') {
+    // DeepSeek / OpenRouter 无 coding 套餐（与创建弹窗一致），仅保留按量付费。
+    if (cnPaygOnlyPlatform(props.account?.platform ?? '')) {
       return [{ value: 'payg', labelKey: 'payg' }]
     }
     return [
@@ -3447,8 +3448,8 @@ watch(editApiProtocol, (protocol, previousProtocol) => {
 watch(editAccountMode, (mode, previousMode) => {
   if (!isCNApiKeyAccount.value || syncingForm.value) return
   if (props.account?.platform === 'opencode_go') return
-  // deepseek 无 coding 套餐：防御性回退（UI 已隐藏该选项）。
-  const effectiveMode = props.account!.platform === 'deepseek' && mode === 'coding' ? 'payg' : mode
+  // deepseek / openrouter 无 coding 套餐：防御性回退（UI 已隐藏该选项）。
+  const effectiveMode = cnPaygOnlyPlatform(props.account!.platform) && mode === 'coding' ? 'payg' : mode
   if (effectiveMode !== mode) {
     editAccountMode.value = effectiveMode
     return
@@ -3992,12 +3993,7 @@ const defaultBaseUrl = computed(() => {
   if (props.account?.platform === 'grok') return 'https://api.x.ai/v1'
   // CN 供应商：按当前模式/协议回落到官方预设（清空输入框提交时使用），
   // 不能落到 anthropic 默认值（会被当 CC base 拼出错误端点）。
-  if (
-    props.account?.platform === 'kimi' ||
-    props.account?.platform === 'zhipu' ||
-    props.account?.platform === 'deepseek' ||
-    props.account?.platform === 'opencode_go'
-  ) {
+  if (props.account && (isCNProviderPlatform(props.account.platform) || props.account.platform === 'opencode_go')) {
     return defaultCNBaseUrl(props.account.platform, currentOpenCodeOrCNMode(), editApiProtocol.value)
   }
   return 'https://api.anthropic.com'
@@ -4439,10 +4435,7 @@ const syncFormFromAccount = (newAccount: Account | null) => {
           ? 'https://generativelanguage.googleapis.com'
           : newAccount.platform === 'grok'
             ? 'https://api.x.ai/v1'
-            : newAccount.platform === 'kimi' ||
-                newAccount.platform === 'zhipu' ||
-                newAccount.platform === 'deepseek' ||
-                newAccount.platform === 'opencode_go'
+            : isCNProviderPlatform(newAccount.platform) || newAccount.platform === 'opencode_go'
               ? defaultCNBaseUrl(newAccount.platform, currentOpenCodeOrCNMode(), editApiProtocol.value)
               : 'https://api.anthropic.com'
     editBaseUrl.value = isCNApiKeyAccount.value && editApiProtocol.value === 'adaptive'

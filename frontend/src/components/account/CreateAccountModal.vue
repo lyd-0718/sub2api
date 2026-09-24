@@ -161,7 +161,7 @@
             Grok
           </button>
         </div>
-        <!-- Multi-protocol API-key providers: Kimi / Zhipu GLM / DeepSeek / OpenCode -->
+        <!-- Multi-protocol API-key providers: Kimi / Zhipu GLM / DeepSeek / MiniMax / OpenCode / OpenRouter -->
         <div class="mt-2 flex flex-wrap rounded-lg bg-gray-100 p-1 dark:bg-dark-700">
           <button
             type="button"
@@ -227,6 +227,19 @@
           >
             <PlatformIcon platform="opencode_go" size="sm" />
             OpenCode
+          </button>
+          <button
+            type="button"
+            @click="selectCNPlatform('openrouter')"
+            :class="[
+              'flex flex-1 items-center justify-center gap-2 rounded-md px-3 py-2.5 text-sm font-medium transition-all',
+              form.platform === 'openrouter'
+                ? 'bg-white text-violet-600 shadow-sm dark:bg-dark-600 dark:text-violet-400'
+                : 'text-gray-600 hover:text-gray-900 dark:text-gray-400 dark:hover:text-gray-200'
+            ]"
+          >
+            <PlatformIcon platform="openrouter" size="sm" />
+            OpenRouter
           </button>
         </div>
       </div>
@@ -562,9 +575,9 @@
               <span class="text-xs text-gray-500 dark:text-gray-400">{{ t('admin.accounts.cnProviders.accountMode.paygDesc') }}</span>
             </div>
           </button>
-          <!-- Coding Plan (kimi / zhipu only — DeepSeek has no coding plan) -->
+          <!-- Coding Plan (kimi / zhipu / minimax only — DeepSeek / OpenRouter have no coding plan) -->
           <button
-            v-if="form.platform !== 'deepseek'"
+            v-if="!cnPaygOnlyPlatform(form.platform)"
             type="button"
             @click="accountMode = 'coding'"
             :class="[
@@ -3945,6 +3958,7 @@ import {
   applyInterceptWarmup,
   applyOpenCodeGoProtocolRules,
   cloneOpenCodeGoProtocolRules,
+  cnPaygOnlyPlatform,
   cnSupportsNativeResponses,
   defaultCNAdaptiveBaseUrls,
   defaultCNBaseUrl,
@@ -4030,14 +4044,14 @@ const withAccountTransportExtra = <T extends Record<string, unknown> | undefined
 const baseUrlHint = computed(() => {
   if (form.platform === 'openai') return t('admin.accounts.openai.baseUrlHint')
   if (form.platform === 'gemini') return t('admin.accounts.gemini.baseUrlHint')
-  if (form.platform === 'grok') return ''
+  if (form.platform === 'grok' || form.platform === 'openrouter') return ''
   return t('admin.accounts.baseUrlHint')
 })
 
 const apiKeyHint = computed(() => {
   if (form.platform === 'openai') return t('admin.accounts.openai.apiKeyHint')
   if (form.platform === 'gemini') return t('admin.accounts.gemini.apiKeyHint')
-  if (form.platform === 'grok') return ''
+  if (form.platform === 'grok' || form.platform === 'openrouter') return ''
   return t('admin.accounts.apiKeyHint')
 })
 
@@ -4076,6 +4090,8 @@ const apiKeyValuePlaceholder = computed(() => {
     case 'minimax':
     case 'opencode_go':
       return 'sk-...'
+    case 'openrouter':
+      return 'sk-or-v1-...'
     default:
       return 'sk-ant-...'
   }
@@ -4237,6 +4253,8 @@ const cnAccentActiveClass = computed(() => {
       return 'border-teal-500 bg-teal-50 dark:bg-teal-900/20'
     case 'minimax':
       return 'border-rose-500 bg-rose-50 dark:bg-rose-900/20'
+    case 'openrouter':
+      return 'border-violet-500 bg-violet-50 dark:bg-violet-900/20'
     case 'opencode_go':
       return 'border-amber-500 bg-amber-50 dark:bg-amber-900/20'
     default:
@@ -4253,20 +4271,22 @@ const cnAccentIconClass = computed(() => {
       return 'bg-teal-500 text-white'
     case 'minimax':
       return 'bg-rose-500 text-white'
+    case 'openrouter':
+      return 'bg-violet-500 text-white'
     case 'opencode_go':
       return 'bg-amber-500 text-white'
     default:
       return 'bg-primary-500 text-white'
   }
 })
-// 切换国产供应商平台：强制 apikey 类型，deepseek 无 coding 套餐故锁定 payg，
+// 切换国产供应商平台：强制 apikey 类型，deepseek / openrouter 无 coding 套餐故锁定 payg，
 // 协议回落 adaptive，并把 base url 重置为该平台默认端点。
 function selectCNPlatform(platform: CnProviderPlatform) {
   form.platform = platform
   form.type = 'apikey'
   accountCategory.value = 'apikey'
   apiProtocol.value = 'adaptive'
-  if (platform === 'deepseek') {
+  if (cnPaygOnlyPlatform(platform)) {
     accountMode.value = 'payg'
   }
   apiKeyBaseUrl.value = defaultCNBaseUrl(platform, accountMode.value, apiProtocol.value)

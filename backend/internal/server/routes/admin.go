@@ -511,6 +511,9 @@ func registerCNProviderRoutes(admin *gin.RouterGroup, h *handler.Handlers) {
 		cn.GET("/accounts/:id/quota", h.Admin.CNProvider.QueryQuota)
 		// payg 账号余额（kimi/deepseek；zhipu 无余额端点）。
 		cn.GET("/accounts/:id/balance", h.Admin.CNProvider.QueryBalance)
+		// 二开：OpenRouter 账号的供应商路由（首选 / 备选 provider）。
+		cn.GET("/accounts/:id/openrouter-routing", h.Admin.CNProvider.GetOpenRouterRouting)
+		cn.PUT("/accounts/:id/openrouter-routing", h.Admin.CNProvider.UpdateOpenRouterRouting)
 	}
 }
 

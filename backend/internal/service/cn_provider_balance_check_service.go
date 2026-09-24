@@ -255,7 +255,7 @@ func (s *CNProviderBalanceCheckService) checkOne(ctx context.Context, account *A
 }
 
 func (s *CNProviderBalanceCheckService) platforms() []string {
-	return []string{PlatformKimi, PlatformDeepseek}
+	return []string{PlatformKimi, PlatformDeepseek, PlatformOpenRouter}
 }
 
 // allCNBalancesBelowThreshold 判断全部币种余额是否均低于阈值。

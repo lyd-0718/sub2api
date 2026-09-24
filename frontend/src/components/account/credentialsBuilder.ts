@@ -46,7 +46,8 @@ export function isHeaderOverrideCapable(platform: string, type: string): boolean
     platform === 'zhipu' ||
     platform === 'deepseek' ||
     platform === 'minimax' ||
-    platform === 'opencode_go'
+    platform === 'opencode_go' ||
+    platform === 'openrouter'
   ) {
     return type === 'apikey'
   }
@@ -260,21 +261,40 @@ export const GROK_BASE_URL_PRESETS: GrokBaseUrlPreset[] = [
 
 export type CnAccountMode = 'payg' | 'coding'
 export type OpenCodeAccountMode = 'zen' | 'go'
-export type CnProviderPlatform = 'kimi' | 'zhipu' | 'deepseek' | 'minimax'
+export type CnProviderPlatform = 'kimi' | 'zhipu' | 'deepseek' | 'minimax' | 'openrouter'
 
 /** deepseek / kimi / minimax 支持原生 responses；adaptive 会按入站协议选择原生端点。 */
 export type CnApiProtocol = 'adaptive' | 'chat_completions' | 'anthropic' | 'responses'
 export type CnNativeApiProtocol = Exclude<CnApiProtocol, 'adaptive'>
 
 export function isCNProviderPlatform(platform: string): platform is CnProviderPlatform {
-  return platform === 'kimi' || platform === 'zhipu' || platform === 'deepseek' || platform === 'minimax'
+  return (
+    platform === 'kimi' ||
+    platform === 'zhipu' ||
+    platform === 'deepseek' ||
+    platform === 'minimax' ||
+    platform === 'openrouter'
+  )
 }
 
-/** DeepSeek、Kimi 与 MiniMax 提供原生 Responses 端点。 */
+/** 只有按量付费（没有 Coding Plan）的供应商：DeepSeek、OpenRouter。 */
+export function cnPaygOnlyPlatform(platform: string): boolean {
+  return platform === 'deepseek' || platform === 'openrouter'
+}
+
+/** DeepSeek、Kimi、MiniMax 与 OpenRouter 提供原生 Responses 端点。 */
 export function cnSupportsNativeResponses(platform: string): boolean {
-  return platform === 'deepseek' || platform === 'kimi' || platform === 'minimax' || platform === 'opencode_go'
+  return (
+    platform === 'deepseek' ||
+    platform === 'kimi' ||
+    platform === 'minimax' ||
+    platform === 'opencode_go' ||
+    platform === 'openrouter'
+  )
 }
 
+export const OPENROUTER_BASE_URL = 'https://openrouter.ai/api/v1'
+export const OPENROUTER_ANTHROPIC_BASE_URL = 'https://openrouter.ai/api'
 export const OPENCODE_GO_BASE_URL = 'https://opencode.ai/zen/go/v1'
 export const OPENCODE_GO_ANTHROPIC_BASE_URL = 'https://opencode.ai/zen/go'
 export const OPENCODE_ZEN_BASE_URL = 'https://opencode.ai/zen/v1'
@@ -358,7 +378,14 @@ export function applyOpenCodeGoProtocolRules(
 }
 
 export function isMultiProtocolApiKeyPlatform(platform: string): boolean {
-  return platform === 'kimi' || platform === 'zhipu' || platform === 'deepseek' || platform === 'minimax' || platform === 'opencode_go'
+  return (
+    platform === 'kimi' ||
+    platform === 'zhipu' ||
+    platform === 'deepseek' ||
+    platform === 'minimax' ||
+    platform === 'opencode_go' ||
+    platform === 'openrouter'
+  )
 }
 
 export interface CnBaseUrlPreset {
@@ -403,6 +430,11 @@ export const CN_BASE_URL_PRESETS: Record<CnProviderPlatform, CnBaseUrlPreset[]> 
     { mode: 'coding', protocol: 'chat_completions', label: 'MiniMax Coding Intl', url: 'https://api.minimax.io/v1' },
     { mode: 'coding', protocol: 'anthropic', label: 'MiniMax Coding Intl Anthropic', url: 'https://api.minimax.io/anthropic' },
     { mode: 'coding', protocol: 'responses', label: 'MiniMax Coding Intl Responses', url: 'https://api.minimax.io/v1' }
+  ],
+  openrouter: [
+    { mode: 'payg', protocol: 'chat_completions', label: 'OpenRouter', url: OPENROUTER_BASE_URL },
+    { mode: 'payg', protocol: 'anthropic', label: 'OpenRouter Anthropic', url: OPENROUTER_ANTHROPIC_BASE_URL },
+    { mode: 'payg', protocol: 'responses', label: 'OpenRouter Responses', url: OPENROUTER_BASE_URL }
   ]
 }
 
@@ -422,6 +454,8 @@ export function defaultCNBaseUrl(
         return 'https://api.deepseek.com/anthropic'
       case 'minimax':
         return 'https://api.minimaxi.com/anthropic'
+      case 'openrouter':
+        return OPENROUTER_ANTHROPIC_BASE_URL
       case 'opencode_go':
         return mode === 'zen' ? OPENCODE_ZEN_ANTHROPIC_BASE_URL : OPENCODE_GO_ANTHROPIC_BASE_URL
       default:
@@ -440,6 +474,8 @@ export function defaultCNBaseUrl(
       return 'https://api.deepseek.com'
     case 'minimax':
       return 'https://api.minimaxi.com/v1'
+    case 'openrouter':
+      return OPENROUTER_BASE_URL
     case 'opencode_go':
       return mode === 'zen' ? OPENCODE_ZEN_BASE_URL : OPENCODE_GO_BASE_URL
     default:
@@ -468,8 +504,28 @@ export function cnQuotaCellVisible(platform: string, accountMode: string): boole
   return (platform === 'kimi' || platform === 'zhipu' || platform === 'minimax') && accountMode === 'coding'
 }
 
+/** OpenRouter 账号：平台为 openrouter，或 API Key 账号的出站地址指向 openrouter.ai（迁移前的旧账号）。 */
+export function isOpenRouterAccount(
+  account: { platform?: string; type?: string; credentials?: Record<string, unknown> } | null | undefined
+): boolean {
+  if (!account) return false
+  if (account.platform === 'openrouter') return true
+  if (account.type !== 'apikey') return false
+  const urls: unknown[] = [account.credentials?.base_url]
+  const adaptive = account.credentials?.api_base_urls
+  if (adaptive && typeof adaptive === 'object') urls.push(...Object.values(adaptive as Record<string, unknown>))
+  return urls.some((raw) => {
+    if (typeof raw !== 'string' || !raw.trim()) return false
+    try {
+      return new URL(raw.trim()).hostname.toLowerCase() === 'openrouter.ai'
+    } catch {
+      return false
+    }
+  })
+}
+
 export function cnBalanceCellVisible(platform: string, accountMode: string): boolean {
-  return (platform === 'kimi' || platform === 'deepseek') && accountMode !== 'coding'
+  return (platform === 'kimi' || platform === 'deepseek' || platform === 'openrouter') && accountMode !== 'coding'
 }
 
 /**

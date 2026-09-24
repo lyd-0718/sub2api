@@ -128,7 +128,7 @@ func (s *CNProviderBalanceService) QueryBalanceForAccount(ctx context.Context, a
 
 func (s *CNProviderBalanceService) queryBalanceForAccount(ctx context.Context, account *Account) (*CNProviderBalanceResult, error) {
 	provider := account.Platform
-	if provider != PlatformKimi && provider != PlatformDeepseek {
+	if provider != PlatformKimi && provider != PlatformDeepseek && provider != PlatformOpenRouter {
 		return nil, infraerrors.New(http.StatusBadRequest, "CN_BALANCE_NO_ENDPOINT", "account provider has no balance endpoint")
 	}
 
@@ -187,6 +187,13 @@ func (s *CNProviderBalanceService) queryBalanceForAccount(ctx context.Context, a
 		// Moonshot：code==0 成功；data.available_balance（number），单币种 CNY。
 		balance, _ := cnParseF64(gjson.GetBytes(bodyBytes, "data.available_balance").Value())
 		entries = append(entries, CNProviderBalanceEntry{Currency: "CNY", Balance: balance})
+	case PlatformOpenRouter:
+		openRouterEntries, openRouterAvailable, openRouterErr := s.buildOpenRouterBalanceEntries(ctx, account, bodyBytes)
+		if openRouterErr != nil {
+			result.Error = openRouterErr.Error()
+			return result, nil
+		}
+		entries, available = openRouterEntries, openRouterAvailable
 	case PlatformDeepseek:
 		// OpenRouter 兼容：credits 端点返回形状与官方不同，走独立解析（见
 		// cn_provider_balance_openrouter.go）；官方 DeepSeek 逻辑保持不变。
@@ -281,7 +288,7 @@ func validatePayGAccount(account *Account) error {
 	if account == nil {
 		return infraerrors.New(http.StatusNotFound, "CN_BALANCE_ACCOUNT_NOT_FOUND", "account not found")
 	}
-	if !account.IsCNProvider() {
+	if !account.IsCNProvider() && !account.IsOpenRouter() {
 		return infraerrors.New(http.StatusBadRequest, "CN_BALANCE_INVALID_PLATFORM", "account is not a CN provider account")
 	}
 	// coding 账号走额度探测，余额端点不适用。
@@ -315,6 +322,8 @@ func cnBalanceURL(account *Account) string {
 	switch account.Platform {
 	case PlatformKimi:
 		return "https://api.moonshot.cn/v1/users/me/balance"
+	case PlatformOpenRouter:
+		return strings.TrimRight(account.GetOpenAIFormatBaseURL(), "/") + "/credits"
 	case PlatformDeepseek:
 		// Anthropic 协议账号的凭证 base_url 指向 /anthropic 端点，余额探测需回退
 		// 到 OpenAI 格式 base（协议感知）再拼接 /user/balance。

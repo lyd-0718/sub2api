@@ -100,6 +100,7 @@ const PLATFORM_LABELS: Record<string, string> = {
   zhipu: 'Zhipu GLM',
   deepseek: 'DeepSeek',
   minimax: 'MiniMax',
+  openrouter: 'OpenRouter',
 }
 
 function platformLabel(platform: string): string {

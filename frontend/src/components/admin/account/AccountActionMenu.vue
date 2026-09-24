@@ -23,6 +23,10 @@
               <Icon name="clock" size="sm" class="text-orange-500" />
               {{ t('admin.scheduledTests.schedule') }}
             </button>
+            <button v-if="isOpenRouter" @click="$emit('openrouter-routing', account); $emit('close')" class="flex w-full items-center gap-2 px-4 py-2 text-sm text-violet-600 hover:bg-gray-100 dark:text-violet-400 dark:hover:bg-dark-700">
+              <Icon name="swap" size="sm" />
+              {{ t('admin.accounts.openrouterRouting.menu') }}
+            </button>
             <button v-if="canDuplicate" @click="$emit('duplicate', account); $emit('close')" class="flex w-full items-center gap-2 px-4 py-2 text-sm hover:bg-gray-100 dark:hover:bg-dark-700">
               <Icon name="copy" size="sm" class="text-sky-500" />
               {{ t('admin.accounts.duplicateAccount') }}
@@ -67,10 +71,11 @@ import { computed, ref, watch, onUnmounted } from 'vue'
 import { useResizeObserver, useWindowSize } from '@vueuse/core'
 import { useI18n } from 'vue-i18n'
 import { Icon } from '@/components/icons'
+import { isOpenRouterAccount } from '@/components/account/credentialsBuilder'
 import type { Account } from '@/types'
 
 const props = defineProps<{ show: boolean; account: Account | null; anchorRect: DOMRect | null }>()
-const emit = defineEmits(['close', 'test', 'stats', 'schedule', 'duplicate', 'reauth', 'refresh-token', 'recover-state', 'reset-quota', 'set-privacy', 'create-spark-shadow'])
+const emit = defineEmits(['close', 'test', 'stats', 'schedule', 'duplicate', 'reauth', 'refresh-token', 'recover-state', 'reset-quota', 'set-privacy', 'create-spark-shadow', 'openrouter-routing'])
 const { t } = useI18n()
 const menuRef = ref<HTMLElement | null>(null)
 const { width: viewportWidth, height: viewportHeight } = useWindowSize()
@@ -105,6 +110,8 @@ const updatePosition = () => {
 watch([menuRef, () => props.anchorRect, viewportWidth, viewportHeight], updatePosition, { flush: 'post' })
 useResizeObserver(menuRef, updatePosition)
 
+// 二开：OpenRouter 账号（平台 openrouter，或迁移前挂在其他平台但地址指向 openrouter.ai）的供应商路由。
+const isOpenRouter = computed(() => isOpenRouterAccount(props.account))
 const canDuplicate = computed(() => {
   if (!props.account || props.account.parent_account_id != null) return false
   return ['apikey', 'upstream', 'bedrock', 'service_account'].includes(props.account.type)

@@ -122,7 +122,7 @@ func (s *AccountTestService) ProbeOpenAIAPIKeyResponsesSupport(ctx context.Conte
 	if account.Type != AccountTypeAPIKey {
 		return
 	}
-	if account.IsCNProvider() {
+	if account.IsCNProvider() || account.IsOpenRouter() {
 		// 国产 OpenAI 兼容上游默认仅支持 /v1/chat/completions。直接落标 false
 		// 走 Chat Completions 直转，跳过网络探测。
 		// 例外：deepseek / kimi 的固定 responses 和 adaptive 账号使用官方原生

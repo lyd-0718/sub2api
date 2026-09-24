@@ -1512,6 +1512,7 @@ func (s *GatewayService) resolveCompositeModelOwnership(ctx context.Context, gro
 		}
 		platforms[platform] = struct{}{}
 	}
+	dropOpenRouterFromSharedModelOwnership(platforms) // 二开：OpenRouter 与其他平台同时声明时归属其他平台
 
 	ownership := CompositeModelOwnership{}
 	if len(platforms) == 1 {

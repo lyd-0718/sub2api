@@ -28,9 +28,16 @@ const (
 	cnOpenRouterBalanceLabelKey     = "key"
 )
 
-// isOpenRouterBalanceAccount 判定 deepseek 平台账号是否接的是 OpenRouter。
+// isOpenRouterBalanceAccount 判定账号是否接的是 OpenRouter：openrouter 平台，
+// 或迁移前挂在 deepseek 平台、base_url 指向 openrouter.ai 的旧账号。
 func isOpenRouterBalanceAccount(account *Account) bool {
-	if account == nil || account.Platform != PlatformDeepseek {
+	if account == nil {
+		return false
+	}
+	if account.IsOpenRouter() {
+		return true
+	}
+	if account.Platform != PlatformDeepseek {
 		return false
 	}
 	return isOpenRouterBalanceBase(strings.TrimRight(strings.TrimSpace(account.GetOpenAIFormatBaseURL()), "/"))

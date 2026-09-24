@@ -31,6 +31,8 @@ const (
 	// PlatformOpenCodeGo 是 OpenCode 平台（账号类型 Zen 按量 / Go 订阅）。
 	// 值保持 opencode_go 以兼容已落库的分组、配额与 Composite 路由 CHECK。
 	PlatformOpenCodeGo = "opencode_go"
+	// PlatformOpenRouter 是 OpenRouter 聚合网关（二开，API Key 按量付费，多协议）。
+	PlatformOpenRouter = "openrouter"
 	PlatformComposite  = "composite"
 )
 

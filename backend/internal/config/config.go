@@ -2080,6 +2080,7 @@ func setDefaults() {
 		"api.minimaxi.com", // MiniMax CN quota + inference
 		"api.minimax.io",   // MiniMax intl; frozen allowlists must add this host to use the intl site
 		"opencode.ai",
+		"openrouter.ai", // 二开：OpenRouter 平台（推理 + /credits 余额 + endpoints 供应商列表）
 		"generativelanguage.googleapis.com",
 		"cloudcode-pa.googleapis.com",
 		"*.openai.azure.com",

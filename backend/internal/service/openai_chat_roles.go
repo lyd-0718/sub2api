@@ -12,7 +12,7 @@ func requiresSystemChatRole(account *Account, targetURL string) bool {
 		return false
 	}
 	switch account.Platform {
-	case PlatformDeepseek, PlatformKimi, PlatformZhipu:
+	case PlatformDeepseek, PlatformKimi, PlatformZhipu, PlatformOpenRouter:
 		return true
 	}
 	// OpenAI-compatible accounts can point at the same strict providers. Match

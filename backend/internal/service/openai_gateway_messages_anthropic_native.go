@@ -133,8 +133,9 @@ func (s *OpenAIGatewayService) nativeAnthropicTargetURL(account *Account) (strin
 	if err != nil {
 		return "", fmt.Errorf("invalid base_url: %w", err)
 	}
-	if account.IsOpenCodeGo() {
+	if account.IsOpenCodeGo() || account.IsOpenRouter() {
 		// OpenCode Go 的 Chat Completions base 带 /v1；用版本感知拼接避免 /v1/v1/messages。
+		// OpenRouter（二开）同理：误填 https://openrouter.ai/api/v1 也能拼出 /api/v1/messages。
 		return buildOpenAIEndpointURL(validatedURL, "/v1/messages"), nil
 	}
 	return strings.TrimRight(validatedURL, "/") + "/v1/messages", nil
@@ -173,6 +174,7 @@ func (s *OpenAIGatewayService) buildNativeAnthropicUpstreamRequest(
 	// 的 base 取值同源（GetAnthropicProtocolBaseURL，adaptive 时是 Anthropic 协议
 	// 地址而非 CC/Responses 地址），详见 helper 注释。
 	body = clampOllamaCloudAnthropicMessagesMaxTokens(account, account.GetAnthropicProtocolBaseURL(), body)
+	body = applyOpenRouterProviderRouting(account, targetURL, body) // 二开：OpenRouter 供应商路由
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, targetURL, bytes.NewReader(body))
 	if err != nil {

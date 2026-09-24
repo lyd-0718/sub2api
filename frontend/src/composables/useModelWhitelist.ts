@@ -221,6 +221,19 @@ const minimaxModels = [
   'abab5.5-chat', 'abab5.5s-chat'
 ]
 
+// OpenRouter（聚合平台，模型 ID 带厂商前缀；完整目录可在账号弹窗里同步上游模型）
+const openrouterModels = [
+  'z-ai/glm-5.3', 'z-ai/glm-5.3-flash', 'z-ai/glm-5.3-flashx', 'z-ai/glm-5.3-prime', 'z-ai/glm-5.2',
+  'deepseek/deepseek-v4.1-flash', 'deepseek/deepseek-v4-pro', 'deepseek/deepseek-v4-flash', 'deepseek/deepseek-v3.2',
+  'moonshotai/kimi-k3', 'moonshotai/kimi-k2.7-code', 'moonshotai/kimi-k2.6',
+  'qwen/qwen3.8-max-0902', 'qwen/qwen3.8-flash',
+  'minimax/minimax-m3', 'minimax/minimax-m2.7',
+  'openai/gpt-6-sol', 'openai/gpt-6-luna',
+  'anthropic/claude-opus-5.5', 'anthropic/claude-sonnet-5',
+  'google/gemini-3.8-flash',
+  'x-ai/grok-4.7'
+]
+
 // 百度 文心
 const baiduModels = [
   'ernie-4.0-8k-latest', 'ernie-4.0-8k', 'ernie-4.0-turbo-8k',
@@ -267,6 +280,7 @@ const allModelsList: string[] = [
   ...moonshotModels,
   ...doubaoModels,
   ...minimaxModels,
+  ...openrouterModels,
   ...baiduModels,
   ...sparkModels,
   ...hunyuanModels,
@@ -388,6 +402,25 @@ const antigravityPresetMappings = [
 ]
 
 // Bedrock 预设映射（与后端 DefaultBedrockModelMapping 保持一致）
+const openrouterPresetMapping = (label: string, from: string, to: string, alias = false) => ({
+  label,
+  from,
+  to,
+  color: alias
+    ? 'bg-emerald-100 text-emerald-700 hover:bg-emerald-200 dark:bg-emerald-900/30 dark:text-emerald-400'
+    : 'bg-violet-100 text-violet-700 hover:bg-violet-200 dark:bg-violet-900/30 dark:text-violet-400'
+})
+const openrouterPresetMappings = [
+  openrouterPresetMapping('GLM 5.3', 'z-ai/glm-5.3', 'z-ai/glm-5.3'),
+  openrouterPresetMapping('GLM 5.3 Flash', 'z-ai/glm-5.3-flash', 'z-ai/glm-5.3-flash'),
+  openrouterPresetMapping('GLM 5.3 FlashX', 'z-ai/glm-5.3-flashx', 'z-ai/glm-5.3-flashx'),
+  openrouterPresetMapping('DeepSeek V4.1 Flash', 'deepseek/deepseek-v4.1-flash', 'deepseek/deepseek-v4.1-flash'),
+  openrouterPresetMapping('Kimi K3', 'moonshotai/kimi-k3', 'moonshotai/kimi-k3'),
+  openrouterPresetMapping('Qwen3.8 Flash', 'qwen/qwen3.8-flash', 'qwen/qwen3.8-flash'),
+  openrouterPresetMapping('glm-5.3 →', 'glm-5.3', 'z-ai/glm-5.3', true),
+  openrouterPresetMapping('deepseek-v4.1-flash →', 'deepseek-v4.1-flash', 'deepseek/deepseek-v4.1-flash', true)
+]
+
 const bedrockPresetMappings = [
   { label: 'Fable 5.1', from: 'claude-fable-5-1', to: 'anthropic.claude-fable-5-1', color: 'bg-rose-100 text-rose-700 hover:bg-rose-200 dark:bg-rose-900/30 dark:text-rose-400' },
   { label: 'Fable 5', from: 'claude-fable-5', to: 'anthropic.claude-fable-5', color: 'bg-rose-100 text-rose-700 hover:bg-rose-200 dark:bg-rose-900/30 dark:text-rose-400' },
@@ -473,6 +506,7 @@ export function getModelsByPlatform(platform: string): string[] {
     ]
     case 'doubao': return doubaoModels
     case 'minimax': return minimaxModels
+    case 'openrouter': return openrouterModels
     case 'baidu': return baiduModels
     case 'spark': return sparkModels
     case 'hunyuan': return hunyuanModels
@@ -488,6 +522,7 @@ export function getPresetMappingsByPlatform(platform: string) {
   if (platform === 'grok' || platform === 'xai') return grokPresetMappings
   if (platform === 'antigravity') return antigravityPresetMappings
   if (platform === 'bedrock') return bedrockPresetMappings
+  if (platform === 'openrouter') return openrouterPresetMappings
   return anthropicPresetMappings
 }
 
