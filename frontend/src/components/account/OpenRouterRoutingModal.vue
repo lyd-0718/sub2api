@@ -1,7 +1,7 @@
 <template>
   <BaseDialog
     :show="show"
-    :title="t('admin.accounts.openrouterRouting.title')"
+    :title="dialogTitle"
     width="extra-wide"
     @close="emit('close')"
   >
@@ -99,7 +99,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, watch } from 'vue'
+import { computed, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import BaseDialog from '@/components/common/BaseDialog.vue'
 import LoadingSpinner from '@/components/common/LoadingSpinner.vue'
@@ -137,8 +137,16 @@ interface RoutingRow {
   backup: string | null
 }
 
+// 标题带上账号名与 ID：同一后台常有多个 OpenRouter 账号，名字相近时容易看错改错。
+const dialogTitle = computed(() => {
+  const base = t('admin.accounts.openrouterRouting.title')
+  return props.account ? `${base} · ${props.account.name} (#${props.account.id})` : base
+})
+
 const loading = ref(false)
 const saving = ref(false)
+// 每次加载递增；只采用最后一次加载的响应，避免快速切换账号时旧响应覆盖新账号的数据。
+let loadSeq = 0
 const loadError = ref('')
 const enabled = ref(false)
 const rows = ref<RoutingRow[]>([])
@@ -183,11 +191,13 @@ function onPrimaryChange(row: RoutingRow) {
 }
 
 async function load(account: Account) {
+  const seq = ++loadSeq
   loading.value = true
   loadError.value = ''
   rows.value = []
   try {
     const view = await getOpenRouterRouting(account.id)
+    if (seq !== loadSeq) return
     enabled.value = view.routing.enabled
     const configured = view.routing.models || {}
     const mapping = (account.credentials?.model_mapping as Record<string, string> | undefined) || {}
@@ -204,9 +214,10 @@ async function load(account: Account) {
       }
     })
   } catch (err) {
+    if (seq !== loadSeq) return
     loadError.value = extractApiErrorMessage(err, t('admin.accounts.openrouterRouting.loadFailed'))
   } finally {
-    loading.value = false
+    if (seq === loadSeq) loading.value = false
   }
 }
 

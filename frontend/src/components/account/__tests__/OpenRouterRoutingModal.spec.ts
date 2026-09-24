@@ -1,4 +1,4 @@
-import { defineComponent, h } from 'vue'
+import { defineComponent, h, nextTick } from 'vue'
 import { flushPromises, mount } from '@vue/test-utils'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import OpenRouterRoutingModal from '../OpenRouterRoutingModal.vue'
@@ -18,7 +18,7 @@ vi.mock('vue-i18n', () => ({ useI18n: () => ({ t: (key: string) => key }) }))
 const BaseDialogStub = defineComponent({
   props: { show: Boolean, title: String },
   setup(props, { slots }) {
-    return () => (props.show ? h('div', [slots.default?.(), slots.footer?.()]) : null)
+    return () => (props.show ? h('div', [h('h3', { 'data-test': 'title' }, props.title), slots.default?.(), slots.footer?.()]) : null)
   }
 })
 
@@ -145,5 +145,44 @@ describe('OpenRouterRoutingModal', () => {
 
     expect(wrapper.text()).toContain('boom')
     expect(wrapper.findAll('button').at(-1)!.attributes('disabled')).toBeDefined()
+  })
+
+  it('names the account in the title so similar OpenRouter accounts are not mixed up', async () => {
+    getOpenRouterRouting.mockResolvedValue({ account_id: 22, routing: { enabled: true, models: {} }, models: [] })
+
+    const wrapper = mountModal()
+    await flushPromises()
+
+    expect(wrapper.find('[data-test="title"]').text()).toBe('admin.accounts.openrouterRouting.title · openrouter (#22)')
+  })
+
+  it('ignores a slow response for a previously opened account', async () => {
+    let resolveFirst: (value: unknown) => void = () => {}
+    getOpenRouterRouting
+      .mockImplementationOnce(() => new Promise((resolve) => { resolveFirst = resolve }))
+      .mockResolvedValueOnce({
+        account_id: 38,
+        routing: { enabled: true, models: { 'z-ai/glm-5.3': ['friendli'] } },
+        models: [{ model: 'z-ai/glm-5.3', providers: [provider('friendli', 'Friendli')] }]
+      })
+
+    const wrapper = mountModal()
+    await nextTick()
+    await wrapper.setProps({ show: false, account: null })
+    await wrapper.setProps({
+      show: true,
+      account: { ...account, id: 38, name: 'openrouter-glm' } as unknown as Account
+    })
+    await flushPromises()
+    resolveFirst({
+      account_id: 22,
+      routing: { enabled: true, models: {} },
+      models: [{ model: 'deepseek/deepseek-v4.1-flash', providers: [] }]
+    })
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('z-ai/glm-5.3')
+    expect(wrapper.text()).not.toContain('deepseek/deepseek-v4.1-flash')
+    expect(wrapper.find('[data-test="title"]').text()).toContain('openrouter-glm (#38)')
   })
 })
