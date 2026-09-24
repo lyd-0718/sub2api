@@ -212,13 +212,12 @@ func (s *AntigravityGatewayService) prepareAntigravityCompatCall(
 		return nil, s.writeAntigravityCompatError(c, http.StatusBadRequest, "invalid_request_error", "Invalid request body")
 	}
 
-	// 裸 Gemini 名按 reasoning effort 挑 -low/-medium/-high 变体（effort 不会进入 Gemini 请求体，
-	// 变体是上游唯一的思考深度开关）；OpenAI 字段缺失时再看转换后的 Claude thinking 配置。
+	// 裸 Gemini 名的档位：先读客户端原始 reasoning effort，缺失时再看转换后的 Claude 请求。
 	thinkingLevel := geminiThinkingLevelFromOpenAIBody(request.originalBody)
 	if thinkingLevel == "" {
-		thinkingLevel = geminiThinkingLevelFromClaudeBody(request.claudeBody)
+		thinkingLevel = geminiThinkingLevelFromClaudeBody(request.claudeBody, claudeRequest.Thinking)
 	}
-	mappedModel, _ := s.mapAntigravityModelWithThinkingLevel(account, request.originalModel, thinkingLevel)
+	mappedModel := s.getMappedModelForThinkingLevel(account, request.originalModel, thinkingLevel)
 	if mappedModel == "" {
 		MarkOpsClientBusinessLimited(c, OpsClientBusinessLimitedReasonLocalFeatureGate)
 		message := fmt.Sprintf("model %s not in whitelist", request.originalModel)

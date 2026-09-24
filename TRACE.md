@@ -2,7 +2,7 @@
 
 按会话留存完整对话链路（用户输入 / 模型输出 / 思考链 / 工具调用），用于后续蒸馏微调。
 
-> **这个 fork 是什么**：`Wei-Shaw/sub2api` 官方版（当前合并到 **v0.2.7**，2026-09-19）+ 三个自研/增强模块——
+> **这个 fork 是什么**：`Wei-Shaw/sub2api` 官方版（当前合并到 **v0.2.8**，2026-09-24）+ 三个自研/增强模块——
 > ① 本文档讲的 **Session Trace 录制**；② **CN（kimi 等国产 Coding Plan）账号并发受限治理**（403 三分类、额度耗尽停调自动恢复、历史 error 账号自动归队），设计文档见 **`PLAN-cn-cap-v6.md`**；③ **账号级 TLS 指纹出站**（任意账号按需勾选，解决 Cloudflare 对 Go TLS/HTTP 指纹的 403/1010 封禁）。
 > 部署分支：fork 的 **`trace` 分支**（GitHub 默认分支已设为 trace）。
 > 当前生产镜像：`sub2api-trace:0.2.7-f2d1cb7`（2026-09-23 部署，健康运行中；上一版 `0.2.7-004afb6`）。
@@ -84,7 +84,7 @@ python3 traceview.py <会话目录> [轮次N] [user|think|tool|text]
 
 ## 代码位置与更新流程
 
-- Fork：`github.com/lyd-0718/sub2api`，分支 `trace`（当前已合并官方 `v0.2.5`（2026-09-16）；历史上一个合并点是 `v0.2.3`）
+- Fork：`github.com/lyd-0718/sub2api`，分支 `trace`（当前已合并官方 `v0.2.8`（2026-09-24）；历史合并点 `v0.2.7` / `v0.2.5` / `v0.2.3`）
 - 本地：`~/Desktop/sub2api`
 - 服务器构建目录：`/opt/sub2api-trace`
 - 部署配置：`/opt/sub2api/docker-compose.yml`（只改 image tag，其他不动）
@@ -109,6 +109,8 @@ git push origin trace
 
 （v0.2.7 合并实录 2026-09-19：71 个提交 2 个文件冲突——上游 PR #7340（kimi 配额耗尽 403 停车）与我方 CN 治理模块正面撞车，同一功能两种实现。解决：`handle403`/`applyCNProviderReactive429`/`handleCNProviderConcurrencyLimit403` 保留我方（分类器收口早退 + 周/5h 分档 + 并发短冷却防级联停车，上游 10 分钟冷却会缩号池）；上游新增 `cooldownCNProviderToQuotaSnapshotReset` 双边保留（OpenCodeGo 429 分支依赖，CN Coding Plan 仍走我方 `cnCodingPlan429Cooldown` 分档）；删上游 `ratelimit_service_cn_quota_403_test.go`（测被删的 3 参同名符号，Go 无重载）。v0.2.5 时代那 2 个上游坏前端测试已被上游修复，本轮 297/2231 全过。教训：`go test -tags unit` 出现 FAIL 先落盘复跑再定位——本轮首轮 unit 挂、复跑 0 失败，是 flaky 不是合并问题。）
 
+（v0.2.8 合并实录 2026-09-24：237 个提交 6 个文件冲突。`wire_gen.go` 3 处均为双方往同一行加参数：`ProvideGrokQuotaService` 保留我方 TLS 指纹参数 + 上游新增 `openAIReferralClient`；`ProvideAdminHandlers` 用上游行（+`openCodeGoUsageService`）后接我方 trace/CN 手工接线；`provideCleanup` 用上游参数表末尾追加 `accountErrorRecoveryService`。Gemini 5 个文件与上游 #7432 撞车，取上游版本再叠我方三处语义（见第 9 项）。**非文本冲突**：上游把 `claude.DefaultHeaders` 从 map 变量改成函数，我方 `account_error_recovery_service.go` 的 range 编译失败，改为 `claude.DefaultHeaders()`——合并后先 `go build` 再看测试。）
+
 **merge 冲突面（trace 分支对上游的全部改动）：**
 
 1. `backend/internal/server/routes/gateway.go`：3 行（trace 中间件注册）。
@@ -119,7 +121,7 @@ git push origin trace
 6. **OpenRouter 余额探测**（2026-09-14 新增）：上游文件 `cn_provider_balance_service.go` 仅 4 处小改（`CNProviderBalanceEntry.Label` 字段、`cnBalanceURL` 的 openrouter 分支、deepseek 解析分流、快照写入 label）；识别/解析/`/key` 限额查询全在新文件 `cn_provider_balance_openrouter.go`（自有文件，零冲突）。前端 `CNProviderBalanceCell.vue` + `api/admin/cnProviders.ts` + zh/en i18n 各一处小改（label 前缀渲染，无 label 时行为不变）。
 7. **CN 并发受限治理**（2026-09-16 定稿，设计见 `PLAN-cn-cap-v6.md`）：自有文件零冲突——`service/ratelimit_classifier.go`（403 三分类）、`service/cn_quota_pause_window.go`（周满看周窗口分档）、`service/account_error_recovery_service.go`（历史 error 账号自动归队：本地快照 reset_at 判定恢复、零额度探测，最小请求点火验证防鉴权死账号死循环，验证后重读 updated_at 再 CAS）。无数据库迁移（v5 时代的 238/240 均已废弃删除；账号并发由需求方手动管理，系统不碰）。上游文件改动：`repository/scheduler_cache.go`（白名单 +15 个 CN 额度键）；`service/ratelimit_service.go`（CN 403 分类器闸 + 幂等去重）；`service/ratelimit_cn_providers.go`（并发 403 → 30s 停车不进 403 计数；额度分支走窗口分档）；`service/gateway_forward.go` / `openai_ws_forwarder_support.go` / `openai_gateway_passthrough.go` / `openai_gateway_messages.go` / `openai_gateway_chat_completions.go` / `openai_gateway_upstream_errors.go`（流内/WS/SSE bare error 在 `openAIStream403AccountFailure`/`shouldFailover` 判定**之前**接分类器）；`service/setting_update.go`（默认阈值表 +kimi:85）；`repository/account_repo.go` + `service/account_service.go`（+`ListCNQuotaDisabled`/`RestoreRecoveredAccount` 及接口签名）；`config/config.go`（`cn_providers` +3 个归队配置键，纯追加）；`cmd/server/wire_gen.go`（归队服务手工接线 4 行，注释标记）；`server/routes/trace_admin.go`（nil 守卫，顺带修 trace 模块既有 panic）。前端：与上游基线完全一致（v5 时代的 cap 展示与 kimi 新建默认值均已按需求方决定回退）。**注意**：v5 时代的 cap 限速器（表/store/夹帽/管理接口）、探测回升/熔断、迁移 238/240、前端 cap 相关改动已于 2026-09-16 按需求方决定整体移除，如在上游看到相关设计文档残留以本节为准。
 8. **账号级 TLS 指纹出站**（2026-09-21，核心 `ad5fe7a`；通用前端 `722b510` / `997f45a`）：TLS 指纹开关不再绑定平台、账号类型或模型；`service/http_upstream_port.go` 的 `doAccountHTTPUpstream` 统一真实流量、账号测试、额度/余额探测与 error 恢复。OpenAI-compatible、Gemini、Antigravity、Grok、Bedrock、CN Provider、Ollama HTTP/SSE 路径均接入；开关关闭直接保持原 `Do`，开启才走 `DoWithTLS`。`repository/http_upstream.go` 按账号 + profile 内容摘要隔离连接池，模板变更不复用旧 ClientHello；HTTPS 代理不再静默降级为 Go 指纹（明确报错，支持直连/HTTP CONNECT/SOCKS5）。前端创建/编辑页的 TLS 卡片已移出 Anthropic-only 容器；任意平台都能显示、读取和保存开关，移除每请求随机 profile，只允许固定内置或指定模板。生产验收：x5m5x 专属组非流式/流式均 200，流式完整 `[DONE]`；12,032 token 首写后二次命中 10,823 cached tokens，4 笔成功、0 错误；最终 Kimi 编辑弹窗已视觉确认开关可见且为开启状态。
-9. **Gemini 裸名按 effort 选变体**（2026-09-23）：Antigravity 上游只有 `gemini-3.x-flash-low/-medium/-high/-tiered`，裸名 404；Chat/Responses/Messages 转 Gemini 时 effort 不进请求体，变体是唯一的思考深度开关。上游 `0f4d8ac` 只在 Gemini 原生路径按 thinkingConfig 选变体，且把 credentials 里的裸名自映射当"用户显式配置"跳过——而后台按 `DefaultAntigravityModelMapping` 建号会写入这条自映射，生产 3 个号全中招。我方改动（全在上游文件）：`service/antigravity_gemini_thinking_variant.go`（`resolveGeminiThinkingVariant` 改收档位参数；新增 OpenAI `reasoning_effort`/`reasoning.effort` 与 Claude `output_config.effort`/`thinking` 两个档位推导；裸名自映射不再阻断推导，只尊重映射到别的模型；删 `accountRawModelMappingHasKey`）；`antigravity_gateway_compat.go` / `antigravity_gateway_claude.go` / `antigravity_gateway_gemini.go` / `antigravity_gateway_service.go`（TestConnection）各一处调用点改走 `mapAntigravityModelWithThinkingLevel`；`service/group_model_allowlist.go`（候选形式 + Gemini 思考后缀：白名单写裸名即放行其变体，列表只展示裸名）。配套配置：分组 7/9/12 白名单的 4 个 gemini 变体换成 `gemini-3.8-flash`。上游若自行修复同一问题，以上游实现为准并核对这两点语义（自映射不阻断、白名单裸名放行变体）。
+9. **Gemini 裸名按 effort 选变体**（2026-09-23 `f2d1cb7`；v0.2.8 合并后改为叠加在上游实现之上）：Antigravity 上游只有 `gemini-3.x-flash-low/-medium/-high/-tiered`，裸名 404。上游 v0.2.8（#7432）已把选档下沉到 `getMappedModelForThinkingLevel` 覆盖全部入口，我方沿用其结构，只在 `service/antigravity_gemini_thinking_variant.go` 保留三处差异：①裸名自映射不阻断推导（上游仍尊重 credentials 里的 `gemini-3.8-flash → 自身`，而后台按 `DefaultAntigravityModelMapping` 建号必带这条，生产 3 个号全中招，上游版本在我们这里裸名照样 404；删 `accountRawModelMappingHasKey`）；②兼容层按 effort 选档：新增 `geminiThinkingLevelFromOpenAIBody`（reasoning_effort / reasoning.effort）与 `geminiThinkingLevelFromClaudeBody`（output_config.effort 优先，再落上游 `geminiThinkingLevelFromClaudeThinking`）——上游只看 thinking，Chat 的 low 不生成 thinking、minimal 拿默认大预算，二者都会落到 -high；③`trimGeminiThinkingVariantSuffix` 供 `service/group_model_allowlist.go` 候选形式使用：白名单写裸名即放行各变体，列表只展示裸名。调用点改动：`antigravity_gateway_compat.go`（OpenAI effort 优先）、`antigravity_gateway_claude.go`（传入 body）各一处。配套配置：分组 7/9/12 白名单的 gemini 只写 `gemini-3.8-flash`。上游若吸收以上语义，以上游为准删掉我方差异。
 
 
 （kimi 缓存保活模块已于 2026-09-04 移除：实测有用但探测费相对省下的冷启动费性价比不高。历史见 git log。）

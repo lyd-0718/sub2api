@@ -415,7 +415,7 @@ func (s *AccountErrorRecoveryService) buildVerifyRequest(ctx context.Context, ac
 	req.Header.Set("Accept", "application/json")
 	if protocol == APIProtocolAnthropic || protocol == APIProtocolAdaptive {
 		req.Header.Set("anthropic-version", "2023-06-01")
-		for key, value := range claude.DefaultHeaders {
+		for key, value := range claude.DefaultHeaders() {
 			req.Header.Set(key, value)
 		}
 		setAnthropicAPIKeyAuthHeader(req.Header, account, apiKey, authBaseURL)
