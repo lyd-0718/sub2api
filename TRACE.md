@@ -5,7 +5,7 @@
 > **这个 fork 是什么**：`Wei-Shaw/sub2api` 官方版（当前合并到 **v0.2.8**，2026-09-24）+ 三个自研/增强模块——
 > ① 本文档讲的 **Session Trace 录制**；② **CN（kimi 等国产 Coding Plan）账号并发受限治理**（403 三分类、额度耗尽停调自动恢复、历史 error 账号自动归队），设计文档见 **`PLAN-cn-cap-v6.md`**；③ **账号级 TLS 指纹出站**（任意账号按需勾选，解决 Cloudflare 对 Go TLS/HTTP 指纹的 403/1010 封禁）。
 > 部署分支：fork 的 **`trace` 分支**（GitHub 默认分支已设为 trace）。
-> 当前生产镜像：`sub2api-trace:0.2.7-f2d1cb7`（2026-09-23 部署，健康运行中；上一版 `0.2.7-004afb6`）。
+> 当前生产镜像：`sub2api-trace:0.2.8-dc9713e`（2026-09-24 部署，健康运行中；上一版 `0.2.7-f2d1cb7`）。
 
 ## 这套东西是什么
 
@@ -102,7 +102,8 @@ cd backend && go build ./... && go vet ./...
 go test ./internal/config/ ./internal/repository/ ./internal/server/... ./cmd/server/ ./internal/handler/ ./migrations/ -count=1
 go test -tags unit ./internal/service/ -count=1 && go test ./internal/service/ -count=1   # service 包两种标签各跑一遍
 cd ../frontend && npx vitest run && npx vue-tsc --noEmit   # i18n 完整性/类型检查在镜像构建里会跑，本地先跑
-git push origin trace
+git push origin trace   # 若上游改了 .github/workflows，gh 的 OAuth token 缺 workflow scope 会被拒：
+                        # 改用 SSH 推送 git push git@github.com:lyd-0718/sub2api.git trace
 ```
 
 （v0.2.5 合并实录：197 个提交只有 1 个冲突——`ratelimit_cn_providers.go` 的额度快照辅助函数：我方删旧函数换周满分档、上游给 OpenCodeGo 加月度窗口。双边保留解决：CN 平台走 `cnQuotaPauseWindow` 新规则，OpenCodeGo 走旧函数。上游 v0.2.5 自带 2 个挂掉的前端测试（ChannelMonitorView.grok 的供应商计数、GroupsView.codexManifest 的 Pinia），干净 upstream/main 上同样挂，不是合并问题，不要替上游修——修了反而制造未来的合并噪音。）
@@ -127,7 +128,7 @@ git push origin trace
 （kimi 缓存保活模块已于 2026-09-04 移除：实测有用但探测费相对省下的冷启动费性价比不高。历史见 git log。）
 （`x-session-id` 粘性路由曾作为第 4 条改动，v0.2.1 合并时确认为重复代码已删除——上游名单的 `openCodeSessionIDHeader` 常量值就是 `X-Session-Id`。）
 
-**服务器部署（标准流程，2026-09-21 按 v0.2.7 实际部署更新）：**
+**服务器部署（标准流程，2026-09-24 按 v0.2.8 实际部署更新）：**
 
 ```bash
 ssh relay
@@ -151,7 +152,7 @@ cd /opt/sub2api && docker compose up -d sub2api
 #    - 真实流量几分钟后 traces/ 下生成新会话文件、后台页面可打开
 ```
 
-回滚：`f2d1cb7`（Gemini 裸名选变体）无数据库迁移，但**分组白名单依赖新代码**——白名单只写了裸名 `gemini-3.8-flash`，旧代码不会放行 `-high` 等变体。回滚镜像到 `sub2api-trace:0.2.7-004afb6` 时，须同时用 `/opt/sub2api/backups/groups_model_allowlist_20260923-183332.tsv` 恢复分组 7/9/12 的 `model_allowlist` 并清 `apikey:auth:*` 缓存（或在后台逐个分组保存一次，自动失效缓存）。更早的 TLS 指纹改动同样无迁移，账号 `extra.enable_tls_fingerprint` 会被旧代码忽略。
+回滚：v0.2.8（`dc9713e`）带 3 个纯追加迁移（238b 审核日志 `engine_meta` 列、239 渠道定价 `reasoning_effort_multipliers` 列、240 联盟流水 `operation_id` 列 + 部分唯一索引），旧代码忽略新列，直接改回 `sub2api-trace:0.2.7-f2d1cb7` 后 `up -d` 即可，无需恢复数据库；Gemini 白名单语义两版一致。部署前库备份：`/opt/sub2api/backup-pre-0.2.8-dc9713e-20260924-1054.sql.gz`。再往前回滚：`f2d1cb7`（Gemini 裸名选变体）无数据库迁移，但**分组白名单依赖新代码**——白名单只写了裸名 `gemini-3.8-flash`，旧代码不会放行 `-high` 等变体。回滚镜像到 `sub2api-trace:0.2.7-004afb6` 时，须同时用 `/opt/sub2api/backups/groups_model_allowlist_20260923-183332.tsv` 恢复分组 7/9/12 的 `model_allowlist` 并清 `apikey:auth:*` 缓存（或在后台逐个分组保存一次，自动失效缓存）。更早的 TLS 指纹改动同样无迁移，账号 `extra.enable_tls_fingerprint` 会被旧代码忽略。
 
 ## 测试
 
