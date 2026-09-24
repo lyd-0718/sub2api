@@ -5,7 +5,7 @@
 > **这个 fork 是什么**：`Wei-Shaw/sub2api` 官方版（当前合并到 **v0.2.8**，2026-09-24）+ 四个自研/增强模块——
 > ① 本文档讲的 **Session Trace 录制**；② **CN（kimi 等国产 Coding Plan）账号并发受限治理**（403 三分类、额度耗尽停调自动恢复、历史 error 账号自动归队），设计文档见 **`PLAN-cn-cap-v6.md`**；③ **账号级 TLS 指纹出站**（任意账号按需勾选，解决 Cloudflare 对 Go TLS/HTTP 指纹的 403/1010 封禁）；④ **OpenRouter 平台 + 供应商路由**（一个 OpenRouter 账号统一管理其上所有模型，按模型指定首选 / 备选 provider 保住 prompt 缓存）。
 > 部署分支：fork 的 **`trace` 分支**（GitHub 默认分支已设为 trace）。
-> 当前生产镜像：`sub2api-trace:0.2.8-dc9713e`（2026-09-24 部署，健康运行中；上一版 `0.2.7-f2d1cb7`）。
+> 当前生产镜像：`sub2api-trace:0.2.8-9a945b1`（2026-09-24 部署，健康运行中；上一版 `0.2.8-dc9713e`）。
 
 ## 这套东西是什么
 
@@ -130,6 +130,7 @@ git push origin trace   # 若上游改了 .github/workflows，gh 的 OAuth token
     - **自有文件**：`service/openrouter_platform.go`（默认地址 / 默认模型 / 跨平台账号池）、`service/openrouter_provider_routing.go`、`handler/admin/cn_provider_openrouter_routing.go`、`migrations/240z_openrouter_platform.sql`；前端 `components/account/OpenRouterRoutingModal.vue`、`api/admin/openrouterRouting.ts`。
     - **上游文件改动**（绝大多数是平台列表 / switch 加一项 openrouter）：后端 `domain/constants.go`、`service/domain_constants.go`、`account.go`、`routes/gateway.go`、`routes/admin.go`（2 条路由）、`openai_gateway_handler.go`、`openai_gateway_scheduling.go`、`openai_account_scheduler.go`、`gateway_service.go`、`scheduler_snapshot_service.go`、`composite_platform.go`（含 `openrouter/` 前缀识别）、`handler/admin/group_handler.go`（oneof）、`handler/gateway_handler.go`、`admin_group.go`、`channel_service.go`、`handler/admin/channel_handler.go`、`openai_codex_models_service.go`、`openai_gateway_forward.go`、`openai_gateway_count_tokens.go`、`openai_gateway_cc_pipeline.go`、`openai_gateway_messages_anthropic_native.go`（Anthropic 地址版本感知拼接）、`anthropic_apikey_auth.go`、`account_test_service.go`、`upstream_models.go`、`account_header_override.go`、`ratelimit_service.go`、`cn_provider_balance_service.go` / `cn_provider_balance_check_service.go` / `cn_provider_balance_openrouter.go`、`openai_chat_roles.go`、`openai_responses_tool_schema.go`、`openai_apikey_responses_probe.go`、`handler/admin/account_handler.go`、`admin_account.go`、`config/config.go`（URL 白名单 +openrouter.ai）；前端 `types/index.ts`、`constants/platforms.ts`、`credentialsBuilder.ts`（+`cnPaygOnlyPlatform` / `isOpenRouterAccount`）、`CreateAccountModal.vue`、`EditAccountModal.vue`、`CnBaseUrlPresets.vue`、`ModelWhitelistSelector.vue`、`useModelWhitelist.ts`、`PlatformIcon.vue`、`PlatformTypeBadge.vue`、`GroupBadge.vue`、`utils/platformColors.ts`、`GroupsView.vue`、`ChannelsView.vue`、`UseKeyModal.vue`、`utils/keyGroupProviders.ts`、`AccountUsageCell.vue`、`AccountActionMenu.vue`、`AccountsView.vue`、两个仪表盘平台标签表、i18n（zh/en）。
     - **合并上游必查**：①上游每加一个平台都会写新迁移，用 DROP + ADD 重建 `user_platform_quotas` / `composite_model_routes` 的平台 CHECK，列表里没有 `openrouter`——库里一旦有 platform='openrouter' 的行，上游迁移在 ADD CONSTRAINT 时失败、服务起不来；合并时要在上游新迁移的列表里补 `'openrouter'`（目前这两张表还没有 openrouter 行，一旦配了指向 openrouter 的 composite 显式路由或用户平台配额就会触发）。②上游在各处平台列表加新平台时，要顺手核对 openrouter 仍在（`go test` 里 `TestCompositeGroupSchedulerHasAllCanonicalPlatformBuckets` / `TestMatchingPlatforms` / 前端 `platforms.spec.ts` 会报漏项）。③若上游自己推出 OpenRouter 平台，以上游实现为准迁移，再对照本项补差。
+    - **生产落地（2026-09-24）**：账号 22 `openrout`、38 `openruot-glm` 由 deepseek 平台迁到 openrouter（清掉 `deepseek_balance*` 旧快照）；供应商路由按推荐配置：`z-ai/glm-5.3-flash` Wafer → Relace、`z-ai/glm-5.3` Friendli → Wafer、`deepseek/deepseek-v4.1-flash` Fireworks → DeepSeek（`z-ai/glm-5.3-flashx` 只有 Z.AI 一家，不设）。验收：三组 `/models` 与迁移前一致；GLM 走 38（openrouter），回包 `provider` 字段迁移前为 InferenceNet（自动分配），配置后 glm-5.3-flash 连续命中 Wafer、glm-5.3 连续命中 Friendli；DeepSeek 仍优先 sota-deepseek。**回包里的 `provider` 字段会原样透传给客户端**，可直接用来核对路由是否生效。
 
 
 （kimi 缓存保活模块已于 2026-09-04 移除：实测有用但探测费相对省下的冷启动费性价比不高。历史见 git log。）
@@ -158,6 +159,8 @@ cd /opt/sub2api && docker compose up -d sub2api
 #    - docker logs 看到 [CNRecovery] started (interval=10m0s)（CN 归队服务在线）
 #    - 真实流量几分钟后 traces/ 下生成新会话文件、后台页面可打开
 ```
+
+回滚 `9a945b1`（OpenRouter 平台）：**先改账号、再换镜像**——旧代码不认识 `openrouter` 平台，直接换镜像会让 OpenRouter 账号无法调度。① SQL：`update accounts set platform='deepseek', updated_at=now() where id in (22,38)`，并给这两个账号各插一条 `scheduler_outbox` 的 `account_changed`、给分组 7/9/12 各插一条 `group_changed`；② image 改回 `sub2api-trace:0.2.8-dc9713e` 后 `up -d`。迁移 `240z` 只是扩大 CHECK 取值，旧代码无感，不用回退；`extra.openrouter_provider_routing` 对旧代码无影响。迁移前账号快照：`/opt/sub2api/backups/openrouter_accounts_pre_migration_20260924-124745.tsv`；部署前库备份：`/opt/sub2api/backup-pre-0.2.8-9a945b1-20260924-1246.sql.gz`。
 
 回滚：v0.2.8（`dc9713e`）带 3 个纯追加迁移（238b 审核日志 `engine_meta` 列、239 渠道定价 `reasoning_effort_multipliers` 列、240 联盟流水 `operation_id` 列 + 部分唯一索引），旧代码忽略新列，直接改回 `sub2api-trace:0.2.7-f2d1cb7` 后 `up -d` 即可，无需恢复数据库；Gemini 白名单语义两版一致。部署前库备份：`/opt/sub2api/backup-pre-0.2.8-dc9713e-20260924-1054.sql.gz`。再往前回滚：`f2d1cb7`（Gemini 裸名选变体）无数据库迁移，但**分组白名单依赖新代码**——白名单只写了裸名 `gemini-3.8-flash`，旧代码不会放行 `-high` 等变体。回滚镜像到 `sub2api-trace:0.2.7-004afb6` 时，须同时用 `/opt/sub2api/backups/groups_model_allowlist_20260923-183332.tsv` 恢复分组 7/9/12 的 `model_allowlist` 并清 `apikey:auth:*` 缓存（或在后台逐个分组保存一次，自动失效缓存）。更早的 TLS 指纹改动同样无迁移，账号 `extra.enable_tls_fingerprint` 会被旧代码忽略。
 
