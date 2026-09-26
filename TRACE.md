@@ -5,7 +5,7 @@
 > **这个 fork 是什么**：`Wei-Shaw/sub2api` 官方版（当前合并到 **v0.2.8**，2026-09-24）+ 四个自研/增强模块——
 > ① 本文档讲的 **Session Trace 录制**；② **CN（kimi 等国产 Coding Plan）账号并发受限治理**（403 三分类、额度耗尽停调自动恢复、历史 error 账号自动归队），设计文档见 **`PLAN-cn-cap-v6.md`**；③ **账号级 TLS 指纹出站**（任意账号按需勾选，解决 Cloudflare 对 Go TLS/HTTP 指纹的 403/1010 封禁）；④ **OpenRouter 平台 + 供应商路由**（一个 OpenRouter 账号统一管理其上所有模型，按模型指定首选 / 备选 provider 保住 prompt 缓存）。
 > 部署分支：fork 的 **`trace` 分支**（GitHub 默认分支已设为 trace）。
-> 当前生产镜像：`sub2api-trace:0.2.8-57932a0`（2026-09-24 部署，健康运行中；上一版 `0.2.8-9a945b1`——仅前端修正：供应商路由弹窗标题带账号名与 ID、丢弃过期响应，回滚到 9a945b1 直接换镜像即可）。
+> 当前生产镜像：`sub2api-trace:0.2.8-57932a0`（2026-09-24 部署，健康运行中；上一版 `0.2.8-9a945b1`——仅前端修正：供应商路由弹窗标题带账号名与 ID、丢弃过期响应，回滚到 9a945b1 直接换镜像即可）。服务器只保留当前版和上一版两个镜像（2026-09-26 清理，删了 15 个旧镜像）；要回滚到更早的版本（如下文的 `dc9713e`、`0.2.7-*`），先用部署流程第 1、2 步从 GitHub 按对应提交重新构建出同名镜像，再改 image。
 
 ## 这套东西是什么
 
@@ -161,7 +161,7 @@ cd /opt/sub2api && docker compose up -d sub2api
 #    - 真实流量几分钟后 traces/ 下生成新会话文件、后台页面可打开
 ```
 
-回滚 `9a945b1`（OpenRouter 平台）：**先改账号、再换镜像**——旧代码不认识 `openrouter` 平台，直接换镜像会让 OpenRouter 账号无法调度。① SQL：`update accounts set platform='deepseek', updated_at=now() where id in (22,38)`，并给这两个账号各插一条 `scheduler_outbox` 的 `account_changed`、给分组 7/9/12 各插一条 `group_changed`；② image 改回 `sub2api-trace:0.2.8-dc9713e` 后 `up -d`。迁移 `240z` 只是扩大 CHECK 取值，旧代码无感，不用回退；`extra.openrouter_provider_routing` 对旧代码无影响。迁移前账号快照：`/opt/sub2api/backups/openrouter_accounts_pre_migration_20260924-124745.tsv`；部署前库备份：`/opt/sub2api/backup-pre-0.2.8-9a945b1-20260924-1246.sql.gz`。
+回滚 `9a945b1`（OpenRouter 平台）：**先改账号、再换镜像**——旧代码不认识 `openrouter` 平台，直接换镜像会让 OpenRouter 账号无法调度。① SQL：`update accounts set platform='deepseek', updated_at=now() where id in (22,38)`，并给这两个账号各插一条 `scheduler_outbox` 的 `account_changed`、给分组 7/9/12 各插一条 `group_changed`；② image 改回 `sub2api-trace:0.2.8-dc9713e`（该镜像已清理，需先按提交 `dc9713e` 重新构建）后 `up -d`。迁移 `240z` 只是扩大 CHECK 取值，旧代码无感，不用回退；`extra.openrouter_provider_routing` 对旧代码无影响。迁移前账号快照：`/opt/sub2api/backups/openrouter_accounts_pre_migration_20260924-124745.tsv`；部署前库备份：`/opt/sub2api/backup-pre-0.2.8-9a945b1-20260924-1246.sql.gz`。
 
 回滚：v0.2.8（`dc9713e`）带 3 个纯追加迁移（238b 审核日志 `engine_meta` 列、239 渠道定价 `reasoning_effort_multipliers` 列、240 联盟流水 `operation_id` 列 + 部分唯一索引），旧代码忽略新列，直接改回 `sub2api-trace:0.2.7-f2d1cb7` 后 `up -d` 即可，无需恢复数据库；Gemini 白名单语义两版一致。部署前库备份：`/opt/sub2api/backup-pre-0.2.8-dc9713e-20260924-1054.sql.gz`。再往前回滚：`f2d1cb7`（Gemini 裸名选变体）无数据库迁移，但**分组白名单依赖新代码**——白名单只写了裸名 `gemini-3.8-flash`，旧代码不会放行 `-high` 等变体。回滚镜像到 `sub2api-trace:0.2.7-004afb6` 时，须同时用 `/opt/sub2api/backups/groups_model_allowlist_20260923-183332.tsv` 恢复分组 7/9/12 的 `model_allowlist` 并清 `apikey:auth:*` 缓存（或在后台逐个分组保存一次，自动失效缓存）。更早的 TLS 指纹改动同样无迁移，账号 `extra.enable_tls_fingerprint` 会被旧代码忽略。
 
