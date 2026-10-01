@@ -463,6 +463,18 @@ const routes: RouteRecordRaw[] = [
     }
   },
   {
+    path: '/admin/custom-models',
+    name: 'AdminCustomModels',
+    component: () => import('@/views/admin/CustomModelsView.vue'),
+    meta: {
+      requiresAuth: true,
+      requiresAdmin: true,
+      title: 'Custom Models',
+      titleKey: 'admin.customModels.title',
+      descriptionKey: 'admin.customModels.description'
+    }
+  },
+  {
     path: '/admin/channels',
     redirect: '/admin/channels/pricing'
   },

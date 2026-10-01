@@ -32,28 +32,18 @@ func newGatewayRoutesTestRouterWithConfig(cfg *config.Config, platform ...string
 	if len(platform) > 0 && platform[0] != "" {
 		groupPlatform = platform[0]
 	}
-	RegisterGatewayRoutes(
-		router,
-		&handler.Handlers{
+	RegisterGatewayRoutes(router, &handler.Handlers{
 			Gateway:       &handler.GatewayHandler{},
 			OpenAIGateway: &handler.OpenAIGatewayHandler{},
 			AsyncImage:    handler.NewAsyncImageHandler(nil, nil),
-		},
-		servermiddleware.APIKeyAuthMiddleware(func(c *gin.Context) {
+		}, servermiddleware.APIKeyAuthMiddleware(func(c *gin.Context) {
 			groupID := int64(1)
 			c.Set(string(servermiddleware.ContextKeyAPIKey), &service.APIKey{
 				GroupID: &groupID,
 				Group:   &service.Group{Platform: groupPlatform},
 			})
 			c.Next()
-		}),
-		nil,
-		nil,
-		nil,
-		nil,
-		nil,
-		cfg,
-	)
+		}), nil, nil, nil, nil, nil, nil, cfg)
 
 	return router
 }

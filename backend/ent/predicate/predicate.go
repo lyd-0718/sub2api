@@ -51,6 +51,12 @@ type ChannelMonitorRequestTemplate func(*sql.Selector)
 // CompositeModelRoute is the predicate function for compositemodelroute builders.
 type CompositeModelRoute func(*sql.Selector)
 
+// CustomModel is the predicate function for custommodel builders.
+type CustomModel func(*sql.Selector)
+
+// CustomModelDownstreamGroup is the predicate function for custommodeldownstreamgroup builders.
+type CustomModelDownstreamGroup func(*sql.Selector)
+
 // ErrorPassthroughRule is the predicate function for errorpassthroughrule builders.
 type ErrorPassthroughRule func(*sql.Selector)
 

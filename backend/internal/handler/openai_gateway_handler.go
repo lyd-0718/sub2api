@@ -47,6 +47,7 @@ type OpenAIGatewayHandler struct {
 	imageLimiter               *imageConcurrencyLimiter
 	maxAccountSwitches         int
 	cfg                        *config.Config
+	customModelService         *service.CustomModelService
 }
 
 type openAIWSTurnChannelMappingSnapshot struct {
@@ -195,18 +196,19 @@ func openAIAccountScheduleModel(c *gin.Context, account *service.Account, forwar
 }
 
 func resolveOpenAIMessagesDispatchMappedModel(c *gin.Context, apiKey *service.APIKey, requestedModel string) string {
-	if apiKey == nil || apiKey.Group == nil {
+	group := routingGroupForRequest(c, apiKey)
+	if group == nil {
 		return ""
 	}
 	// composite 解析到 grok/CN/OpenCode 目标时调度级映射不适用（Group 级映射的
 	// gpt-5.x 默认值是 openai 专属,发给这些上游必错）,模型改写交给账号级 model_mapping。
-	if apiKey.Group.Platform == service.PlatformComposite && c != nil && c.Request != nil {
+	if group.Platform == service.PlatformComposite && c != nil && c.Request != nil {
 		if platform, ok := service.ResolvedTargetPlatformFromContext(c.Request.Context()); ok &&
 			(platform == service.PlatformGrok || service.IsMultiProtocolAPIKeyProvider(platform)) {
 			return ""
 		}
 	}
-	return strings.TrimSpace(apiKey.Group.ResolveMessagesDispatchModel(requestedModel))
+	return strings.TrimSpace(group.ResolveMessagesDispatchModel(requestedModel))
 }
 
 type openAIModelBodyReplaceFunc func([]byte, string) []byte
@@ -254,7 +256,7 @@ func usageRecordContext(parent context.Context, base context.Context) context.Co
 	if requestID, _ := parent.Value(ctxkey.RequestID).(string); strings.TrimSpace(requestID) != "" {
 		base = context.WithValue(base, ctxkey.RequestID, strings.TrimSpace(requestID))
 	}
-	return base
+	return service.CopyCustomModelContext(parent, base)
 }
 
 func wrapUsageRecordTaskContext(parent context.Context, task service.UsageRecordTask) service.UsageRecordTask {
@@ -295,28 +297,29 @@ func openAIResponsesRequiredCapabilityForRequest(imageIntent bool, needsResponse
 }
 
 func allowOpenAICompatibleMessagesDispatch(c *gin.Context, apiKey *service.APIKey) bool {
-	if apiKey == nil || apiKey.Group == nil {
+	group := routingGroupForRequest(c, apiKey)
+	if group == nil {
 		return true
 	}
-	if apiKey.Group.Platform == service.PlatformGrok {
+	if group.Platform == service.PlatformGrok {
 		return true
 	}
 	// 国产供应商分组与 grok 同语义:/v1/messages 就是其主要服务形态(anthropic
 	// 协议账号原生直通 Claude Code),无需 allow_messages_dispatch 开关授权——
 	// 该开关对非 openai/composite 平台恒被 sanitizeGroupMessagesDispatchFields 置 false,
 	// 若不豁免,CN 分组将永远 403。
-	if service.IsMultiProtocolAPIKeyProvider(apiKey.Group.Platform) {
+	if service.IsMultiProtocolAPIKeyProvider(group.Platform) {
 		return true
 	}
 	// composite 分组解析到 grok/CN/OpenCode Go 目标时与对应独立分组同语义豁免；
 	// 解析到 openai 目标则受 composite 分组自身的可配置开关控制。
-	if apiKey.Group.Platform == service.PlatformComposite && c != nil && c.Request != nil {
+	if group.Platform == service.PlatformComposite && c != nil && c.Request != nil {
 		if platform, ok := service.ResolvedTargetPlatformFromContext(c.Request.Context()); ok &&
 			(platform == service.PlatformGrok || service.IsMultiProtocolAPIKeyProvider(platform)) {
 			return true
 		}
 	}
-	return apiKey.Group.AllowMessagesDispatch
+	return group.AllowMessagesDispatch
 }
 
 func openAICompatibleTextTargetAllowed(c *gin.Context, apiKey *service.APIKey, model string) bool {
@@ -350,6 +353,7 @@ func NewOpenAIGatewayHandler(
 	contentModerationService *service.ContentModerationService,
 	opsService *service.OpsService,
 	cfg *config.Config,
+	customModelService *service.CustomModelService,
 ) *OpenAIGatewayHandler {
 	pingInterval := time.Duration(0)
 	maxAccountSwitches := 3
@@ -361,6 +365,7 @@ func NewOpenAIGatewayHandler(
 	}
 	return &OpenAIGatewayHandler{
 		gatewayService:           gatewayService,
+		customModelService:       customModelService,
 		billingCacheService:      billingCacheService,
 		apiKeyService:            apiKeyService,
 		usageRecordWorkerPool:    usageRecordWorkerPool,
@@ -2400,6 +2405,11 @@ func (h *OpenAIGatewayHandler) ResponsesWebSocket(c *gin.Context) {
 		closeOpenAIClientWS(wsConn, coderws.StatusPolicyViolation, fmt.Sprintf("Model %q is not available for this group", blocked))
 		return
 	}
+	reqModel, err = h.resolveCustomWebSocketModel(c, apiKey, reqModel)
+	if err != nil {
+		closeOpenAIClientWS(wsConn, coderws.StatusPolicyViolation, "Custom model is unavailable: "+err.Error())
+		return
+	}
 	ensureCompositeTargetPlatform(c, apiKey, reqModel)
 	ctx = c.Request.Context()
 	if apiKey.Group != nil && apiKey.Group.Platform == service.PlatformComposite {
@@ -2804,7 +2814,7 @@ func (h *OpenAIGatewayHandler) ResponsesWebSocket(c *gin.Context) {
 		}
 		hooks := &service.OpenAIWSIngressHooks{
 			ClientLifecycleContext:      clientLifecycleCtx,
-			InitialRequestModel:         reqModel,
+			InitialRequestModel:         clientRequestedModel(c, reqModel),
 			InitialTurnStartedAt:        firstTurnStartedAt,
 			MaxReasoningEffort:          maxReasoningEffort,
 			MaxReasoningEffortOverLimit: maxReasoningEffortOverLimit,
@@ -2839,6 +2849,11 @@ func (h *OpenAIGatewayHandler) ResponsesWebSocket(c *gin.Context) {
 				// 帧内重复 model 键/大小写变体/嵌套 session.model 额外逐一校验，
 				// 防止候选集非空时掩盖被轮换掉的禁用模型。
 				candidates := append([]string{model}, requestmodel.FromBodyCandidates("", "application/json", payload)...)
+				if resolution, custom := service.CustomModelResolutionFromContext(ctx); custom {
+					// The ingress normalizer has already replaced the wire model.
+					// Admission still checks the public custom name.
+					candidates = []string{resolution.ModelID}
+				}
 				if blocked := blockedModelAllowlistCandidate(apiKey.Group, candidates); blocked != "" {
 					service.MarkOpsClientBusinessLimited(c, service.OpsClientBusinessLimitedReasonLocalModelConfiguration)
 					middleware2.MarkIngressRejected(c, middleware2.IngressRejectModelNotAllowed)
@@ -2854,6 +2869,10 @@ func (h *OpenAIGatewayHandler) ResponsesWebSocket(c *gin.Context) {
 				model := strings.TrimSpace(originalModel)
 				if model == "" {
 					model = reqModel
+				}
+				model, customErr := h.customWebSocketModelForTurn(ctx, apiKey, model)
+				if customErr != nil {
+					return "", service.NewOpenAIWSClientCloseError(coderws.StatusPolicyViolation, customErr.Error(), customErr)
 				}
 				setOpsRequestContext(c, model, true)
 				mapping, _ := h.gatewayService.ResolveChannelMappingAndRestrict(ctx, apiKey.GroupID, model)

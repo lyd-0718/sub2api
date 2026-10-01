@@ -2,8 +2,8 @@
 
 按会话留存完整对话链路（用户输入 / 模型输出 / 思考链 / 工具调用），用于后续蒸馏微调。
 
-> **这个 fork 是什么**：`Wei-Shaw/sub2api` 官方版（当前合并到 **v0.2.8**，2026-09-24）+ 四个自研/增强模块——
-> ① 本文档讲的 **Session Trace 录制**；② **CN（kimi 等国产 Coding Plan）账号并发受限治理**（403 三分类、额度耗尽停调自动恢复、历史 error 账号自动归队），设计文档见 **`PLAN-cn-cap-v6.md`**；③ **账号级 TLS 指纹出站**（任意账号按需勾选，解决 Cloudflare 对 Go TLS/HTTP 指纹的 403/1010 封禁）；④ **OpenRouter 平台 + 供应商路由**（一个 OpenRouter 账号统一管理其上所有模型，按模型指定首选 / 备选 provider 保住 prompt 缓存）。
+> **这个 fork 是什么**：`Wei-Shaw/sub2api` 官方版（当前合并到 **v0.2.8**，2026-09-24）+ 五个自研/增强模块——
+> ① 本文档讲的 **Session Trace 录制**；② **CN（kimi 等国产 Coding Plan）账号并发受限治理**（403 三分类、额度耗尽停调自动恢复、历史 error 账号自动归队），设计文档见 **`PLAN-cn-cap-v6.md`**；③ **账号级 TLS 指纹出站**；④ **OpenRouter 平台 + 供应商路由**；⑤ **自定义模型**（独立模型定义、系统提示词、上游号池和多下游分组绑定，使用说明见 [README_CN.md](README_CN.md#自定义模型)）。
 > 部署分支：fork 的 **`trace` 分支**（GitHub 默认分支已设为 trace）。
 > 当前生产镜像：`sub2api-trace:0.2.8-57932a0`（2026-09-24 部署，健康运行中；上一版 `0.2.8-9a945b1`——仅前端修正：供应商路由弹窗标题带账号名与 ID、丢弃过期响应，回滚到 9a945b1 直接换镜像即可）。服务器只保留当前版和上一版两个镜像（2026-09-26 清理，删了 15 个旧镜像）；要回滚到更早的版本（如下文的 `dc9713e`、`0.2.7-*`），先用部署流程第 1、2 步从 GitHub 按对应提交重新构建出同名镜像，再改 image。
 
@@ -115,7 +115,7 @@ git push origin trace   # 若上游改了 .github/workflows，gh 的 OAuth token
 **merge 冲突面（trace 分支对上游的全部改动）：**
 
 1. `backend/internal/server/routes/gateway.go`：3 行（trace 中间件注册）。
-2. `cmd/server/wire_gen.go`：手工装配若干行（trace admin 2 个 service，均有注释标记；wire codegen 重跑需补回）。
+2. **Wire 装配**：Trace、账号用量导出、CN 账号归队和自定义模型均在 `internal/service/wire.go` / `internal/handler/wire.go` / `cmd/server/wire.go` 声明依赖与清理；`cmd/server/wire_gen.go` 由 Wire 生成，不再依赖生成后手工补回服务。
 3. **429 证据停车**（`backend/internal/service/ratelimit_cn_providers.go`）：套餐号 429 按额度快照分级，瞬时 429 只短冷却 60s；配置 `gateway.cn_providers.rate_limit_cooldown_seconds` / `quota_exhausted_percent`。上游若重写此文件，保留我方 `cnCodingPlan429Cooldown` 分支逻辑。
 4. `config/config.go`：纯追加（CNProviders 2 字段 + defaults），一般自动合并。
 5. 前端：`TraceView.vue` / `AccountUsageExportView.vue` / `api/traceAdmin.ts` / i18n / 侧边栏入口（AppSidebar.vue），均为新增文件或纯追加。
@@ -133,6 +133,9 @@ git push origin trace   # 若上游改了 .github/workflows，gh 的 OAuth token
     - **生产落地（2026-09-24）**：账号 22 `openrouter-deepseek`、38 `openrouter-glm`（原名 `openrout` / `openruot-glm`，同日改名）由 deepseek 平台迁到 openrouter（清掉 `deepseek_balance*` 旧快照）；供应商路由按推荐配置：`z-ai/glm-5.3-flash` Wafer → Relace、`z-ai/glm-5.3` Friendli → Wafer、`deepseek/deepseek-v4.1-flash` Fireworks → DeepSeek（`z-ai/glm-5.3-flashx` 只有 Z.AI 一家，不设；2026-09-26 起下线该模型：已从分组 12 允许列表与账号 38 映射删除，备份 `backups/drop_flashx_20260926-203335.tsv`，请求返回 404 `model_not_found`；代码里的 OpenRouter 预设模型列表仍保留它，只是建账号时的候选项）。验收：三组 `/models` 与迁移前一致；GLM 走 38（openrouter），回包 `provider` 字段迁移前为 InferenceNet（自动分配），配置后 glm-5.3-flash 连续命中 Wafer、glm-5.3 连续命中 Friendli；DeepSeek 仍优先 sota-deepseek。**回包里的 `provider` 字段会原样透传给客户端**，可直接用来核对路由是否生效。
     - **转发与缓存验收（2026-09-24 14:12，约 3000 token 长提示词连发两次）**：OpenRouter 的 `/chat/completions`、`/messages`（Anthropic 格式）、`/responses` 三个端点都接受 `provider` 参数，经网关三种入站均 200 且落在首选（非 chat 端点回包无 `provider` 字段，用 `GET https://openrouter.ai/api/v1/generation?id=<gen-id>` 查 `provider_name`）。第二次请求缓存命中：glm-5.3-flash @ Wafer 3264/3270（三种入站都命中，且同一前缀跨入站共享缓存）；deepseek-v4.1-flash @ Fireworks 3156/3285；glm-5.3 @ Friendli 间隔约 4 秒未命中、8 秒后命中——**Friendli 缓存异步建立，需几秒**（Wafer / Phala / Sail Research 5 秒内均命中），GLM 5.3 若跑秒级连续调用的 Agent，可在"供应商路由"里把首选换成 Wafer。usage_logs 正确记账缓存（同一请求命中后成本 $0.00049 → $0.00010）。
 
+
+11. **自定义模型**：独立于 composite 的 CRUD、模型发现与单跳请求解析。核心文件 `service/custom_model*.go`、`repository/custom_model_repo.go`、`routes/custom_models.go`、`handler/custom_model*.go`，界面 `CustomModelsView.vue`。迁移 `242_create_custom_models.sql` 仅新增两张表；保留原生模型目录、composite 路由和下游计费身份。配置可保存自定义模型引用，但运行时遇到第二个自定义模型即拒绝，不做递归解析。
+    - **本地验收**：隔离 PostgreSQL / Redis、实际嵌入式服务和本地受控上游；Chat、Messages、Responses、Gemini、token 计数及 SSE 转发，WebSocket 连续两轮与停用后拒绝。用量表核对下游分组 / Key 与上游账号分离。真实浏览器完成中英文页面、创建、多组选择、编辑清空、启停和删除。此记录不表示已部署生产环境。
 
 （kimi 缓存保活模块已于 2026-09-04 移除：实测有用但探测费相对省下的冷启动费性价比不高。历史见 git log。）
 （`x-session-id` 粘性路由曾作为第 4 条改动，v0.2.1 合并时确认为重复代码已删除——上游名单的 `openCodeSessionIDHeader` 常量值就是 `X-Session-Id`。）

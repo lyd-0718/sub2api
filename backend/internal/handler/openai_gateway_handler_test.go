@@ -2246,17 +2246,7 @@ func TestOpenAIResponses_APIKeyPassthroughPool5xxRetriesThenExhaustsMaxSwitches(
 		nil,
 		nil,
 	)
-	h := NewOpenAIGatewayHandler(
-		gatewaySvc,
-		service.NewConcurrencyService(nil),
-		billingCacheSvc,
-		service.NewAPIKeyService(nil, nil, nil, nil, nil, nil, cfg),
-		nil,
-		nil,
-		nil,
-		nil,
-		cfg,
-	)
+	h := NewOpenAIGatewayHandler(gatewaySvc, service.NewConcurrencyService(nil), billingCacheSvc, service.NewAPIKeyService(nil, nil, nil, nil, nil, nil, cfg), nil, nil, nil, nil, cfg, nil)
 
 	rec := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(rec)
@@ -2347,17 +2337,7 @@ func TestOpenAIResponses_APIKeyPassthroughPoolAuthFailureRetriesThenSwitchesToHe
 				nil,
 				nil,
 			)
-			h := NewOpenAIGatewayHandler(
-				gatewaySvc,
-				service.NewConcurrencyService(nil),
-				billingCacheSvc,
-				service.NewAPIKeyService(nil, nil, nil, nil, nil, nil, cfg),
-				nil,
-				nil,
-				nil,
-				nil,
-				cfg,
-			)
+			h := NewOpenAIGatewayHandler(gatewaySvc, service.NewConcurrencyService(nil), billingCacheSvc, service.NewAPIKeyService(nil, nil, nil, nil, nil, nil, cfg), nil, nil, nil, nil, cfg, nil)
 
 			rec := httptest.NewRecorder()
 			c, _ := gin.CreateTestContext(rec)
@@ -2429,17 +2409,7 @@ func TestOpenAIResponses_APIKeyPassthroughSSERateLimitUsesConfiguredPoolRetry(t 
 		nil,
 		nil,
 	)
-	h := NewOpenAIGatewayHandler(
-		gatewaySvc,
-		service.NewConcurrencyService(nil),
-		billingCacheSvc,
-		service.NewAPIKeyService(nil, nil, nil, nil, nil, nil, cfg),
-		nil,
-		nil,
-		nil,
-		nil,
-		cfg,
-	)
+	h := NewOpenAIGatewayHandler(gatewaySvc, service.NewConcurrencyService(nil), billingCacheSvc, service.NewAPIKeyService(nil, nil, nil, nil, nil, nil, cfg), nil, nil, nil, nil, cfg, nil)
 
 	rec := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(rec)

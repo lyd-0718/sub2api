@@ -113,6 +113,9 @@ func PlatformFromAPIKey(apiKey *APIKey) string {
 // 后扣运行在 worker 池的 background ctx 上没有 ForcePlatform，因此后扣平台由 handler
 // 预先算定、经 RecordUsageInput.QuotaPlatform 传入，不要在后扣链路用 worker ctx 调用本函数。
 func QuotaPlatform(ctx context.Context, apiKey *APIKey) string {
+	if _, custom := CustomModelResolutionFromContext(ctx); custom {
+		return PlatformFromAPIKey(apiKey)
+	}
 	if ctx != nil {
 		if fp, ok := ctx.Value(ctxkey.ForcePlatform).(string); ok && fp != "" {
 			return fp
@@ -807,7 +810,8 @@ func (s *GatewayService) recordUsageCore(ctx context.Context, input *recordUsage
 	// 进入上面的来源覆盖：任意别名查无价会静默落 $0，含家族词的别名则被价格表的
 	// 家族模糊匹配错计（如 Opus 流量按 Sonnet 兜底价）。除非管理员为别名显式配置了
 	// 渠道定价（OpenRouter 式自定价），composite 请求一律按实际转发的具体模型计费。
-	if apiKey.Group != nil && apiKey.Group.Platform == PlatformComposite {
+	_, custom := CustomModelResolutionFromContext(ctx)
+	if custom || (apiKey.Group != nil && apiKey.Group.Platform == PlatformComposite) {
 		billingModel = s.compositeBillableModel(ctx, apiKey, billingModel, concreteBillingModel)
 	}
 	// 通用兜底（与 OpenAI 路径的 usageBillingModelCandidates 语义对齐）：
@@ -818,6 +822,11 @@ func (s *GatewayService) recordUsageCore(ctx context.Context, input *recordUsage
 	requestedModel := result.Model
 	if input.OriginalModel != "" {
 		requestedModel = input.OriginalModel
+	}
+	if _, custom := CustomModelResolutionFromContext(ctx); custom {
+		if publicModel, ok := RequestedPublicModelFromContext(ctx); ok {
+			requestedModel = publicModel
+		}
 	}
 
 	// 计算费用

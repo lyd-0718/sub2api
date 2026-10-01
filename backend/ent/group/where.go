@@ -2788,6 +2788,52 @@ func HasAllowedUsersWith(preds ...predicate.User) predicate.Group {
 	})
 }
 
+// HasCustomModelsUpstream applies the HasEdge predicate on the "custom_models_upstream" edge.
+func HasCustomModelsUpstream() predicate.Group {
+	return predicate.Group(func(s *sql.Selector) {
+		step := sqlgraph.NewStep(
+			sqlgraph.From(Table, FieldID),
+			sqlgraph.Edge(sqlgraph.O2M, false, CustomModelsUpstreamTable, CustomModelsUpstreamColumn),
+		)
+		sqlgraph.HasNeighbors(s, step)
+	})
+}
+
+// HasCustomModelsUpstreamWith applies the HasEdge predicate on the "custom_models_upstream" edge with a given conditions (other predicates).
+func HasCustomModelsUpstreamWith(preds ...predicate.CustomModel) predicate.Group {
+	return predicate.Group(func(s *sql.Selector) {
+		step := newCustomModelsUpstreamStep()
+		sqlgraph.HasNeighborsWith(s, step, func(s *sql.Selector) {
+			for _, p := range preds {
+				p(s)
+			}
+		})
+	})
+}
+
+// HasCustomModelsDownstream applies the HasEdge predicate on the "custom_models_downstream" edge.
+func HasCustomModelsDownstream() predicate.Group {
+	return predicate.Group(func(s *sql.Selector) {
+		step := sqlgraph.NewStep(
+			sqlgraph.From(Table, FieldID),
+			sqlgraph.Edge(sqlgraph.M2M, true, CustomModelsDownstreamTable, CustomModelsDownstreamPrimaryKey...),
+		)
+		sqlgraph.HasNeighbors(s, step)
+	})
+}
+
+// HasCustomModelsDownstreamWith applies the HasEdge predicate on the "custom_models_downstream" edge with a given conditions (other predicates).
+func HasCustomModelsDownstreamWith(preds ...predicate.CustomModel) predicate.Group {
+	return predicate.Group(func(s *sql.Selector) {
+		step := newCustomModelsDownstreamStep()
+		sqlgraph.HasNeighborsWith(s, step, func(s *sql.Selector) {
+			for _, p := range preds {
+				p(s)
+			}
+		})
+	})
+}
+
 // HasAccountGroups applies the HasEdge predicate on the "account_groups" edge.
 func HasAccountGroups() predicate.Group {
 	return predicate.Group(func(s *sql.Selector) {
@@ -2826,6 +2872,29 @@ func HasUserAllowedGroups() predicate.Group {
 func HasUserAllowedGroupsWith(preds ...predicate.UserAllowedGroup) predicate.Group {
 	return predicate.Group(func(s *sql.Selector) {
 		step := newUserAllowedGroupsStep()
+		sqlgraph.HasNeighborsWith(s, step, func(s *sql.Selector) {
+			for _, p := range preds {
+				p(s)
+			}
+		})
+	})
+}
+
+// HasCustomModelDownstreamGroups applies the HasEdge predicate on the "custom_model_downstream_groups" edge.
+func HasCustomModelDownstreamGroups() predicate.Group {
+	return predicate.Group(func(s *sql.Selector) {
+		step := sqlgraph.NewStep(
+			sqlgraph.From(Table, FieldID),
+			sqlgraph.Edge(sqlgraph.O2M, true, CustomModelDownstreamGroupsTable, CustomModelDownstreamGroupsColumn),
+		)
+		sqlgraph.HasNeighbors(s, step)
+	})
+}
+
+// HasCustomModelDownstreamGroupsWith applies the HasEdge predicate on the "custom_model_downstream_groups" edge with a given conditions (other predicates).
+func HasCustomModelDownstreamGroupsWith(preds ...predicate.CustomModelDownstreamGroup) predicate.Group {
+	return predicate.Group(func(s *sql.Selector) {
+		step := newCustomModelDownstreamGroupsStep()
 		sqlgraph.HasNeighborsWith(s, step, func(s *sql.Selector) {
 			for _, p := range preds {
 				p(s)

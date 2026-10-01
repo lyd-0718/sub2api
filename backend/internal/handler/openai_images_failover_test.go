@@ -144,17 +144,7 @@ func TestOpenAIGatewayHandlerImages_ServerErrorFailsOverAndReturnsClearErrorWhen
 	billingService := service.NewBillingCacheService(nil, nil, nil, nil, nil, nil, cfg, nil)
 	t.Cleanup(billingService.Stop)
 	concurrencyService := service.NewConcurrencyService(nil)
-	handler := NewOpenAIGatewayHandler(
-		gatewayService,
-		concurrencyService,
-		billingService,
-		service.NewAPIKeyService(nil, nil, nil, nil, nil, nil, cfg),
-		nil,
-		nil,
-		nil,
-		nil,
-		cfg,
-	)
+	handler := NewOpenAIGatewayHandler(gatewayService, concurrencyService, billingService, service.NewAPIKeyService(nil, nil, nil, nil, nil, nil, cfg), nil, nil, nil, nil, cfg, nil)
 	handler.maxAccountSwitches = 10
 
 	body := []byte(`{"model":"gpt-image-1","prompt":"draw a cat","quality":"high","size":"1536x1024"}`)

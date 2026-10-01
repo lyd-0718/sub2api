@@ -178,6 +178,7 @@ export default {
     profile: 'Profile',
     users: 'Users',
     groups: 'Groups',
+    customModels: 'Custom Models',
     channels: 'Channels',
     availableChannels: 'Available Channels',
     modelPlaza: 'Model Plaza',

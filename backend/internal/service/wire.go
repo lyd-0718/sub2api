@@ -962,6 +962,14 @@ func ProvideAPIKeyService(
 	return svc
 }
 
+func ProvideAccountErrorRecoveryService(repo AccountRepository, upstream HTTPUpstream, cfg *config.Config, profiles *TLSFingerprintProfileService, lock LeaderLockCache, db *sql.DB) *AccountErrorRecoveryService {
+	svc := NewAccountErrorRecoveryService(repo, upstream, cfg, 10*time.Minute)
+	svc.SetTLSFingerprintProfileService(profiles)
+	svc.SetLeaderLock(lock, db)
+	svc.Start()
+	return svc
+}
+
 // ProviderSet is the Wire provider set for all services
 var ProviderSet = wire.NewSet(
 	// Core services
@@ -973,6 +981,10 @@ var ProviderSet = wire.NewSet(
 	ProvideAuthCacheInvalidationWorker,
 	NewGroupService,
 	NewCompositeRouteResolver,
+	NewCustomModelService,
+	NewTraceAdminService,
+	NewAccountUsageExportService,
+	ProvideAccountErrorRecoveryService,
 	NewAccountService,
 	NewProxyService,
 	NewRedeemService,

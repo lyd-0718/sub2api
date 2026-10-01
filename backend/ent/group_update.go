@@ -15,6 +15,7 @@ import (
 	"entgo.io/ent/schema/field"
 	"github.com/Wei-Shaw/sub2api/ent/account"
 	"github.com/Wei-Shaw/sub2api/ent/apikey"
+	"github.com/Wei-Shaw/sub2api/ent/custommodel"
 	"github.com/Wei-Shaw/sub2api/ent/group"
 	"github.com/Wei-Shaw/sub2api/ent/predicate"
 	"github.com/Wei-Shaw/sub2api/ent/redeemcode"
@@ -1308,6 +1309,36 @@ func (_u *GroupUpdate) AddAllowedUsers(v ...*User) *GroupUpdate {
 	return _u.AddAllowedUserIDs(ids...)
 }
 
+// AddCustomModelsUpstreamIDs adds the "custom_models_upstream" edge to the CustomModel entity by IDs.
+func (_u *GroupUpdate) AddCustomModelsUpstreamIDs(ids ...int64) *GroupUpdate {
+	_u.mutation.AddCustomModelsUpstreamIDs(ids...)
+	return _u
+}
+
+// AddCustomModelsUpstream adds the "custom_models_upstream" edges to the CustomModel entity.
+func (_u *GroupUpdate) AddCustomModelsUpstream(v ...*CustomModel) *GroupUpdate {
+	ids := make([]int64, len(v))
+	for i := range v {
+		ids[i] = v[i].ID
+	}
+	return _u.AddCustomModelsUpstreamIDs(ids...)
+}
+
+// AddCustomModelsDownstreamIDs adds the "custom_models_downstream" edge to the CustomModel entity by IDs.
+func (_u *GroupUpdate) AddCustomModelsDownstreamIDs(ids ...int64) *GroupUpdate {
+	_u.mutation.AddCustomModelsDownstreamIDs(ids...)
+	return _u
+}
+
+// AddCustomModelsDownstream adds the "custom_models_downstream" edges to the CustomModel entity.
+func (_u *GroupUpdate) AddCustomModelsDownstream(v ...*CustomModel) *GroupUpdate {
+	ids := make([]int64, len(v))
+	for i := range v {
+		ids[i] = v[i].ID
+	}
+	return _u.AddCustomModelsDownstreamIDs(ids...)
+}
+
 // Mutation returns the GroupMutation object of the builder.
 func (_u *GroupUpdate) Mutation() *GroupMutation {
 	return _u.mutation
@@ -1437,6 +1468,48 @@ func (_u *GroupUpdate) RemoveAllowedUsers(v ...*User) *GroupUpdate {
 		ids[i] = v[i].ID
 	}
 	return _u.RemoveAllowedUserIDs(ids...)
+}
+
+// ClearCustomModelsUpstream clears all "custom_models_upstream" edges to the CustomModel entity.
+func (_u *GroupUpdate) ClearCustomModelsUpstream() *GroupUpdate {
+	_u.mutation.ClearCustomModelsUpstream()
+	return _u
+}
+
+// RemoveCustomModelsUpstreamIDs removes the "custom_models_upstream" edge to CustomModel entities by IDs.
+func (_u *GroupUpdate) RemoveCustomModelsUpstreamIDs(ids ...int64) *GroupUpdate {
+	_u.mutation.RemoveCustomModelsUpstreamIDs(ids...)
+	return _u
+}
+
+// RemoveCustomModelsUpstream removes "custom_models_upstream" edges to CustomModel entities.
+func (_u *GroupUpdate) RemoveCustomModelsUpstream(v ...*CustomModel) *GroupUpdate {
+	ids := make([]int64, len(v))
+	for i := range v {
+		ids[i] = v[i].ID
+	}
+	return _u.RemoveCustomModelsUpstreamIDs(ids...)
+}
+
+// ClearCustomModelsDownstream clears all "custom_models_downstream" edges to the CustomModel entity.
+func (_u *GroupUpdate) ClearCustomModelsDownstream() *GroupUpdate {
+	_u.mutation.ClearCustomModelsDownstream()
+	return _u
+}
+
+// RemoveCustomModelsDownstreamIDs removes the "custom_models_downstream" edge to CustomModel entities by IDs.
+func (_u *GroupUpdate) RemoveCustomModelsDownstreamIDs(ids ...int64) *GroupUpdate {
+	_u.mutation.RemoveCustomModelsDownstreamIDs(ids...)
+	return _u
+}
+
+// RemoveCustomModelsDownstream removes "custom_models_downstream" edges to CustomModel entities.
+func (_u *GroupUpdate) RemoveCustomModelsDownstream(v ...*CustomModel) *GroupUpdate {
+	ids := make([]int64, len(v))
+	for i := range v {
+		ids[i] = v[i].ID
+	}
+	return _u.RemoveCustomModelsDownstreamIDs(ids...)
 }
 
 // Save executes the query and returns the number of nodes affected by the update operation.
@@ -2206,6 +2279,108 @@ func (_u *GroupUpdate) sqlSave(ctx context.Context) (_node int, err error) {
 			edge.Target.Nodes = append(edge.Target.Nodes, k)
 		}
 		createE := &UserAllowedGroupCreate{config: _u.config, mutation: newUserAllowedGroupMutation(_u.config, OpCreate)}
+		createE.defaults()
+		_, specE := createE.createSpec()
+		edge.Target.Fields = specE.Fields
+		_spec.Edges.Add = append(_spec.Edges.Add, edge)
+	}
+	if _u.mutation.CustomModelsUpstreamCleared() {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   group.CustomModelsUpstreamTable,
+			Columns: []string{group.CustomModelsUpstreamColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(custommodel.FieldID, field.TypeInt64),
+			},
+		}
+		_spec.Edges.Clear = append(_spec.Edges.Clear, edge)
+	}
+	if nodes := _u.mutation.RemovedCustomModelsUpstreamIDs(); len(nodes) > 0 && !_u.mutation.CustomModelsUpstreamCleared() {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   group.CustomModelsUpstreamTable,
+			Columns: []string{group.CustomModelsUpstreamColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(custommodel.FieldID, field.TypeInt64),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		_spec.Edges.Clear = append(_spec.Edges.Clear, edge)
+	}
+	if nodes := _u.mutation.CustomModelsUpstreamIDs(); len(nodes) > 0 {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   group.CustomModelsUpstreamTable,
+			Columns: []string{group.CustomModelsUpstreamColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(custommodel.FieldID, field.TypeInt64),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		_spec.Edges.Add = append(_spec.Edges.Add, edge)
+	}
+	if _u.mutation.CustomModelsDownstreamCleared() {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.M2M,
+			Inverse: true,
+			Table:   group.CustomModelsDownstreamTable,
+			Columns: group.CustomModelsDownstreamPrimaryKey,
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(custommodel.FieldID, field.TypeInt64),
+			},
+		}
+		createE := &CustomModelDownstreamGroupCreate{config: _u.config, mutation: newCustomModelDownstreamGroupMutation(_u.config, OpCreate)}
+		createE.defaults()
+		_, specE := createE.createSpec()
+		edge.Target.Fields = specE.Fields
+		_spec.Edges.Clear = append(_spec.Edges.Clear, edge)
+	}
+	if nodes := _u.mutation.RemovedCustomModelsDownstreamIDs(); len(nodes) > 0 && !_u.mutation.CustomModelsDownstreamCleared() {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.M2M,
+			Inverse: true,
+			Table:   group.CustomModelsDownstreamTable,
+			Columns: group.CustomModelsDownstreamPrimaryKey,
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(custommodel.FieldID, field.TypeInt64),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		createE := &CustomModelDownstreamGroupCreate{config: _u.config, mutation: newCustomModelDownstreamGroupMutation(_u.config, OpCreate)}
+		createE.defaults()
+		_, specE := createE.createSpec()
+		edge.Target.Fields = specE.Fields
+		_spec.Edges.Clear = append(_spec.Edges.Clear, edge)
+	}
+	if nodes := _u.mutation.CustomModelsDownstreamIDs(); len(nodes) > 0 {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.M2M,
+			Inverse: true,
+			Table:   group.CustomModelsDownstreamTable,
+			Columns: group.CustomModelsDownstreamPrimaryKey,
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(custommodel.FieldID, field.TypeInt64),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		createE := &CustomModelDownstreamGroupCreate{config: _u.config, mutation: newCustomModelDownstreamGroupMutation(_u.config, OpCreate)}
 		createE.defaults()
 		_, specE := createE.createSpec()
 		edge.Target.Fields = specE.Fields
@@ -3502,6 +3677,36 @@ func (_u *GroupUpdateOne) AddAllowedUsers(v ...*User) *GroupUpdateOne {
 	return _u.AddAllowedUserIDs(ids...)
 }
 
+// AddCustomModelsUpstreamIDs adds the "custom_models_upstream" edge to the CustomModel entity by IDs.
+func (_u *GroupUpdateOne) AddCustomModelsUpstreamIDs(ids ...int64) *GroupUpdateOne {
+	_u.mutation.AddCustomModelsUpstreamIDs(ids...)
+	return _u
+}
+
+// AddCustomModelsUpstream adds the "custom_models_upstream" edges to the CustomModel entity.
+func (_u *GroupUpdateOne) AddCustomModelsUpstream(v ...*CustomModel) *GroupUpdateOne {
+	ids := make([]int64, len(v))
+	for i := range v {
+		ids[i] = v[i].ID
+	}
+	return _u.AddCustomModelsUpstreamIDs(ids...)
+}
+
+// AddCustomModelsDownstreamIDs adds the "custom_models_downstream" edge to the CustomModel entity by IDs.
+func (_u *GroupUpdateOne) AddCustomModelsDownstreamIDs(ids ...int64) *GroupUpdateOne {
+	_u.mutation.AddCustomModelsDownstreamIDs(ids...)
+	return _u
+}
+
+// AddCustomModelsDownstream adds the "custom_models_downstream" edges to the CustomModel entity.
+func (_u *GroupUpdateOne) AddCustomModelsDownstream(v ...*CustomModel) *GroupUpdateOne {
+	ids := make([]int64, len(v))
+	for i := range v {
+		ids[i] = v[i].ID
+	}
+	return _u.AddCustomModelsDownstreamIDs(ids...)
+}
+
 // Mutation returns the GroupMutation object of the builder.
 func (_u *GroupUpdateOne) Mutation() *GroupMutation {
 	return _u.mutation
@@ -3631,6 +3836,48 @@ func (_u *GroupUpdateOne) RemoveAllowedUsers(v ...*User) *GroupUpdateOne {
 		ids[i] = v[i].ID
 	}
 	return _u.RemoveAllowedUserIDs(ids...)
+}
+
+// ClearCustomModelsUpstream clears all "custom_models_upstream" edges to the CustomModel entity.
+func (_u *GroupUpdateOne) ClearCustomModelsUpstream() *GroupUpdateOne {
+	_u.mutation.ClearCustomModelsUpstream()
+	return _u
+}
+
+// RemoveCustomModelsUpstreamIDs removes the "custom_models_upstream" edge to CustomModel entities by IDs.
+func (_u *GroupUpdateOne) RemoveCustomModelsUpstreamIDs(ids ...int64) *GroupUpdateOne {
+	_u.mutation.RemoveCustomModelsUpstreamIDs(ids...)
+	return _u
+}
+
+// RemoveCustomModelsUpstream removes "custom_models_upstream" edges to CustomModel entities.
+func (_u *GroupUpdateOne) RemoveCustomModelsUpstream(v ...*CustomModel) *GroupUpdateOne {
+	ids := make([]int64, len(v))
+	for i := range v {
+		ids[i] = v[i].ID
+	}
+	return _u.RemoveCustomModelsUpstreamIDs(ids...)
+}
+
+// ClearCustomModelsDownstream clears all "custom_models_downstream" edges to the CustomModel entity.
+func (_u *GroupUpdateOne) ClearCustomModelsDownstream() *GroupUpdateOne {
+	_u.mutation.ClearCustomModelsDownstream()
+	return _u
+}
+
+// RemoveCustomModelsDownstreamIDs removes the "custom_models_downstream" edge to CustomModel entities by IDs.
+func (_u *GroupUpdateOne) RemoveCustomModelsDownstreamIDs(ids ...int64) *GroupUpdateOne {
+	_u.mutation.RemoveCustomModelsDownstreamIDs(ids...)
+	return _u
+}
+
+// RemoveCustomModelsDownstream removes "custom_models_downstream" edges to CustomModel entities.
+func (_u *GroupUpdateOne) RemoveCustomModelsDownstream(v ...*CustomModel) *GroupUpdateOne {
+	ids := make([]int64, len(v))
+	for i := range v {
+		ids[i] = v[i].ID
+	}
+	return _u.RemoveCustomModelsDownstreamIDs(ids...)
 }
 
 // Where appends a list predicates to the GroupUpdate builder.
@@ -4430,6 +4677,108 @@ func (_u *GroupUpdateOne) sqlSave(ctx context.Context) (_node *Group, err error)
 			edge.Target.Nodes = append(edge.Target.Nodes, k)
 		}
 		createE := &UserAllowedGroupCreate{config: _u.config, mutation: newUserAllowedGroupMutation(_u.config, OpCreate)}
+		createE.defaults()
+		_, specE := createE.createSpec()
+		edge.Target.Fields = specE.Fields
+		_spec.Edges.Add = append(_spec.Edges.Add, edge)
+	}
+	if _u.mutation.CustomModelsUpstreamCleared() {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   group.CustomModelsUpstreamTable,
+			Columns: []string{group.CustomModelsUpstreamColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(custommodel.FieldID, field.TypeInt64),
+			},
+		}
+		_spec.Edges.Clear = append(_spec.Edges.Clear, edge)
+	}
+	if nodes := _u.mutation.RemovedCustomModelsUpstreamIDs(); len(nodes) > 0 && !_u.mutation.CustomModelsUpstreamCleared() {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   group.CustomModelsUpstreamTable,
+			Columns: []string{group.CustomModelsUpstreamColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(custommodel.FieldID, field.TypeInt64),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		_spec.Edges.Clear = append(_spec.Edges.Clear, edge)
+	}
+	if nodes := _u.mutation.CustomModelsUpstreamIDs(); len(nodes) > 0 {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   group.CustomModelsUpstreamTable,
+			Columns: []string{group.CustomModelsUpstreamColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(custommodel.FieldID, field.TypeInt64),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		_spec.Edges.Add = append(_spec.Edges.Add, edge)
+	}
+	if _u.mutation.CustomModelsDownstreamCleared() {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.M2M,
+			Inverse: true,
+			Table:   group.CustomModelsDownstreamTable,
+			Columns: group.CustomModelsDownstreamPrimaryKey,
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(custommodel.FieldID, field.TypeInt64),
+			},
+		}
+		createE := &CustomModelDownstreamGroupCreate{config: _u.config, mutation: newCustomModelDownstreamGroupMutation(_u.config, OpCreate)}
+		createE.defaults()
+		_, specE := createE.createSpec()
+		edge.Target.Fields = specE.Fields
+		_spec.Edges.Clear = append(_spec.Edges.Clear, edge)
+	}
+	if nodes := _u.mutation.RemovedCustomModelsDownstreamIDs(); len(nodes) > 0 && !_u.mutation.CustomModelsDownstreamCleared() {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.M2M,
+			Inverse: true,
+			Table:   group.CustomModelsDownstreamTable,
+			Columns: group.CustomModelsDownstreamPrimaryKey,
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(custommodel.FieldID, field.TypeInt64),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		createE := &CustomModelDownstreamGroupCreate{config: _u.config, mutation: newCustomModelDownstreamGroupMutation(_u.config, OpCreate)}
+		createE.defaults()
+		_, specE := createE.createSpec()
+		edge.Target.Fields = specE.Fields
+		_spec.Edges.Clear = append(_spec.Edges.Clear, edge)
+	}
+	if nodes := _u.mutation.CustomModelsDownstreamIDs(); len(nodes) > 0 {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.M2M,
+			Inverse: true,
+			Table:   group.CustomModelsDownstreamTable,
+			Columns: group.CustomModelsDownstreamPrimaryKey,
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(custommodel.FieldID, field.TypeInt64),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		createE := &CustomModelDownstreamGroupCreate{config: _u.config, mutation: newCustomModelDownstreamGroupMutation(_u.config, OpCreate)}
 		createE.defaults()
 		_, specE := createE.createSpec()
 		edge.Target.Fields = specE.Fields

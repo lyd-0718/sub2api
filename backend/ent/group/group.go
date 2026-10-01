@@ -160,10 +160,16 @@ const (
 	EdgeAccounts = "accounts"
 	// EdgeAllowedUsers holds the string denoting the allowed_users edge name in mutations.
 	EdgeAllowedUsers = "allowed_users"
+	// EdgeCustomModelsUpstream holds the string denoting the custom_models_upstream edge name in mutations.
+	EdgeCustomModelsUpstream = "custom_models_upstream"
+	// EdgeCustomModelsDownstream holds the string denoting the custom_models_downstream edge name in mutations.
+	EdgeCustomModelsDownstream = "custom_models_downstream"
 	// EdgeAccountGroups holds the string denoting the account_groups edge name in mutations.
 	EdgeAccountGroups = "account_groups"
 	// EdgeUserAllowedGroups holds the string denoting the user_allowed_groups edge name in mutations.
 	EdgeUserAllowedGroups = "user_allowed_groups"
+	// EdgeCustomModelDownstreamGroups holds the string denoting the custom_model_downstream_groups edge name in mutations.
+	EdgeCustomModelDownstreamGroups = "custom_model_downstream_groups"
 	// Table holds the table name of the group in the database.
 	Table = "groups"
 	// APIKeysTable is the table that holds the api_keys relation/edge.
@@ -204,6 +210,18 @@ const (
 	// AllowedUsersInverseTable is the table name for the User entity.
 	// It exists in this package in order to avoid circular dependency with the "user" package.
 	AllowedUsersInverseTable = "users"
+	// CustomModelsUpstreamTable is the table that holds the custom_models_upstream relation/edge.
+	CustomModelsUpstreamTable = "custom_models"
+	// CustomModelsUpstreamInverseTable is the table name for the CustomModel entity.
+	// It exists in this package in order to avoid circular dependency with the "custommodel" package.
+	CustomModelsUpstreamInverseTable = "custom_models"
+	// CustomModelsUpstreamColumn is the table column denoting the custom_models_upstream relation/edge.
+	CustomModelsUpstreamColumn = "upstream_group_id"
+	// CustomModelsDownstreamTable is the table that holds the custom_models_downstream relation/edge. The primary key declared below.
+	CustomModelsDownstreamTable = "custom_model_downstream_groups"
+	// CustomModelsDownstreamInverseTable is the table name for the CustomModel entity.
+	// It exists in this package in order to avoid circular dependency with the "custommodel" package.
+	CustomModelsDownstreamInverseTable = "custom_models"
 	// AccountGroupsTable is the table that holds the account_groups relation/edge.
 	AccountGroupsTable = "account_groups"
 	// AccountGroupsInverseTable is the table name for the AccountGroup entity.
@@ -218,6 +236,13 @@ const (
 	UserAllowedGroupsInverseTable = "user_allowed_groups"
 	// UserAllowedGroupsColumn is the table column denoting the user_allowed_groups relation/edge.
 	UserAllowedGroupsColumn = "group_id"
+	// CustomModelDownstreamGroupsTable is the table that holds the custom_model_downstream_groups relation/edge.
+	CustomModelDownstreamGroupsTable = "custom_model_downstream_groups"
+	// CustomModelDownstreamGroupsInverseTable is the table name for the CustomModelDownstreamGroup entity.
+	// It exists in this package in order to avoid circular dependency with the "custommodeldownstreamgroup" package.
+	CustomModelDownstreamGroupsInverseTable = "custom_model_downstream_groups"
+	// CustomModelDownstreamGroupsColumn is the table column denoting the custom_model_downstream_groups relation/edge.
+	CustomModelDownstreamGroupsColumn = "group_id"
 )
 
 // Columns holds all SQL columns for group fields.
@@ -298,6 +323,9 @@ var (
 	// AllowedUsersPrimaryKey and AllowedUsersColumn2 are the table columns denoting the
 	// primary key for the allowed_users relation (M2M).
 	AllowedUsersPrimaryKey = []string{"user_id", "group_id"}
+	// CustomModelsDownstreamPrimaryKey and CustomModelsDownstreamColumn2 are the table columns denoting the
+	// primary key for the custom_models_downstream relation (M2M).
+	CustomModelsDownstreamPrimaryKey = []string{"custom_model_id", "group_id"}
 )
 
 // ValidColumn reports if the column name is valid (part of the table columns).
@@ -818,6 +846,34 @@ func ByAllowedUsers(term sql.OrderTerm, terms ...sql.OrderTerm) OrderOption {
 	}
 }
 
+// ByCustomModelsUpstreamCount orders the results by custom_models_upstream count.
+func ByCustomModelsUpstreamCount(opts ...sql.OrderTermOption) OrderOption {
+	return func(s *sql.Selector) {
+		sqlgraph.OrderByNeighborsCount(s, newCustomModelsUpstreamStep(), opts...)
+	}
+}
+
+// ByCustomModelsUpstream orders the results by custom_models_upstream terms.
+func ByCustomModelsUpstream(term sql.OrderTerm, terms ...sql.OrderTerm) OrderOption {
+	return func(s *sql.Selector) {
+		sqlgraph.OrderByNeighborTerms(s, newCustomModelsUpstreamStep(), append([]sql.OrderTerm{term}, terms...)...)
+	}
+}
+
+// ByCustomModelsDownstreamCount orders the results by custom_models_downstream count.
+func ByCustomModelsDownstreamCount(opts ...sql.OrderTermOption) OrderOption {
+	return func(s *sql.Selector) {
+		sqlgraph.OrderByNeighborsCount(s, newCustomModelsDownstreamStep(), opts...)
+	}
+}
+
+// ByCustomModelsDownstream orders the results by custom_models_downstream terms.
+func ByCustomModelsDownstream(term sql.OrderTerm, terms ...sql.OrderTerm) OrderOption {
+	return func(s *sql.Selector) {
+		sqlgraph.OrderByNeighborTerms(s, newCustomModelsDownstreamStep(), append([]sql.OrderTerm{term}, terms...)...)
+	}
+}
+
 // ByAccountGroupsCount orders the results by account_groups count.
 func ByAccountGroupsCount(opts ...sql.OrderTermOption) OrderOption {
 	return func(s *sql.Selector) {
@@ -843,6 +899,20 @@ func ByUserAllowedGroupsCount(opts ...sql.OrderTermOption) OrderOption {
 func ByUserAllowedGroups(term sql.OrderTerm, terms ...sql.OrderTerm) OrderOption {
 	return func(s *sql.Selector) {
 		sqlgraph.OrderByNeighborTerms(s, newUserAllowedGroupsStep(), append([]sql.OrderTerm{term}, terms...)...)
+	}
+}
+
+// ByCustomModelDownstreamGroupsCount orders the results by custom_model_downstream_groups count.
+func ByCustomModelDownstreamGroupsCount(opts ...sql.OrderTermOption) OrderOption {
+	return func(s *sql.Selector) {
+		sqlgraph.OrderByNeighborsCount(s, newCustomModelDownstreamGroupsStep(), opts...)
+	}
+}
+
+// ByCustomModelDownstreamGroups orders the results by custom_model_downstream_groups terms.
+func ByCustomModelDownstreamGroups(term sql.OrderTerm, terms ...sql.OrderTerm) OrderOption {
+	return func(s *sql.Selector) {
+		sqlgraph.OrderByNeighborTerms(s, newCustomModelDownstreamGroupsStep(), append([]sql.OrderTerm{term}, terms...)...)
 	}
 }
 func newAPIKeysStep() *sqlgraph.Step {
@@ -887,6 +957,20 @@ func newAllowedUsersStep() *sqlgraph.Step {
 		sqlgraph.Edge(sqlgraph.M2M, true, AllowedUsersTable, AllowedUsersPrimaryKey...),
 	)
 }
+func newCustomModelsUpstreamStep() *sqlgraph.Step {
+	return sqlgraph.NewStep(
+		sqlgraph.From(Table, FieldID),
+		sqlgraph.To(CustomModelsUpstreamInverseTable, FieldID),
+		sqlgraph.Edge(sqlgraph.O2M, false, CustomModelsUpstreamTable, CustomModelsUpstreamColumn),
+	)
+}
+func newCustomModelsDownstreamStep() *sqlgraph.Step {
+	return sqlgraph.NewStep(
+		sqlgraph.From(Table, FieldID),
+		sqlgraph.To(CustomModelsDownstreamInverseTable, FieldID),
+		sqlgraph.Edge(sqlgraph.M2M, true, CustomModelsDownstreamTable, CustomModelsDownstreamPrimaryKey...),
+	)
+}
 func newAccountGroupsStep() *sqlgraph.Step {
 	return sqlgraph.NewStep(
 		sqlgraph.From(Table, FieldID),
@@ -899,5 +983,12 @@ func newUserAllowedGroupsStep() *sqlgraph.Step {
 		sqlgraph.From(Table, FieldID),
 		sqlgraph.To(UserAllowedGroupsInverseTable, UserAllowedGroupsColumn),
 		sqlgraph.Edge(sqlgraph.O2M, true, UserAllowedGroupsTable, UserAllowedGroupsColumn),
+	)
+}
+func newCustomModelDownstreamGroupsStep() *sqlgraph.Step {
+	return sqlgraph.NewStep(
+		sqlgraph.From(Table, FieldID),
+		sqlgraph.To(CustomModelDownstreamGroupsInverseTable, CustomModelDownstreamGroupsColumn),
+		sqlgraph.Edge(sqlgraph.O2M, true, CustomModelDownstreamGroupsTable, CustomModelDownstreamGroupsColumn),
 	)
 }

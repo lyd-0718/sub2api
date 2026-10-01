@@ -732,6 +732,11 @@ func (s *OpenAIGatewayService) proxyResponsesWebSocketV2Passthrough(
 	if initialRequestModel == "" {
 		initialRequestModel = openAIWSPassthroughRequestModelForFrame(firstClientMessage)
 	}
+	if expanded, expandErr := applyCustomModelWebSocketRequest(ctx, firstClientMessage, initialRequestModel); expandErr != nil {
+		return NewOpenAIWSClientCloseError(coderws.StatusPolicyViolation, expandErr.Error(), expandErr)
+	} else {
+		firstClientMessage = expanded
+	}
 	if hooks != nil && hooks.MapRequestModel != nil {
 		mappedModel, mapErr := hooks.MapRequestModel(1, initialRequestModel)
 		if mapErr != nil {
@@ -1058,6 +1063,11 @@ func (s *OpenAIGatewayService) proxyResponsesWebSocketV2Passthrough(
 					if err := hooks.BeforeTurn(turnNo); err != nil {
 						return payload, nil, err
 					}
+				}
+				if expanded, expandErr := applyCustomModelWebSocketRequest(ctx, payload, requestModelForThisFrame); expandErr != nil {
+					return payload, nil, NewOpenAIWSClientCloseError(coderws.StatusPolicyViolation, expandErr.Error(), expandErr)
+				} else {
+					payload = expanded
 				}
 				if hooks != nil && hooks.MapRequestModel != nil {
 					upstreamModel, err := hooks.MapRequestModel(turnNo, requestModelForThisFrame)

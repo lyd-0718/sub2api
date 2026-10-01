@@ -172,13 +172,19 @@ type GroupEdges struct {
 	Accounts []*Account `json:"accounts,omitempty"`
 	// AllowedUsers holds the value of the allowed_users edge.
 	AllowedUsers []*User `json:"allowed_users,omitempty"`
+	// CustomModelsUpstream holds the value of the custom_models_upstream edge.
+	CustomModelsUpstream []*CustomModel `json:"custom_models_upstream,omitempty"`
+	// CustomModelsDownstream holds the value of the custom_models_downstream edge.
+	CustomModelsDownstream []*CustomModel `json:"custom_models_downstream,omitempty"`
 	// AccountGroups holds the value of the account_groups edge.
 	AccountGroups []*AccountGroup `json:"account_groups,omitempty"`
 	// UserAllowedGroups holds the value of the user_allowed_groups edge.
 	UserAllowedGroups []*UserAllowedGroup `json:"user_allowed_groups,omitempty"`
+	// CustomModelDownstreamGroups holds the value of the custom_model_downstream_groups edge.
+	CustomModelDownstreamGroups []*CustomModelDownstreamGroup `json:"custom_model_downstream_groups,omitempty"`
 	// loadedTypes holds the information for reporting if a
 	// type was loaded (or requested) in eager-loading or not.
-	loadedTypes [8]bool
+	loadedTypes [11]bool
 }
 
 // APIKeysOrErr returns the APIKeys value or an error if the edge
@@ -235,10 +241,28 @@ func (e GroupEdges) AllowedUsersOrErr() ([]*User, error) {
 	return nil, &NotLoadedError{edge: "allowed_users"}
 }
 
+// CustomModelsUpstreamOrErr returns the CustomModelsUpstream value or an error if the edge
+// was not loaded in eager-loading.
+func (e GroupEdges) CustomModelsUpstreamOrErr() ([]*CustomModel, error) {
+	if e.loadedTypes[6] {
+		return e.CustomModelsUpstream, nil
+	}
+	return nil, &NotLoadedError{edge: "custom_models_upstream"}
+}
+
+// CustomModelsDownstreamOrErr returns the CustomModelsDownstream value or an error if the edge
+// was not loaded in eager-loading.
+func (e GroupEdges) CustomModelsDownstreamOrErr() ([]*CustomModel, error) {
+	if e.loadedTypes[7] {
+		return e.CustomModelsDownstream, nil
+	}
+	return nil, &NotLoadedError{edge: "custom_models_downstream"}
+}
+
 // AccountGroupsOrErr returns the AccountGroups value or an error if the edge
 // was not loaded in eager-loading.
 func (e GroupEdges) AccountGroupsOrErr() ([]*AccountGroup, error) {
-	if e.loadedTypes[6] {
+	if e.loadedTypes[8] {
 		return e.AccountGroups, nil
 	}
 	return nil, &NotLoadedError{edge: "account_groups"}
@@ -247,10 +271,19 @@ func (e GroupEdges) AccountGroupsOrErr() ([]*AccountGroup, error) {
 // UserAllowedGroupsOrErr returns the UserAllowedGroups value or an error if the edge
 // was not loaded in eager-loading.
 func (e GroupEdges) UserAllowedGroupsOrErr() ([]*UserAllowedGroup, error) {
-	if e.loadedTypes[7] {
+	if e.loadedTypes[9] {
 		return e.UserAllowedGroups, nil
 	}
 	return nil, &NotLoadedError{edge: "user_allowed_groups"}
+}
+
+// CustomModelDownstreamGroupsOrErr returns the CustomModelDownstreamGroups value or an error if the edge
+// was not loaded in eager-loading.
+func (e GroupEdges) CustomModelDownstreamGroupsOrErr() ([]*CustomModelDownstreamGroup, error) {
+	if e.loadedTypes[10] {
+		return e.CustomModelDownstreamGroups, nil
+	}
+	return nil, &NotLoadedError{edge: "custom_model_downstream_groups"}
 }
 
 // scanValues returns the types for scanning values from sql.Rows.
@@ -765,6 +798,16 @@ func (_m *Group) QueryAllowedUsers() *UserQuery {
 	return NewGroupClient(_m.config).QueryAllowedUsers(_m)
 }
 
+// QueryCustomModelsUpstream queries the "custom_models_upstream" edge of the Group entity.
+func (_m *Group) QueryCustomModelsUpstream() *CustomModelQuery {
+	return NewGroupClient(_m.config).QueryCustomModelsUpstream(_m)
+}
+
+// QueryCustomModelsDownstream queries the "custom_models_downstream" edge of the Group entity.
+func (_m *Group) QueryCustomModelsDownstream() *CustomModelQuery {
+	return NewGroupClient(_m.config).QueryCustomModelsDownstream(_m)
+}
+
 // QueryAccountGroups queries the "account_groups" edge of the Group entity.
 func (_m *Group) QueryAccountGroups() *AccountGroupQuery {
 	return NewGroupClient(_m.config).QueryAccountGroups(_m)
@@ -773,6 +816,11 @@ func (_m *Group) QueryAccountGroups() *AccountGroupQuery {
 // QueryUserAllowedGroups queries the "user_allowed_groups" edge of the Group entity.
 func (_m *Group) QueryUserAllowedGroups() *UserAllowedGroupQuery {
 	return NewGroupClient(_m.config).QueryUserAllowedGroups(_m)
+}
+
+// QueryCustomModelDownstreamGroups queries the "custom_model_downstream_groups" edge of the Group entity.
+func (_m *Group) QueryCustomModelDownstreamGroups() *CustomModelDownstreamGroupQuery {
+	return NewGroupClient(_m.config).QueryCustomModelDownstreamGroups(_m)
 }
 
 // Update returns a builder for updating this Group.

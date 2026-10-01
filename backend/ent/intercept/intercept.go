@@ -23,6 +23,8 @@ import (
 	"github.com/Wei-Shaw/sub2api/ent/channelmonitorhistory"
 	"github.com/Wei-Shaw/sub2api/ent/channelmonitorrequesttemplate"
 	"github.com/Wei-Shaw/sub2api/ent/compositemodelroute"
+	"github.com/Wei-Shaw/sub2api/ent/custommodel"
+	"github.com/Wei-Shaw/sub2api/ent/custommodeldownstreamgroup"
 	"github.com/Wei-Shaw/sub2api/ent/errorpassthroughrule"
 	"github.com/Wei-Shaw/sub2api/ent/group"
 	"github.com/Wei-Shaw/sub2api/ent/idempotencyrecord"
@@ -509,6 +511,60 @@ func (f TraverseCompositeModelRoute) Traverse(ctx context.Context, q ent.Query) 
 		return f(ctx, q)
 	}
 	return fmt.Errorf("unexpected query type %T. expect *ent.CompositeModelRouteQuery", q)
+}
+
+// The CustomModelFunc type is an adapter to allow the use of ordinary function as a Querier.
+type CustomModelFunc func(context.Context, *ent.CustomModelQuery) (ent.Value, error)
+
+// Query calls f(ctx, q).
+func (f CustomModelFunc) Query(ctx context.Context, q ent.Query) (ent.Value, error) {
+	if q, ok := q.(*ent.CustomModelQuery); ok {
+		return f(ctx, q)
+	}
+	return nil, fmt.Errorf("unexpected query type %T. expect *ent.CustomModelQuery", q)
+}
+
+// The TraverseCustomModel type is an adapter to allow the use of ordinary function as Traverser.
+type TraverseCustomModel func(context.Context, *ent.CustomModelQuery) error
+
+// Intercept is a dummy implementation of Intercept that returns the next Querier in the pipeline.
+func (f TraverseCustomModel) Intercept(next ent.Querier) ent.Querier {
+	return next
+}
+
+// Traverse calls f(ctx, q).
+func (f TraverseCustomModel) Traverse(ctx context.Context, q ent.Query) error {
+	if q, ok := q.(*ent.CustomModelQuery); ok {
+		return f(ctx, q)
+	}
+	return fmt.Errorf("unexpected query type %T. expect *ent.CustomModelQuery", q)
+}
+
+// The CustomModelDownstreamGroupFunc type is an adapter to allow the use of ordinary function as a Querier.
+type CustomModelDownstreamGroupFunc func(context.Context, *ent.CustomModelDownstreamGroupQuery) (ent.Value, error)
+
+// Query calls f(ctx, q).
+func (f CustomModelDownstreamGroupFunc) Query(ctx context.Context, q ent.Query) (ent.Value, error) {
+	if q, ok := q.(*ent.CustomModelDownstreamGroupQuery); ok {
+		return f(ctx, q)
+	}
+	return nil, fmt.Errorf("unexpected query type %T. expect *ent.CustomModelDownstreamGroupQuery", q)
+}
+
+// The TraverseCustomModelDownstreamGroup type is an adapter to allow the use of ordinary function as Traverser.
+type TraverseCustomModelDownstreamGroup func(context.Context, *ent.CustomModelDownstreamGroupQuery) error
+
+// Intercept is a dummy implementation of Intercept that returns the next Querier in the pipeline.
+func (f TraverseCustomModelDownstreamGroup) Intercept(next ent.Querier) ent.Querier {
+	return next
+}
+
+// Traverse calls f(ctx, q).
+func (f TraverseCustomModelDownstreamGroup) Traverse(ctx context.Context, q ent.Query) error {
+	if q, ok := q.(*ent.CustomModelDownstreamGroupQuery); ok {
+		return f(ctx, q)
+	}
+	return fmt.Errorf("unexpected query type %T. expect *ent.CustomModelDownstreamGroupQuery", q)
 }
 
 // The ErrorPassthroughRuleFunc type is an adapter to allow the use of ordinary function as a Querier.
@@ -1192,6 +1248,10 @@ func NewQuery(q ent.Query) (Query, error) {
 		return &query[*ent.ChannelMonitorRequestTemplateQuery, predicate.ChannelMonitorRequestTemplate, channelmonitorrequesttemplate.OrderOption]{typ: ent.TypeChannelMonitorRequestTemplate, tq: q}, nil
 	case *ent.CompositeModelRouteQuery:
 		return &query[*ent.CompositeModelRouteQuery, predicate.CompositeModelRoute, compositemodelroute.OrderOption]{typ: ent.TypeCompositeModelRoute, tq: q}, nil
+	case *ent.CustomModelQuery:
+		return &query[*ent.CustomModelQuery, predicate.CustomModel, custommodel.OrderOption]{typ: ent.TypeCustomModel, tq: q}, nil
+	case *ent.CustomModelDownstreamGroupQuery:
+		return &query[*ent.CustomModelDownstreamGroupQuery, predicate.CustomModelDownstreamGroup, custommodeldownstreamgroup.OrderOption]{typ: ent.TypeCustomModelDownstreamGroup, tq: q}, nil
 	case *ent.ErrorPassthroughRuleQuery:
 		return &query[*ent.ErrorPassthroughRuleQuery, predicate.ErrorPassthroughRule, errorpassthroughrule.OrderOption]{typ: ent.TypeErrorPassthroughRule, tq: q}, nil
 	case *ent.GroupQuery:

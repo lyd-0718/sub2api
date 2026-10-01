@@ -192,6 +192,7 @@ func OpenAIPricingAtFromContext(ctx context.Context) time.Time {
 // （门不存在，全部否决点自动放行，既有行为零变化）。ctx 已有同分组门时直接
 // 复用：同一请求的全部 failover 重入共享同一阈值。
 func (s *OpenAIGatewayService) withOpenAIProfitControlGate(ctx context.Context, groupID *int64) context.Context {
+	groupID = CustomModelRoutingGroupID(ctx, groupID)
 	if _, suppressed := ctx.Value(openAIProfitControlSuppressCtxKey{}).(struct{}); suppressed {
 		return ctx
 	}
@@ -215,6 +216,7 @@ func (s *OpenAIGatewayService) withOpenAIProfitControlGate(ctx context.Context, 
 }
 
 func (s *OpenAIGatewayService) resolveOpenAIProfitControlGate(ctx context.Context, groupID *int64) *openAIProfitControlGate {
+	groupID = CustomModelRoutingGroupID(ctx, groupID)
 	if s == nil || groupID == nil || *groupID <= 0 {
 		return nil
 	}
@@ -223,7 +225,9 @@ func (s *OpenAIGatewayService) resolveOpenAIProfitControlGate(ctx context.Contex
 	// 分组等 ID 不一致场景才回源仓库读取。auth 快照的分组字段完备性由
 	// GetByKeyForAuth 投影 + 集成测试保证（防投影漏列导致门静默失效）。
 	var group *Group
-	if ctxGroup, ok := ctx.Value(ctxkey.Group).(*Group); ok && IsGroupContextValid(ctxGroup) && ctxGroup.ID == *groupID {
+	if resolution, custom := CustomModelResolutionFromContext(ctx); custom && resolution.UpstreamGroupID == *groupID {
+		group = resolution.UpstreamGroup
+	} else if ctxGroup, ok := ctx.Value(ctxkey.Group).(*Group); ok && IsGroupContextValid(ctxGroup) && ctxGroup.ID == *groupID {
 		group = ctxGroup
 	} else if s.schedulerSnapshot != nil {
 		// Lite 读取：门只用平台/倍率/利润/高峰字段，不需要账号计数聚合。

@@ -60,6 +60,20 @@ func effectiveAPIKeyPlatform(c *gin.Context, apiKey *service.APIKey) string {
 	return apiKey.Group.Platform
 }
 
+// Routing settings belong to the upstream pool; authentication and billing
+// continue to use the original APIKey and its downstream group.
+func routingGroupForRequest(c *gin.Context, apiKey *service.APIKey) *service.Group {
+	if c != nil && c.Request != nil {
+		if resolution, ok := service.CustomModelResolutionFromContext(c.Request.Context()); ok {
+			return resolution.UpstreamGroup
+		}
+	}
+	if apiKey == nil {
+		return nil
+	}
+	return apiKey.Group
+}
+
 func openAIReasoningEffortPolicyForRequest(c *gin.Context, apiKey *service.APIKey) (string, []service.ReasoningEffortMapping, string, bool) {
 	if apiKey == nil || apiKey.Group == nil {
 		return "", nil, "", false

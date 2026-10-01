@@ -188,6 +188,44 @@ Sub2API 是一个 AI API 网关平台，用于分发和管理 AI 产品订阅的
 - **内置支付系统** - 支持 EasyPay 易支付、支付宝官方、微信官方、Stripe，用户自助充值，无需独立部署支付服务（[配置指南](docs/PAYMENT_CN.md)）
 - **管理后台** - Web 界面进行监控和管理
 - **外部系统集成** - 支持通过 iframe 嵌入外部系统（如工单等），扩展管理后台功能
+- **自定义模型** - 独立配置模型别名、上游账号池、系统提示词和可访问的下游分组，不替换原生模型或 composite 分组
+
+## 自定义模型
+
+管理员入口：**自定义模型**（`/admin/custom-models`）。支持创建、编辑、搜索、状态筛选、分页、启停和删除；下游分组按名称、平台、状态搜索后多选。
+
+例如将一个 Kimi 号池中的 `k3` 发布为 `kimi-my`：
+
+| 字段 | 示例 / 作用 |
+|------|-------------|
+| `model_id` | `kimi-my`，客户端使用的唯一模型名；界面创建后不可修改 |
+| `upstream_group_id` | 选择已有的 Kimi 分组，使用该分组的账号池 |
+| `upstream_model` | `k3`，转发给上游的模型名 |
+| `system_prompt` | 固定系统提示词，可留空；编辑时清空可移除 |
+| `downstream_groups` | 多选允许使用此模型的分组；清空后保存，但不向任何分组开放 |
+| `enabled` / `description` | 启用状态与管理备注 |
+
+`model_id`、`upstream_model` 不得包含空白或控制字符，最多 100 个 UTF-8 字节，以兼容用量记录字段。支持点号和斜杠。上游分组需处于活跃状态并有可调度账号；下游启用了模型白名单时，还需放行 `model_id`，上游白名单则需放行 `upstream_model`。
+
+客户端沿用**下游分组原有的 API Key**，无需创建上游 Key，也不会发生第二次用户鉴权：
+
+```bash
+curl "$SUB2API_BASE_URL/v1/chat/completions" \
+  -H "Authorization: Bearer $DOWNSTREAM_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"model":"kimi-my","messages":[{"role":"user","content":"你好"}]}'
+```
+
+请求在网关内部单跳解析为 Kimi 号池的 `k3`。用户、API Key、订阅、配额和消费归属仍使用下游身份；账号选择使用上游分组。用量记录同时保留客户端自定义模型名和实际上游模型名。下游的原生模型目录继续保留，额外合并该分组绑定且启用的自定义模型。
+
+提示词按入站协议前置到 Messages 的 `system`、Chat 的系统消息、Responses 的 `instructions`、Gemini 的 `systemInstruction.parts`，保留客户端已有提示词与消息内容。支持相应 HTTP/SSE 转发和 token 计数；Gemini 原生端点还会改写模型 URL 及 countTokens 的嵌套模型字段。实际可用协议取决于上游平台的现有能力，不会为不支持的端点伪造转换。
+
+Responses WebSocket 使用支持该协议的 OpenAI / Grok 上游；每轮沿用连接绑定的自定义模型并重新检查权限。停用后下一轮拒绝；修改上游模型、号池或提示词后需重新连接。
+
+**禁止运行时自定义模型套自定义模型**：可以保存这类配置，但调用时直接拒绝，包括无环链、循环与自引用；不会递归展开或继续选择下一跳。未绑定、已停用、上游不可用的请求也不会回落到原生模型绕过限制。
+
+管理 API 为 `/api/v1/admin/custom-models`（列表 / 创建）及 `/:id`（读取 / 更新 / 删除）。更新时省略字段表示保留原值，`system_prompt: ""`、`downstream_groups: []` 表示明确清空。数据库迁移 `242_create_custom_models.sql` 仅新增独立模型表和分组关联表，不删除或替换已有 composite 路由。
+
 
 ## 生态项目
 

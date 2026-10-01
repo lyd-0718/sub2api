@@ -57,6 +57,7 @@ type GatewayHandler struct {
 	maxAccountSwitchesGemini  int
 	cfg                       *config.Config
 	settingService            *service.SettingService
+	customModelService        *service.CustomModelService
 }
 
 // NewGatewayHandler creates a new GatewayHandler
@@ -76,6 +77,7 @@ func NewGatewayHandler(
 	userMsgQueueService *service.UserMessageQueueService,
 	cfg *config.Config,
 	settingService *service.SettingService,
+	customModelService *service.CustomModelService,
 ) *GatewayHandler {
 	pingInterval := time.Duration(0)
 	maxAccountSwitches := 10
@@ -98,6 +100,7 @@ func NewGatewayHandler(
 
 	return &GatewayHandler{
 		gatewayService:            gatewayService,
+		customModelService:        customModelService,
 		openAIGatewayService:      openAIGatewayService,
 		geminiCompatService:       geminiCompatService,
 		antigravityGatewayService: antigravityGatewayService,
@@ -1134,9 +1137,15 @@ func (h *GatewayHandler) Models(c *gin.Context) {
 		platform = forcedPlatform
 	}
 
+	customModels, err := customDiscoveryModelIDs(c.Request.Context(), h.customModelService, apiKey)
+	if err != nil {
+		h.errorResponse(c, http.StatusInternalServerError, "api_error", "Failed to list custom models")
+		return
+	}
+
 	if platform == service.PlatformOpenAI && apiKey != nil && apiKey.Group != nil &&
 		apiKey.Group.Platform == service.PlatformOpenAI && apiKey.Group.CodexModelsManifestConfig.Enabled {
-		h.pinnedOpenAIModels(c, apiKey.Group)
+		h.pinnedOpenAIModels(c, apiKey.Group, customModels)
 		return
 	}
 
@@ -1147,14 +1156,14 @@ func (h *GatewayHandler) Models(c *gin.Context) {
 			if len(source) == 0 {
 				source = defaultModelIDsForPlatform(service.PlatformComposite)
 			}
-			writeAllowlistedModelsList(c, service.PlatformComposite, apiKey.Group.ModelAllowlist.FilterForListing(source))
+			writeAllowlistedModelsList(c, service.PlatformComposite, mergeModelIDs(apiKey.Group.ModelAllowlist.FilterForListing(source), customModels))
 			return
 		}
 		if len(availableModels) > 0 {
-			writeModelsList(c, service.PlatformComposite, availableModels)
+			writeModelsList(c, service.PlatformComposite, mergeModelIDs(availableModels, customModels))
 			return
 		}
-		writeModelsList(c, service.PlatformComposite, defaultModelIDsForPlatform(service.PlatformComposite))
+		writeModelsList(c, service.PlatformComposite, mergeModelIDs(defaultModelIDsForPlatform(service.PlatformComposite), customModels))
 		return
 	}
 
@@ -1162,31 +1171,31 @@ func (h *GatewayHandler) Models(c *gin.Context) {
 	availableModels := h.gatewayService.GetAvailableModels(c.Request.Context(), groupID, platform)
 	if apiKey != nil && apiKey.Group != nil && apiKey.Group.ModelAllowlistEnabled() {
 		source := modelListingSource(platform, availableModels, defaultModelIDsForPlatform(platform))
-		writeAllowlistedModelsList(c, platform, apiKey.Group.ModelAllowlist.FilterForListing(source))
+		writeAllowlistedModelsList(c, platform, mergeModelIDs(apiKey.Group.ModelAllowlist.FilterForListing(source), customModels))
 		return
 	}
 
 	if len(availableModels) > 0 {
-		writeModelsList(c, platform, availableModels)
+		writeModelsList(c, platform, mergeModelIDs(availableModels, customModels))
 		return
 	}
 
 	// Fallback to default models
 	if platform == service.PlatformOpenAI {
-		writeModelsListResponse(c, openai.DefaultModels)
+		writeDefaultModelsWithCustoms(c, openai.DefaultModels, customModels, platform)
 		return
 	}
 
 	if platform == service.PlatformGemini {
-		writeModelsListResponse(c, geminicli.DefaultModels)
+		writeDefaultModelsWithCustoms(c, geminicli.DefaultModels, customModels, platform)
 		return
 	}
 	if platform == service.PlatformGrok {
-		writeGrokModelsList(c, xai.DefaultModelIDs())
+		writeGrokModelsList(c, mergeModelIDs(xai.DefaultModelIDs(), customModels))
 		return
 	}
 
-	writeModelsListResponse(c, claude.DefaultModels)
+	writeDefaultModelsWithCustoms(c, claude.DefaultModels, customModels, platform)
 }
 
 // CodexModels returns the effective group model list using the manifest shape
@@ -1199,12 +1208,18 @@ func (h *GatewayHandler) CodexModels(c *gin.Context) {
 		return
 	}
 
+	customModels, err := customDiscoveryModelIDs(c.Request.Context(), h.customModelService, apiKey)
+	if err != nil {
+		h.errorResponse(c, http.StatusInternalServerError, "api_error", "Failed to list custom models")
+		return
+	}
 	forcedPlatform := ""
 	if value, exists := middleware2.GetForcePlatformFromContext(c); exists {
 		forcedPlatform = strings.TrimSpace(value)
 	}
 	modelIDs := h.codexModelIDsForGroup(c.Request.Context(), apiKey.Group, forcedPlatform)
 	modelIDs = service.FilterCodexModelIDsForGroup(modelIDs, apiKey.Group)
+	modelIDs = mergeModelIDs(modelIDs, customModels)
 	body, err := h.gatewayService.BuildCodexModelsManifestForGroup(
 		c.Request.Context(),
 		apiKey.Group,

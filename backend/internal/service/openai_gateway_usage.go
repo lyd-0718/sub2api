@@ -216,11 +216,22 @@ func (s *OpenAIGatewayService) RecordUsage(ctx context.Context, input *OpenAIRec
 	if result.BillingModel != "" {
 		billingModel = strings.TrimSpace(result.BillingModel)
 	}
+	concreteBillingModel := billingModel
 	if input.BillingModelSource == BillingModelSourceChannelMapped && input.ChannelMappedModel != "" && input.ChannelMappedModel != input.OriginalModel {
 		billingModel = input.ChannelMappedModel
 	}
 	if input.BillingModelSource == BillingModelSourceRequested && input.OriginalModel != "" {
 		billingModel = input.OriginalModel
+	}
+	unpricedCustomAlias := ""
+	if _, custom := CustomModelResolutionFromContext(ctx); custom {
+		if publicModel, ok := RequestedPublicModelFromContext(ctx); ok && publicModel != concreteBillingModel && s.resolveOpenAIChannelPricing(ctx, publicModel, apiKey) == nil {
+			// Public custom names must not accidentally match a native pricing family.
+			unpricedCustomAlias = publicModel
+			if billingModel == publicModel {
+				billingModel = concreteBillingModel
+			}
+		}
 	}
 	billingModels := usageBillingModelCandidates(
 		billingModel,
@@ -230,6 +241,15 @@ func (s *OpenAIGatewayService) RecordUsage(ctx context.Context, input *OpenAIRec
 		result.UpstreamModel,
 		result.Model,
 	)
+	if unpricedCustomAlias != "" {
+		candidates := billingModels[:0]
+		for _, model := range billingModels {
+			if model != unpricedCustomAlias {
+				candidates = append(candidates, model)
+			}
+		}
+		billingModels = candidates
+	}
 	billingModels = s.filterCNProviderBillingModelCandidates(ctx, account, apiKey, billingModels)
 	serviceTier := ""
 	if result.ServiceTier != nil {
@@ -355,6 +375,11 @@ func (s *OpenAIGatewayService) RecordUsage(ctx context.Context, input *OpenAIRec
 	requestedModel := result.Model
 	if input.OriginalModel != "" {
 		requestedModel = input.OriginalModel
+	}
+	if _, custom := CustomModelResolutionFromContext(ctx); custom {
+		if publicModel, ok := RequestedPublicModelFromContext(ctx); ok {
+			requestedModel = publicModel
+		}
 	}
 	sentModel := upstreamSentModel(result.Model, result.UpstreamModel)
 	if result.UpstreamResponseModelConflict {

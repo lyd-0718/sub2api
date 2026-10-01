@@ -7,6 +7,7 @@ import settings from './settings'
 import audit from './audit'
 import promptAudit from './promptAudit'
 import plugins from './plugins'
+import customModels from './customModels'
 import trace from './trace'
 
 export default {
@@ -19,5 +20,6 @@ export default {
   ...audit,
   ...promptAudit,
   ...plugins,
+  ...customModels,
   ...trace,
 }

@@ -11,6 +11,7 @@ import (
 // token requests. This keeps media, metadata, and models-list paths outside
 // the profit-control surface by construction.
 func (s *GatewayService) withGatewayProfitControlGate(ctx context.Context, groupID *int64) context.Context {
+	groupID = CustomModelRoutingGroupID(ctx, groupID)
 	if _, ok := gatewayTokenRequestPricingAtFromContext(ctx); !ok || groupID == nil || *groupID <= 0 {
 		return ctx
 	}
@@ -63,6 +64,9 @@ func (s *GatewayService) clearForeignProfitControlGate(ctx context.Context, grou
 }
 
 func (s *GatewayService) resolveProfitControlGroup(ctx context.Context, groupID int64) (*Group, error) {
+	if resolution, custom := CustomModelResolutionFromContext(ctx); custom && resolution.UpstreamGroupID == groupID {
+		return resolution.UpstreamGroup, nil
+	}
 	if group, ok := ctx.Value(ctxkey.Group).(*Group); ok && IsGroupContextValid(group) && group.ID == groupID {
 		return group, nil
 	}

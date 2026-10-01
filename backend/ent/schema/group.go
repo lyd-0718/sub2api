@@ -318,6 +318,11 @@ func (Group) Edges() []ent.Edge {
 		edge.From("allowed_users", User.Type).
 			Ref("allowed_groups").
 			Through("user_allowed_groups", UserAllowedGroup.Type),
+		edge.To("custom_models_upstream", CustomModel.Type).
+			Annotations(entsql.OnDelete(entsql.Cascade)),
+		edge.From("custom_models_downstream", CustomModel.Type).
+			Ref("downstream_groups").
+			Through("custom_model_downstream_groups", CustomModelDownstreamGroup.Type),
 		// 注意：fallback_group_id 直接作为字段使用，不定义 edge
 		// 这样允许多个分组指向同一个降级分组（M2O 关系）
 	}

@@ -14,6 +14,7 @@ import (
 	"entgo.io/ent/schema/field"
 	"github.com/Wei-Shaw/sub2api/ent/account"
 	"github.com/Wei-Shaw/sub2api/ent/apikey"
+	"github.com/Wei-Shaw/sub2api/ent/custommodel"
 	"github.com/Wei-Shaw/sub2api/ent/group"
 	"github.com/Wei-Shaw/sub2api/ent/redeemcode"
 	"github.com/Wei-Shaw/sub2api/ent/usagelog"
@@ -996,6 +997,36 @@ func (_c *GroupCreate) AddAllowedUsers(v ...*User) *GroupCreate {
 	return _c.AddAllowedUserIDs(ids...)
 }
 
+// AddCustomModelsUpstreamIDs adds the "custom_models_upstream" edge to the CustomModel entity by IDs.
+func (_c *GroupCreate) AddCustomModelsUpstreamIDs(ids ...int64) *GroupCreate {
+	_c.mutation.AddCustomModelsUpstreamIDs(ids...)
+	return _c
+}
+
+// AddCustomModelsUpstream adds the "custom_models_upstream" edges to the CustomModel entity.
+func (_c *GroupCreate) AddCustomModelsUpstream(v ...*CustomModel) *GroupCreate {
+	ids := make([]int64, len(v))
+	for i := range v {
+		ids[i] = v[i].ID
+	}
+	return _c.AddCustomModelsUpstreamIDs(ids...)
+}
+
+// AddCustomModelsDownstreamIDs adds the "custom_models_downstream" edge to the CustomModel entity by IDs.
+func (_c *GroupCreate) AddCustomModelsDownstreamIDs(ids ...int64) *GroupCreate {
+	_c.mutation.AddCustomModelsDownstreamIDs(ids...)
+	return _c
+}
+
+// AddCustomModelsDownstream adds the "custom_models_downstream" edges to the CustomModel entity.
+func (_c *GroupCreate) AddCustomModelsDownstream(v ...*CustomModel) *GroupCreate {
+	ids := make([]int64, len(v))
+	for i := range v {
+		ids[i] = v[i].ID
+	}
+	return _c.AddCustomModelsDownstreamIDs(ids...)
+}
+
 // Mutation returns the GroupMutation object of the builder.
 func (_c *GroupCreate) Mutation() *GroupMutation {
 	return _c.mutation
@@ -1808,6 +1839,42 @@ func (_c *GroupCreate) createSpec() (*Group, *sqlgraph.CreateSpec) {
 			edge.Target.Nodes = append(edge.Target.Nodes, k)
 		}
 		createE := &UserAllowedGroupCreate{config: _c.config, mutation: newUserAllowedGroupMutation(_c.config, OpCreate)}
+		createE.defaults()
+		_, specE := createE.createSpec()
+		edge.Target.Fields = specE.Fields
+		_spec.Edges = append(_spec.Edges, edge)
+	}
+	if nodes := _c.mutation.CustomModelsUpstreamIDs(); len(nodes) > 0 {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   group.CustomModelsUpstreamTable,
+			Columns: []string{group.CustomModelsUpstreamColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(custommodel.FieldID, field.TypeInt64),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		_spec.Edges = append(_spec.Edges, edge)
+	}
+	if nodes := _c.mutation.CustomModelsDownstreamIDs(); len(nodes) > 0 {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.M2M,
+			Inverse: true,
+			Table:   group.CustomModelsDownstreamTable,
+			Columns: group.CustomModelsDownstreamPrimaryKey,
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(custommodel.FieldID, field.TypeInt64),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		createE := &CustomModelDownstreamGroupCreate{config: _c.config, mutation: newCustomModelDownstreamGroupMutation(_c.config, OpCreate)}
 		createE.defaults()
 		_, specE := createE.createSpec()
 		edge.Target.Fields = specE.Fields

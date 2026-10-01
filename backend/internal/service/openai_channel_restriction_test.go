@@ -358,3 +358,34 @@ func TestOpenAISelectAccountForModelWithExclusions_StickyRestrictedUpstreamFalls
 	require.Equal(t, 1, cache.deletedSessions["openai:sticky-session"])
 	require.Equal(t, int64(2), cache.sessionBindings["openai:sticky-session"])
 }
+
+func TestCustomModelRoutingUsesUpstreamChannelMappingAndRestriction(t *testing.T) {
+	ctx, key, upstream, repo := customRoutingFixture(PlatformOpenAI)
+	channelSvc := newTestChannelService(makeStandardRepo(Channel{
+		ID: 901, Status: StatusActive, GroupIDs: []int64{upstream.ID},
+		RestrictModels: true, BillingModelSource: BillingModelSourceChannelMapped,
+		ModelPricing: []ChannelModelPricing{{Platform: PlatformOpenAI, Models: []string{"gpt-4o"}}},
+		ModelMapping: map[string]map[string]string{PlatformOpenAI: {"model-upstream": "gpt-4o"}},
+	}, map[int64]string{upstream.ID: PlatformOpenAI}))
+	openAI := &OpenAIGatewayService{accountRepo: repo, channelService: channelSvc}
+	shared := &GatewayService{accountRepo: repo, channelService: channelSvc}
+	require.Equal(t, "gpt-4o", openAI.ResolveChannelMapping(ctx, *key.GroupID, "model-upstream").MappedModel)
+	require.Equal(t, "gpt-4o", shared.ResolveChannelMapping(ctx, *key.GroupID, "model-upstream").MappedModel)
+	for _, selectAccount := range []func() (*Account, error){
+		func() (*Account, error) {
+			return openAI.SelectAccountForModelWithExclusions(ctx, key.GroupID, "", "model-upstream", nil)
+		},
+		func() (*Account, error) {
+			return shared.SelectAccountForModelWithExclusions(ctx, key.GroupID, "", "model-upstream", nil)
+		},
+	} {
+		account, err := selectAccount()
+		require.NoError(t, err)
+		require.Equal(t, int64(2), account.ID)
+	}
+	_, err := openAI.SelectAccountForModelWithExclusions(ctx, key.GroupID, "", "not-priced", nil)
+	require.ErrorIs(t, err, ErrNoAvailableAccounts)
+	_, err = shared.SelectAccountForModelWithExclusions(ctx, key.GroupID, "", "not-priced", nil)
+	require.ErrorIs(t, err, ErrNoAvailableAccounts)
+	require.Equal(t, int64(9101), *key.GroupID)
+}

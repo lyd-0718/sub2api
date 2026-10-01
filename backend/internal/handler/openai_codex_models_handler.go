@@ -25,7 +25,7 @@ func (h *OpenAIGatewayHandler) CodexModels(c *gin.Context) {
 		return
 	}
 	apiKey, ok := middleware2.GetAPIKeyFromContext(c)
-	if !ok || apiKey.Group == nil {
+	if !ok || apiKey == nil || apiKey.Group == nil {
 		h.errorResponse(c, http.StatusUnauthorized, "invalid_request_error", "API key group is required")
 		return
 	}
@@ -34,7 +34,28 @@ func (h *OpenAIGatewayHandler) CodexModels(c *gin.Context) {
 		return
 	}
 
+	customModels, err := customDiscoveryModelIDs(c.Request.Context(), h.customModelService, apiKey)
+	if err != nil {
+		h.errorResponse(c, http.StatusInternalServerError, "api_error", "Failed to list custom models")
+		return
+	}
+
 	ifNoneMatch := c.GetHeader("If-None-Match")
+	if len(customModels) > 0 {
+		ifNoneMatch = "" // Only the final merged representation can validate the client.
+	}
+	writeManifest := func(manifest *service.OpenAIModelsResponse) {
+		if len(customModels) > 0 {
+			body, err := service.AppendCustomCodexModelsManifest(manifest.Body, customModels)
+			if err != nil {
+				h.errorResponse(c, http.StatusInternalServerError, "api_error", "Failed to merge custom Codex models")
+				return
+			}
+			manifest.Body = body
+			applyCustomDiscoveryETag(manifest, c.GetHeader("If-None-Match"))
+		}
+		writeOpenAIModelsResponse(c, manifest)
+	}
 	// 固定账号分支：开启后只用选定账号拉取 manifest，不经过调度器；
 	// 全部不可用/全部失败时按 FallbackToScheduler 决定回退调度器或返回错误。
 	if apiKey.Group.Platform == service.PlatformOpenAI &&
@@ -67,7 +88,7 @@ func (h *OpenAIGatewayHandler) CodexModels(c *gin.Context) {
 			if c.Request.Context().Err() != nil {
 				return
 			}
-			writeOpenAIModelsResponse(c, pinnedManifest)
+			writeManifest(pinnedManifest)
 			return
 		}
 	}
@@ -86,7 +107,7 @@ func (h *OpenAIGatewayHandler) CodexModels(c *gin.Context) {
 			return
 		}
 		if configured {
-			writeOpenAIModelsResponse(c, configuredManifest)
+			writeManifest(configuredManifest)
 			return
 		}
 	}
@@ -147,7 +168,7 @@ func (h *OpenAIGatewayHandler) CodexModels(c *gin.Context) {
 			return
 		}
 
-		writeOpenAIModelsResponse(c, manifest)
+		writeManifest(manifest)
 		return
 	}
 }

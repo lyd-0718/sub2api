@@ -32,10 +32,20 @@ func (s *GatewayService) SelectAccountForModel(ctx context.Context, groupID *int
 
 // SelectAccountForModelWithExclusions selects an account supporting the requested model while excluding specified accounts.
 func (s *GatewayService) SelectAccountForModelWithExclusions(ctx context.Context, groupID *int64, sessionHash string, requestedModel string, excludedIDs map[int64]struct{}) (*Account, error) {
+	groupID = CustomModelRoutingGroupID(ctx, groupID)
 	// 优先检查 context 中的强制平台（/antigravity 路由）
 	var platform string
 	forcePlatform, hasForcePlatform := ctx.Value(ctxkey.ForcePlatform).(string)
-	if hasForcePlatform && forcePlatform != "" {
+	if _, custom := CustomModelResolutionFromContext(ctx); custom {
+		platform, _ = ResolvedTargetPlatformFromContext(ctx)
+		hasForcePlatform = false
+		group, resolvedGroupID, err := s.resolveGatewayGroup(ctx, groupID)
+		if err != nil {
+			return nil, err
+		}
+		groupID = resolvedGroupID
+		ctx = s.withGroupContext(ctx, group)
+	} else if hasForcePlatform && forcePlatform != "" {
 		platform = forcePlatform
 	} else if groupID != nil {
 		group, resolvedGroupID, err := s.resolveGatewayGroup(ctx, groupID)
@@ -98,6 +108,7 @@ func (s *GatewayService) SelectAccountForModelWithExclusions(ctx context.Context
 // metadataUserID: 用于客户端亲和调度，从中提取客户端 ID
 // sub2apiUserID: 系统用户 ID，用于二维亲和调度
 func (s *GatewayService) SelectAccountWithLoadAwareness(ctx context.Context, groupID *int64, sessionHash string, requestedModel string, excludedIDs map[int64]struct{}, metadataUserID string, sub2apiUserID int64) (*AccountSelectionResult, error) {
+	groupID = CustomModelRoutingGroupID(ctx, groupID)
 	// 调试日志：记录调度入口参数
 	excludedIDsList := make([]int64, 0, len(excludedIDs))
 	for id := range excludedIDs {
@@ -833,7 +844,13 @@ func (s *GatewayService) schedulingConfig() config.GatewaySchedulingConfig {
 	}
 }
 
+type gatewayCustomSchedulingGroupContextKey struct{}
+
 func (s *GatewayService) withGroupContext(ctx context.Context, group *Group) context.Context {
+	// Custom routing changes the account pool, never the authenticated billing group.
+	if _, ok := CustomModelResolutionFromContext(ctx); ok {
+		return context.WithValue(ctx, gatewayCustomSchedulingGroupContextKey{}, group)
+	}
 	if !IsGroupContextValid(group) {
 		return ctx
 	}
@@ -844,6 +861,9 @@ func (s *GatewayService) withGroupContext(ctx context.Context, group *Group) con
 }
 
 func (s *GatewayService) groupFromContext(ctx context.Context, groupID int64) *Group {
+	if resolution, ok := CustomModelResolutionFromContext(ctx); ok && resolution.UpstreamGroupID == groupID && resolution.UpstreamGroup != nil {
+		return resolution.UpstreamGroup
+	}
 	if group, ok := ctx.Value(ctxkey.Group).(*Group); ok && IsGroupContextValid(group) && group.ID == groupID {
 		return group
 	}
@@ -953,6 +973,9 @@ func (s *GatewayService) resolveGatewayGroup(ctx context.Context, groupID *int64
 //   - 有降级分组：返回降级分组的 ID
 //   - 无降级分组：返回 ErrClaudeCodeOnly 错误
 func (s *GatewayService) checkClaudeCodeRestriction(ctx context.Context, groupID *int64) (*Group, *int64, error) {
+	if _, custom := CustomModelResolutionFromContext(ctx); custom {
+		return s.resolveGatewayGroup(ctx, groupID)
+	}
 	if groupID == nil {
 		return nil, groupID, nil
 	}
@@ -971,6 +994,10 @@ func (s *GatewayService) checkClaudeCodeRestriction(ctx context.Context, groupID
 }
 
 func (s *GatewayService) resolvePlatform(ctx context.Context, groupID *int64, group *Group, requestedModel string) (string, bool, error) {
+	if _, custom := CustomModelResolutionFromContext(ctx); custom {
+		platform, _ := ResolvedTargetPlatformFromContext(ctx)
+		return platform, false, nil
+	}
 	forcePlatform, hasForcePlatform := ctx.Value(ctxkey.ForcePlatform).(string)
 	if hasForcePlatform && forcePlatform != "" {
 		return forcePlatform, true, nil
@@ -1012,7 +1039,8 @@ func (s *GatewayService) resolvePlatform(ctx context.Context, groupID *int64, gr
 }
 
 func (s *GatewayService) listSchedulableAccounts(ctx context.Context, groupID *int64, platform string, hasForcePlatform bool) ([]Account, bool, error) {
-	if s.schedulerSnapshot != nil {
+	_, custom := CustomModelResolutionFromContext(ctx)
+	if s.schedulerSnapshot != nil && !(custom && s.schedulerSnapshot.isRunModeSimple()) {
 		accounts, useMixed, err := s.schedulerSnapshot.ListSchedulableAccounts(ctx, groupID, platform, hasForcePlatform)
 		if err == nil {
 			accounts = s.filterAccountsBySchedulingThreshold(ctx, accounts)
@@ -1085,7 +1113,7 @@ func (s *GatewayService) listSchedulableAccounts(ctx context.Context, groupID *i
 
 	var accounts []Account
 	var err error
-	if s.cfg != nil && s.cfg.RunMode == config.RunModeSimple {
+	if s.cfg != nil && s.cfg.RunMode == config.RunModeSimple && !custom {
 		accounts, err = s.accountRepo.ListSchedulableByPlatform(ctx, platform)
 	} else if groupID != nil {
 		accounts, err = s.accountRepo.ListSchedulableByGroupIDAndPlatform(ctx, *groupID, platform)
@@ -1126,6 +1154,7 @@ func (s *GatewayService) listSchedulableAccounts(ctx context.Context, groupID *i
 // 用于 Handler 层在首次请求时提前设置 SingleAccountRetry context，
 // 避免单账号分组收到 503 时错误地设置模型限流标记导致后续请求连续快速失败。
 func (s *GatewayService) IsSingleAntigravityAccountGroup(ctx context.Context, groupID *int64) bool {
+	groupID = CustomModelRoutingGroupID(ctx, groupID)
 	accounts, _, err := s.listSchedulableAccounts(ctx, groupID, PlatformAntigravity, true)
 	if err != nil {
 		return false
@@ -1155,6 +1184,9 @@ func (s *GatewayService) isAccountSchedulableForSelection(account *Account) bool
 
 func (s *GatewayService) isAccountSchedulableForModelSelection(ctx context.Context, account *Account, requestedModel string) bool {
 	if account == nil {
+		return false
+	}
+	if group, ok := ctx.Value(gatewayCustomSchedulingGroupContextKey{}).(*Group); ok && group != nil && group.RequirePrivacySet && !account.IsPrivacySet() {
 		return false
 	}
 	return account.IsSchedulableForModelWithContext(ctx, requestedModel)
@@ -1895,7 +1927,10 @@ func (s *GatewayService) selectAccountForModelWithPlatform(ctx context.Context, 
 
 	// require_privacy_set: 获取分组配置。GetByID 会聚合账号计数，旧选号路径不能用它。
 	var schedGroup *Group
-	if groupID != nil && s.groupRepo != nil {
+	if _, custom := CustomModelResolutionFromContext(ctx); custom && groupID != nil {
+		schedGroup = s.groupFromContext(ctx, *groupID)
+	}
+	if schedGroup == nil && groupID != nil && s.groupRepo != nil {
 		schedGroup, _ = s.groupRepo.GetByIDLite(ctx, *groupID)
 	}
 
@@ -2041,6 +2076,9 @@ func (s *GatewayService) selectAccountForModelWithPlatform(ctx context.Context, 
 				// 检查账号分组归属和平台匹配（确保粘性会话不会跨分组或跨平台）
 				if err == nil {
 					clearSticky := shouldClearStickySession(account, requestedModel)
+					if _, custom := CustomModelResolutionFromContext(ctx); custom && s.isStickyAccountUpstreamRestricted(ctx, groupID, account, requestedModel) {
+						clearSticky = true
+					}
 					if clearSticky {
 						_ = s.cache.DeleteSessionAccountID(ctx, derefGroupID(groupID), sessionHash)
 					}
@@ -2161,7 +2199,10 @@ func (s *GatewayService) selectAccountWithMixedScheduling(ctx context.Context, g
 
 	// require_privacy_set: 获取分组配置。GetByID 会聚合账号计数，旧选号路径不能用它。
 	var schedGroup *Group
-	if groupID != nil && s.groupRepo != nil {
+	if _, custom := CustomModelResolutionFromContext(ctx); custom && groupID != nil {
+		schedGroup = s.groupFromContext(ctx, *groupID)
+	}
+	if schedGroup == nil && groupID != nil && s.groupRepo != nil {
 		schedGroup, _ = s.groupRepo.GetByIDLite(ctx, *groupID)
 	}
 
@@ -2183,6 +2224,9 @@ func (s *GatewayService) selectAccountWithMixedScheduling(ctx context.Context, g
 					// 检查账号分组归属和有效性：原生平台直接匹配，antigravity 需要启用混合调度
 					if err == nil {
 						clearSticky := shouldClearStickySession(account, requestedModel)
+						if _, custom := CustomModelResolutionFromContext(ctx); custom && s.isStickyAccountUpstreamRestricted(ctx, groupID, account, requestedModel) {
+							clearSticky = true
+						}
 						if clearSticky {
 							_ = s.cache.DeleteSessionAccountID(ctx, derefGroupID(groupID), sessionHash)
 						}
@@ -2609,7 +2653,11 @@ func summarizeSelectionFailureStats(stats selectionFailureStats) string {
 // 对于 Antigravity 平台，会先获取映射后的最终模型名（包括 thinking 后缀）再检查支持
 func (s *GatewayService) isModelSupportedByAccountWithContext(ctx context.Context, account *Account, requestedModel string) bool {
 	if source, ok := CompositeRouteSourceFromContext(ctx); ok && source == CompositeRouteSourceAccount {
-		if publicModel, modelOK := RequestedPublicModelFromContext(ctx); modelOK && !explicitModelMappingClaims(*account, publicModel) {
+		publicModel, modelOK := RequestedPublicModelFromContext(ctx)
+		if resolution, custom := CustomModelResolutionFromContext(ctx); custom {
+			publicModel = resolution.UpstreamModel
+		}
+		if modelOK && !explicitModelMappingClaims(*account, publicModel) {
 			return false
 		}
 	}

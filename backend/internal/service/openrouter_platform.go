@@ -58,6 +58,9 @@ func DefaultOpenRouterModelIDs() []string {
 // compositePoolModelFromContext 返回 composite 分组本次请求交给账号的模型名（显式路由改写后的
 // 上游模型优先，其次为客户端请求的公开模型）；非 composite 请求返回空串。
 func compositePoolModelFromContext(ctx context.Context) string {
+	if resolution, custom := CustomModelResolutionFromContext(ctx); custom && resolution.UpstreamGroup.Platform != PlatformComposite {
+		return ""
+	}
 	if _, composite := ResolvedTargetPlatformFromContext(ctx); !composite {
 		return ""
 	}
@@ -71,6 +74,9 @@ func compositePoolModelFromContext(ctx context.Context) string {
 // openRouterAccountJoinsPlatformPool 报告 OpenRouter 账号能否作为 platform 账号池的一员参与本次调度：
 // 仅限 composite 分组请求，且账号模型映射显式声明了本次请求的模型。
 func openRouterAccountJoinsPlatformPool(ctx context.Context, account *Account, platform, requestedModel string) bool {
+	if resolution, custom := CustomModelResolutionFromContext(ctx); custom && resolution.UpstreamGroup.Platform != PlatformComposite {
+		return false
+	}
 	if account == nil || !account.IsOpenRouter() || platform == PlatformOpenRouter {
 		return false
 	}
@@ -117,7 +123,8 @@ func (s *OpenAIGatewayService) appendOpenRouterPoolAccounts(ctx context.Context,
 	}
 	var pool []Account
 	var err error
-	if s.schedulerSnapshot != nil {
+	_, custom := CustomModelResolutionFromContext(ctx)
+	if s.schedulerSnapshot != nil && !(custom && s.schedulerSnapshot.isRunModeSimple()) {
 		pool, _, err = s.schedulerSnapshot.ListSchedulableAccounts(ctx, groupID, PlatformOpenRouter, false)
 	} else if s.accountRepo != nil {
 		pool, err = s.accountRepo.ListSchedulableByGroupIDAndPlatform(ctx, *groupID, PlatformOpenRouter)

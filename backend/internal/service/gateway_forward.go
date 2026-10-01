@@ -957,6 +957,7 @@ func modelSupportsAnthropicFastMode(model string) bool {
 
 // ResolveChannelMapping 委托渠道服务解析模型映射
 func (s *GatewayService) ResolveChannelMapping(ctx context.Context, groupID int64, model string) ChannelMappingResult {
+	groupID = *CustomModelRoutingGroupID(ctx, &groupID)
 	if s.channelService == nil {
 		return ChannelMappingResult{MappedModel: model}
 	}
@@ -970,6 +971,7 @@ func (s *GatewayService) ReplaceModelInBody(body []byte, newModel string) []byte
 
 // IsModelRestricted 检查模型是否被渠道限制
 func (s *GatewayService) IsModelRestricted(ctx context.Context, groupID int64, model string) bool {
+	groupID = *CustomModelRoutingGroupID(ctx, &groupID)
 	if s.channelService == nil {
 		return false
 	}
@@ -979,6 +981,7 @@ func (s *GatewayService) IsModelRestricted(ctx context.Context, groupID int64, m
 // ResolveChannelMappingAndRestrict 解析渠道映射。
 // 模型限制检查已移至调度阶段（checkChannelPricingRestriction），restricted 始终返回 false。
 func (s *GatewayService) ResolveChannelMappingAndRestrict(ctx context.Context, groupID *int64, model string) (ChannelMappingResult, bool) {
+	groupID = CustomModelRoutingGroupID(ctx, groupID)
 	if s.channelService == nil {
 		return ChannelMappingResult{MappedModel: model}, false
 	}

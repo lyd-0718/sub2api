@@ -30,6 +30,8 @@ import (
 	"github.com/Wei-Shaw/sub2api/ent/channelmonitorhistory"
 	"github.com/Wei-Shaw/sub2api/ent/channelmonitorrequesttemplate"
 	"github.com/Wei-Shaw/sub2api/ent/compositemodelroute"
+	"github.com/Wei-Shaw/sub2api/ent/custommodel"
+	"github.com/Wei-Shaw/sub2api/ent/custommodeldownstreamgroup"
 	"github.com/Wei-Shaw/sub2api/ent/errorpassthroughrule"
 	"github.com/Wei-Shaw/sub2api/ent/group"
 	"github.com/Wei-Shaw/sub2api/ent/idempotencyrecord"
@@ -93,6 +95,10 @@ type Client struct {
 	ChannelMonitorRequestTemplate *ChannelMonitorRequestTemplateClient
 	// CompositeModelRoute is the client for interacting with the CompositeModelRoute builders.
 	CompositeModelRoute *CompositeModelRouteClient
+	// CustomModel is the client for interacting with the CustomModel builders.
+	CustomModel *CustomModelClient
+	// CustomModelDownstreamGroup is the client for interacting with the CustomModelDownstreamGroup builders.
+	CustomModelDownstreamGroup *CustomModelDownstreamGroupClient
 	// ErrorPassthroughRule is the client for interacting with the ErrorPassthroughRule builders.
 	ErrorPassthroughRule *ErrorPassthroughRuleClient
 	// Group is the client for interacting with the Group builders.
@@ -167,6 +173,8 @@ func (c *Client) init() {
 	c.ChannelMonitorHistory = NewChannelMonitorHistoryClient(c.config)
 	c.ChannelMonitorRequestTemplate = NewChannelMonitorRequestTemplateClient(c.config)
 	c.CompositeModelRoute = NewCompositeModelRouteClient(c.config)
+	c.CustomModel = NewCustomModelClient(c.config)
+	c.CustomModelDownstreamGroup = NewCustomModelDownstreamGroupClient(c.config)
 	c.ErrorPassthroughRule = NewErrorPassthroughRuleClient(c.config)
 	c.Group = NewGroupClient(c.config)
 	c.IdempotencyRecord = NewIdempotencyRecordClient(c.config)
@@ -298,6 +306,8 @@ func (c *Client) Tx(ctx context.Context) (*Tx, error) {
 		ChannelMonitorHistory:         NewChannelMonitorHistoryClient(cfg),
 		ChannelMonitorRequestTemplate: NewChannelMonitorRequestTemplateClient(cfg),
 		CompositeModelRoute:           NewCompositeModelRouteClient(cfg),
+		CustomModel:                   NewCustomModelClient(cfg),
+		CustomModelDownstreamGroup:    NewCustomModelDownstreamGroupClient(cfg),
 		ErrorPassthroughRule:          NewErrorPassthroughRuleClient(cfg),
 		Group:                         NewGroupClient(cfg),
 		IdempotencyRecord:             NewIdempotencyRecordClient(cfg),
@@ -356,6 +366,8 @@ func (c *Client) BeginTx(ctx context.Context, opts *sql.TxOptions) (*Tx, error) 
 		ChannelMonitorHistory:         NewChannelMonitorHistoryClient(cfg),
 		ChannelMonitorRequestTemplate: NewChannelMonitorRequestTemplateClient(cfg),
 		CompositeModelRoute:           NewCompositeModelRouteClient(cfg),
+		CustomModel:                   NewCustomModelClient(cfg),
+		CustomModelDownstreamGroup:    NewCustomModelDownstreamGroupClient(cfg),
 		ErrorPassthroughRule:          NewErrorPassthroughRuleClient(cfg),
 		Group:                         NewGroupClient(cfg),
 		IdempotencyRecord:             NewIdempotencyRecordClient(cfg),
@@ -413,7 +425,8 @@ func (c *Client) Use(hooks ...Hook) {
 		c.AuthIdentity, c.AuthIdentityChannel, c.BatchImageEvent, c.BatchImageItem,
 		c.BatchImageJob, c.ChannelMonitor, c.ChannelMonitorDailyRollup,
 		c.ChannelMonitorHistory, c.ChannelMonitorRequestTemplate,
-		c.CompositeModelRoute, c.ErrorPassthroughRule, c.Group, c.IdempotencyRecord,
+		c.CompositeModelRoute, c.CustomModel, c.CustomModelDownstreamGroup,
+		c.ErrorPassthroughRule, c.Group, c.IdempotencyRecord,
 		c.IdentityAdoptionDecision, c.PaymentAuditLog, c.PaymentOrder,
 		c.PaymentProviderInstance, c.PendingAuthSession, c.PromoCode, c.PromoCodeUsage,
 		c.Proxy, c.RedeemCode, c.SecuritySecret, c.Setting, c.SubscriptionPlan,
@@ -433,7 +446,8 @@ func (c *Client) Intercept(interceptors ...Interceptor) {
 		c.AuthIdentity, c.AuthIdentityChannel, c.BatchImageEvent, c.BatchImageItem,
 		c.BatchImageJob, c.ChannelMonitor, c.ChannelMonitorDailyRollup,
 		c.ChannelMonitorHistory, c.ChannelMonitorRequestTemplate,
-		c.CompositeModelRoute, c.ErrorPassthroughRule, c.Group, c.IdempotencyRecord,
+		c.CompositeModelRoute, c.CustomModel, c.CustomModelDownstreamGroup,
+		c.ErrorPassthroughRule, c.Group, c.IdempotencyRecord,
 		c.IdentityAdoptionDecision, c.PaymentAuditLog, c.PaymentOrder,
 		c.PaymentProviderInstance, c.PendingAuthSession, c.PromoCode, c.PromoCodeUsage,
 		c.Proxy, c.RedeemCode, c.SecuritySecret, c.Setting, c.SubscriptionPlan,
@@ -478,6 +492,10 @@ func (c *Client) Mutate(ctx context.Context, m Mutation) (Value, error) {
 		return c.ChannelMonitorRequestTemplate.mutate(ctx, m)
 	case *CompositeModelRouteMutation:
 		return c.CompositeModelRoute.mutate(ctx, m)
+	case *CustomModelMutation:
+		return c.CustomModel.mutate(ctx, m)
+	case *CustomModelDownstreamGroupMutation:
+		return c.CustomModelDownstreamGroup.mutate(ctx, m)
 	case *ErrorPassthroughRuleMutation:
 		return c.ErrorPassthroughRule.mutate(ctx, m)
 	case *GroupMutation:
@@ -2883,6 +2901,289 @@ func (c *CompositeModelRouteClient) mutate(ctx context.Context, m *CompositeMode
 	}
 }
 
+// CustomModelClient is a client for the CustomModel schema.
+type CustomModelClient struct {
+	config
+}
+
+// NewCustomModelClient returns a client for the CustomModel from the given config.
+func NewCustomModelClient(c config) *CustomModelClient {
+	return &CustomModelClient{config: c}
+}
+
+// Use adds a list of mutation hooks to the hooks stack.
+// A call to `Use(f, g, h)` equals to `custommodel.Hooks(f(g(h())))`.
+func (c *CustomModelClient) Use(hooks ...Hook) {
+	c.hooks.CustomModel = append(c.hooks.CustomModel, hooks...)
+}
+
+// Intercept adds a list of query interceptors to the interceptors stack.
+// A call to `Intercept(f, g, h)` equals to `custommodel.Intercept(f(g(h())))`.
+func (c *CustomModelClient) Intercept(interceptors ...Interceptor) {
+	c.inters.CustomModel = append(c.inters.CustomModel, interceptors...)
+}
+
+// Create returns a builder for creating a CustomModel entity.
+func (c *CustomModelClient) Create() *CustomModelCreate {
+	mutation := newCustomModelMutation(c.config, OpCreate)
+	return &CustomModelCreate{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// CreateBulk returns a builder for creating a bulk of CustomModel entities.
+func (c *CustomModelClient) CreateBulk(builders ...*CustomModelCreate) *CustomModelCreateBulk {
+	return &CustomModelCreateBulk{config: c.config, builders: builders}
+}
+
+// MapCreateBulk creates a bulk creation builder from the given slice. For each item in the slice, the function creates
+// a builder and applies setFunc on it.
+func (c *CustomModelClient) MapCreateBulk(slice any, setFunc func(*CustomModelCreate, int)) *CustomModelCreateBulk {
+	rv := reflect.ValueOf(slice)
+	if rv.Kind() != reflect.Slice {
+		return &CustomModelCreateBulk{err: fmt.Errorf("calling to CustomModelClient.MapCreateBulk with wrong type %T, need slice", slice)}
+	}
+	builders := make([]*CustomModelCreate, rv.Len())
+	for i := 0; i < rv.Len(); i++ {
+		builders[i] = c.Create()
+		setFunc(builders[i], i)
+	}
+	return &CustomModelCreateBulk{config: c.config, builders: builders}
+}
+
+// Update returns an update builder for CustomModel.
+func (c *CustomModelClient) Update() *CustomModelUpdate {
+	mutation := newCustomModelMutation(c.config, OpUpdate)
+	return &CustomModelUpdate{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// UpdateOne returns an update builder for the given entity.
+func (c *CustomModelClient) UpdateOne(_m *CustomModel) *CustomModelUpdateOne {
+	mutation := newCustomModelMutation(c.config, OpUpdateOne, withCustomModel(_m))
+	return &CustomModelUpdateOne{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// UpdateOneID returns an update builder for the given id.
+func (c *CustomModelClient) UpdateOneID(id int64) *CustomModelUpdateOne {
+	mutation := newCustomModelMutation(c.config, OpUpdateOne, withCustomModelID(id))
+	return &CustomModelUpdateOne{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// Delete returns a delete builder for CustomModel.
+func (c *CustomModelClient) Delete() *CustomModelDelete {
+	mutation := newCustomModelMutation(c.config, OpDelete)
+	return &CustomModelDelete{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// DeleteOne returns a builder for deleting the given entity.
+func (c *CustomModelClient) DeleteOne(_m *CustomModel) *CustomModelDeleteOne {
+	return c.DeleteOneID(_m.ID)
+}
+
+// DeleteOneID returns a builder for deleting the given entity by its id.
+func (c *CustomModelClient) DeleteOneID(id int64) *CustomModelDeleteOne {
+	builder := c.Delete().Where(custommodel.ID(id))
+	builder.mutation.id = &id
+	builder.mutation.op = OpDeleteOne
+	return &CustomModelDeleteOne{builder}
+}
+
+// Query returns a query builder for CustomModel.
+func (c *CustomModelClient) Query() *CustomModelQuery {
+	return &CustomModelQuery{
+		config: c.config,
+		ctx:    &QueryContext{Type: TypeCustomModel},
+		inters: c.Interceptors(),
+	}
+}
+
+// Get returns a CustomModel entity by its id.
+func (c *CustomModelClient) Get(ctx context.Context, id int64) (*CustomModel, error) {
+	return c.Query().Where(custommodel.ID(id)).Only(ctx)
+}
+
+// GetX is like Get, but panics if an error occurs.
+func (c *CustomModelClient) GetX(ctx context.Context, id int64) *CustomModel {
+	obj, err := c.Get(ctx, id)
+	if err != nil {
+		panic(err)
+	}
+	return obj
+}
+
+// QueryUpstreamGroup queries the upstream_group edge of a CustomModel.
+func (c *CustomModelClient) QueryUpstreamGroup(_m *CustomModel) *GroupQuery {
+	query := (&GroupClient{config: c.config}).Query()
+	query.path = func(context.Context) (fromV *sql.Selector, _ error) {
+		id := _m.ID
+		step := sqlgraph.NewStep(
+			sqlgraph.From(custommodel.Table, custommodel.FieldID, id),
+			sqlgraph.To(group.Table, group.FieldID),
+			sqlgraph.Edge(sqlgraph.M2O, true, custommodel.UpstreamGroupTable, custommodel.UpstreamGroupColumn),
+		)
+		fromV = sqlgraph.Neighbors(_m.driver.Dialect(), step)
+		return fromV, nil
+	}
+	return query
+}
+
+// QueryDownstreamGroups queries the downstream_groups edge of a CustomModel.
+func (c *CustomModelClient) QueryDownstreamGroups(_m *CustomModel) *GroupQuery {
+	query := (&GroupClient{config: c.config}).Query()
+	query.path = func(context.Context) (fromV *sql.Selector, _ error) {
+		id := _m.ID
+		step := sqlgraph.NewStep(
+			sqlgraph.From(custommodel.Table, custommodel.FieldID, id),
+			sqlgraph.To(group.Table, group.FieldID),
+			sqlgraph.Edge(sqlgraph.M2M, false, custommodel.DownstreamGroupsTable, custommodel.DownstreamGroupsPrimaryKey...),
+		)
+		fromV = sqlgraph.Neighbors(_m.driver.Dialect(), step)
+		return fromV, nil
+	}
+	return query
+}
+
+// Hooks returns the client hooks.
+func (c *CustomModelClient) Hooks() []Hook {
+	hooks := c.hooks.CustomModel
+	return append(hooks[:len(hooks):len(hooks)], custommodel.Hooks[:]...)
+}
+
+// Interceptors returns the client interceptors.
+func (c *CustomModelClient) Interceptors() []Interceptor {
+	inters := c.inters.CustomModel
+	return append(inters[:len(inters):len(inters)], custommodel.Interceptors[:]...)
+}
+
+func (c *CustomModelClient) mutate(ctx context.Context, m *CustomModelMutation) (Value, error) {
+	switch m.Op() {
+	case OpCreate:
+		return (&CustomModelCreate{config: c.config, hooks: c.Hooks(), mutation: m}).Save(ctx)
+	case OpUpdate:
+		return (&CustomModelUpdate{config: c.config, hooks: c.Hooks(), mutation: m}).Save(ctx)
+	case OpUpdateOne:
+		return (&CustomModelUpdateOne{config: c.config, hooks: c.Hooks(), mutation: m}).Save(ctx)
+	case OpDelete, OpDeleteOne:
+		return (&CustomModelDelete{config: c.config, hooks: c.Hooks(), mutation: m}).Exec(ctx)
+	default:
+		return nil, fmt.Errorf("ent: unknown CustomModel mutation op: %q", m.Op())
+	}
+}
+
+// CustomModelDownstreamGroupClient is a client for the CustomModelDownstreamGroup schema.
+type CustomModelDownstreamGroupClient struct {
+	config
+}
+
+// NewCustomModelDownstreamGroupClient returns a client for the CustomModelDownstreamGroup from the given config.
+func NewCustomModelDownstreamGroupClient(c config) *CustomModelDownstreamGroupClient {
+	return &CustomModelDownstreamGroupClient{config: c}
+}
+
+// Use adds a list of mutation hooks to the hooks stack.
+// A call to `Use(f, g, h)` equals to `custommodeldownstreamgroup.Hooks(f(g(h())))`.
+func (c *CustomModelDownstreamGroupClient) Use(hooks ...Hook) {
+	c.hooks.CustomModelDownstreamGroup = append(c.hooks.CustomModelDownstreamGroup, hooks...)
+}
+
+// Intercept adds a list of query interceptors to the interceptors stack.
+// A call to `Intercept(f, g, h)` equals to `custommodeldownstreamgroup.Intercept(f(g(h())))`.
+func (c *CustomModelDownstreamGroupClient) Intercept(interceptors ...Interceptor) {
+	c.inters.CustomModelDownstreamGroup = append(c.inters.CustomModelDownstreamGroup, interceptors...)
+}
+
+// Create returns a builder for creating a CustomModelDownstreamGroup entity.
+func (c *CustomModelDownstreamGroupClient) Create() *CustomModelDownstreamGroupCreate {
+	mutation := newCustomModelDownstreamGroupMutation(c.config, OpCreate)
+	return &CustomModelDownstreamGroupCreate{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// CreateBulk returns a builder for creating a bulk of CustomModelDownstreamGroup entities.
+func (c *CustomModelDownstreamGroupClient) CreateBulk(builders ...*CustomModelDownstreamGroupCreate) *CustomModelDownstreamGroupCreateBulk {
+	return &CustomModelDownstreamGroupCreateBulk{config: c.config, builders: builders}
+}
+
+// MapCreateBulk creates a bulk creation builder from the given slice. For each item in the slice, the function creates
+// a builder and applies setFunc on it.
+func (c *CustomModelDownstreamGroupClient) MapCreateBulk(slice any, setFunc func(*CustomModelDownstreamGroupCreate, int)) *CustomModelDownstreamGroupCreateBulk {
+	rv := reflect.ValueOf(slice)
+	if rv.Kind() != reflect.Slice {
+		return &CustomModelDownstreamGroupCreateBulk{err: fmt.Errorf("calling to CustomModelDownstreamGroupClient.MapCreateBulk with wrong type %T, need slice", slice)}
+	}
+	builders := make([]*CustomModelDownstreamGroupCreate, rv.Len())
+	for i := 0; i < rv.Len(); i++ {
+		builders[i] = c.Create()
+		setFunc(builders[i], i)
+	}
+	return &CustomModelDownstreamGroupCreateBulk{config: c.config, builders: builders}
+}
+
+// Update returns an update builder for CustomModelDownstreamGroup.
+func (c *CustomModelDownstreamGroupClient) Update() *CustomModelDownstreamGroupUpdate {
+	mutation := newCustomModelDownstreamGroupMutation(c.config, OpUpdate)
+	return &CustomModelDownstreamGroupUpdate{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// UpdateOne returns an update builder for the given entity.
+func (c *CustomModelDownstreamGroupClient) UpdateOne(_m *CustomModelDownstreamGroup) *CustomModelDownstreamGroupUpdateOne {
+	mutation := newCustomModelDownstreamGroupMutation(c.config, OpUpdateOne)
+	mutation.custom_model = &_m.CustomModelID
+	mutation.group = &_m.GroupID
+	return &CustomModelDownstreamGroupUpdateOne{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// Delete returns a delete builder for CustomModelDownstreamGroup.
+func (c *CustomModelDownstreamGroupClient) Delete() *CustomModelDownstreamGroupDelete {
+	mutation := newCustomModelDownstreamGroupMutation(c.config, OpDelete)
+	return &CustomModelDownstreamGroupDelete{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// Query returns a query builder for CustomModelDownstreamGroup.
+func (c *CustomModelDownstreamGroupClient) Query() *CustomModelDownstreamGroupQuery {
+	return &CustomModelDownstreamGroupQuery{
+		config: c.config,
+		ctx:    &QueryContext{Type: TypeCustomModelDownstreamGroup},
+		inters: c.Interceptors(),
+	}
+}
+
+// QueryCustomModel queries the custom_model edge of a CustomModelDownstreamGroup.
+func (c *CustomModelDownstreamGroupClient) QueryCustomModel(_m *CustomModelDownstreamGroup) *CustomModelQuery {
+	return c.Query().
+		Where(custommodeldownstreamgroup.CustomModelID(_m.CustomModelID), custommodeldownstreamgroup.GroupID(_m.GroupID)).
+		QueryCustomModel()
+}
+
+// QueryGroup queries the group edge of a CustomModelDownstreamGroup.
+func (c *CustomModelDownstreamGroupClient) QueryGroup(_m *CustomModelDownstreamGroup) *GroupQuery {
+	return c.Query().
+		Where(custommodeldownstreamgroup.CustomModelID(_m.CustomModelID), custommodeldownstreamgroup.GroupID(_m.GroupID)).
+		QueryGroup()
+}
+
+// Hooks returns the client hooks.
+func (c *CustomModelDownstreamGroupClient) Hooks() []Hook {
+	return c.hooks.CustomModelDownstreamGroup
+}
+
+// Interceptors returns the client interceptors.
+func (c *CustomModelDownstreamGroupClient) Interceptors() []Interceptor {
+	return c.inters.CustomModelDownstreamGroup
+}
+
+func (c *CustomModelDownstreamGroupClient) mutate(ctx context.Context, m *CustomModelDownstreamGroupMutation) (Value, error) {
+	switch m.Op() {
+	case OpCreate:
+		return (&CustomModelDownstreamGroupCreate{config: c.config, hooks: c.Hooks(), mutation: m}).Save(ctx)
+	case OpUpdate:
+		return (&CustomModelDownstreamGroupUpdate{config: c.config, hooks: c.Hooks(), mutation: m}).Save(ctx)
+	case OpUpdateOne:
+		return (&CustomModelDownstreamGroupUpdateOne{config: c.config, hooks: c.Hooks(), mutation: m}).Save(ctx)
+	case OpDelete, OpDeleteOne:
+		return (&CustomModelDownstreamGroupDelete{config: c.config, hooks: c.Hooks(), mutation: m}).Exec(ctx)
+	default:
+		return nil, fmt.Errorf("ent: unknown CustomModelDownstreamGroup mutation op: %q", m.Op())
+	}
+}
+
 // ErrorPassthroughRuleClient is a client for the ErrorPassthroughRule schema.
 type ErrorPassthroughRuleClient struct {
 	config
@@ -3220,6 +3521,38 @@ func (c *GroupClient) QueryAllowedUsers(_m *Group) *UserQuery {
 	return query
 }
 
+// QueryCustomModelsUpstream queries the custom_models_upstream edge of a Group.
+func (c *GroupClient) QueryCustomModelsUpstream(_m *Group) *CustomModelQuery {
+	query := (&CustomModelClient{config: c.config}).Query()
+	query.path = func(context.Context) (fromV *sql.Selector, _ error) {
+		id := _m.ID
+		step := sqlgraph.NewStep(
+			sqlgraph.From(group.Table, group.FieldID, id),
+			sqlgraph.To(custommodel.Table, custommodel.FieldID),
+			sqlgraph.Edge(sqlgraph.O2M, false, group.CustomModelsUpstreamTable, group.CustomModelsUpstreamColumn),
+		)
+		fromV = sqlgraph.Neighbors(_m.driver.Dialect(), step)
+		return fromV, nil
+	}
+	return query
+}
+
+// QueryCustomModelsDownstream queries the custom_models_downstream edge of a Group.
+func (c *GroupClient) QueryCustomModelsDownstream(_m *Group) *CustomModelQuery {
+	query := (&CustomModelClient{config: c.config}).Query()
+	query.path = func(context.Context) (fromV *sql.Selector, _ error) {
+		id := _m.ID
+		step := sqlgraph.NewStep(
+			sqlgraph.From(group.Table, group.FieldID, id),
+			sqlgraph.To(custommodel.Table, custommodel.FieldID),
+			sqlgraph.Edge(sqlgraph.M2M, true, group.CustomModelsDownstreamTable, group.CustomModelsDownstreamPrimaryKey...),
+		)
+		fromV = sqlgraph.Neighbors(_m.driver.Dialect(), step)
+		return fromV, nil
+	}
+	return query
+}
+
 // QueryAccountGroups queries the account_groups edge of a Group.
 func (c *GroupClient) QueryAccountGroups(_m *Group) *AccountGroupQuery {
 	query := (&AccountGroupClient{config: c.config}).Query()
@@ -3245,6 +3578,22 @@ func (c *GroupClient) QueryUserAllowedGroups(_m *Group) *UserAllowedGroupQuery {
 			sqlgraph.From(group.Table, group.FieldID, id),
 			sqlgraph.To(userallowedgroup.Table, userallowedgroup.GroupColumn),
 			sqlgraph.Edge(sqlgraph.O2M, true, group.UserAllowedGroupsTable, group.UserAllowedGroupsColumn),
+		)
+		fromV = sqlgraph.Neighbors(_m.driver.Dialect(), step)
+		return fromV, nil
+	}
+	return query
+}
+
+// QueryCustomModelDownstreamGroups queries the custom_model_downstream_groups edge of a Group.
+func (c *GroupClient) QueryCustomModelDownstreamGroups(_m *Group) *CustomModelDownstreamGroupQuery {
+	query := (&CustomModelDownstreamGroupClient{config: c.config}).Query()
+	query.path = func(context.Context) (fromV *sql.Selector, _ error) {
+		id := _m.ID
+		step := sqlgraph.NewStep(
+			sqlgraph.From(group.Table, group.FieldID, id),
+			sqlgraph.To(custommodeldownstreamgroup.Table, custommodeldownstreamgroup.GroupColumn),
+			sqlgraph.Edge(sqlgraph.O2M, true, group.CustomModelDownstreamGroupsTable, group.CustomModelDownstreamGroupsColumn),
 		)
 		fromV = sqlgraph.Neighbors(_m.driver.Dialect(), step)
 		return fromV, nil
@@ -6844,25 +7193,25 @@ type (
 		APIKey, Account, AccountGroup, Announcement, AnnouncementRead, AuthIdentity,
 		AuthIdentityChannel, BatchImageEvent, BatchImageItem, BatchImageJob,
 		ChannelMonitor, ChannelMonitorDailyRollup, ChannelMonitorHistory,
-		ChannelMonitorRequestTemplate, CompositeModelRoute, ErrorPassthroughRule,
-		Group, IdempotencyRecord, IdentityAdoptionDecision, PaymentAuditLog,
-		PaymentOrder, PaymentProviderInstance, PendingAuthSession, PromoCode,
-		PromoCodeUsage, Proxy, RedeemCode, SecuritySecret, Setting, SubscriptionPlan,
-		TLSFingerprintProfile, UsageCleanupTask, UsageLog, User, UserAllowedGroup,
-		UserAttributeDefinition, UserAttributeValue, UserPlatformQuota,
-		UserSubscription []ent.Hook
+		ChannelMonitorRequestTemplate, CompositeModelRoute, CustomModel,
+		CustomModelDownstreamGroup, ErrorPassthroughRule, Group, IdempotencyRecord,
+		IdentityAdoptionDecision, PaymentAuditLog, PaymentOrder,
+		PaymentProviderInstance, PendingAuthSession, PromoCode, PromoCodeUsage, Proxy,
+		RedeemCode, SecuritySecret, Setting, SubscriptionPlan, TLSFingerprintProfile,
+		UsageCleanupTask, UsageLog, User, UserAllowedGroup, UserAttributeDefinition,
+		UserAttributeValue, UserPlatformQuota, UserSubscription []ent.Hook
 	}
 	inters struct {
 		APIKey, Account, AccountGroup, Announcement, AnnouncementRead, AuthIdentity,
 		AuthIdentityChannel, BatchImageEvent, BatchImageItem, BatchImageJob,
 		ChannelMonitor, ChannelMonitorDailyRollup, ChannelMonitorHistory,
-		ChannelMonitorRequestTemplate, CompositeModelRoute, ErrorPassthroughRule,
-		Group, IdempotencyRecord, IdentityAdoptionDecision, PaymentAuditLog,
-		PaymentOrder, PaymentProviderInstance, PendingAuthSession, PromoCode,
-		PromoCodeUsage, Proxy, RedeemCode, SecuritySecret, Setting, SubscriptionPlan,
-		TLSFingerprintProfile, UsageCleanupTask, UsageLog, User, UserAllowedGroup,
-		UserAttributeDefinition, UserAttributeValue, UserPlatformQuota,
-		UserSubscription []ent.Interceptor
+		ChannelMonitorRequestTemplate, CompositeModelRoute, CustomModel,
+		CustomModelDownstreamGroup, ErrorPassthroughRule, Group, IdempotencyRecord,
+		IdentityAdoptionDecision, PaymentAuditLog, PaymentOrder,
+		PaymentProviderInstance, PendingAuthSession, PromoCode, PromoCodeUsage, Proxy,
+		RedeemCode, SecuritySecret, Setting, SubscriptionPlan, TLSFingerprintProfile,
+		UsageCleanupTask, UsageLog, User, UserAllowedGroup, UserAttributeDefinition,
+		UserAttributeValue, UserPlatformQuota, UserSubscription []ent.Interceptor
 	}
 )
 

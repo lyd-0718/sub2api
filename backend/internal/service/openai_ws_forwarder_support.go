@@ -446,6 +446,9 @@ func getOpenAIGroupIDFromContext(c *gin.Context) int64 {
 	if !ok || apiKey == nil || apiKey.GroupID == nil {
 		return 0
 	}
+	if c.Request != nil {
+		return *CustomModelRoutingGroupID(c.Request.Context(), apiKey.GroupID)
+	}
 	return *apiKey.GroupID
 }
 
@@ -459,6 +462,7 @@ func (s *OpenAIGatewayService) SelectAccountByPreviousResponseID(
 	excludedIDs map[int64]struct{},
 	requireCompact bool,
 ) (*AccountSelectionResult, error) {
+	groupID = CustomModelRoutingGroupID(ctx, groupID)
 	// 分组利润控制：公共入口装门，保证不经 selectAccountWithScheduler
 	// 的调用方也无法绕过利润准入（scheduler 内部路径已在唯一调度入口装门）。
 	ctx = s.withOpenAIProfitControlGate(ctx, groupID)
@@ -474,6 +478,7 @@ func (s *OpenAIGatewayService) selectAccountByPreviousResponseIDForCapability(
 	requiredCapability OpenAIEndpointCapability,
 	requireCompact bool,
 ) (*AccountSelectionResult, error) {
+	groupID = CustomModelRoutingGroupID(ctx, groupID)
 	if s == nil {
 		return nil, nil
 	}
@@ -534,6 +539,12 @@ func (s *OpenAIGatewayService) resolveAccountByPreviousResponseIDForCapability(
 	requiredCapability OpenAIEndpointCapability,
 	requireCompact bool,
 ) (int64, *Account, string, OpenAIWSStateStore) {
+	groupID = CustomModelRoutingGroupID(ctx, groupID)
+	if _, custom := CustomModelResolutionFromContext(ctx); custom {
+		if platform, _ := ResolvedTargetPlatformFromContext(ctx); platform != PlatformOpenAI {
+			return 0, nil, "", nil
+		}
+	}
 	if s == nil {
 		return 0, nil, "", nil
 	}
@@ -559,6 +570,9 @@ func (s *OpenAIGatewayService) resolveAccountByPreviousResponseIDForCapability(
 	account, err := s.getSchedulableAccount(ctx, accountID)
 	if err != nil || account == nil {
 		_ = store.DeleteResponseAccount(ctx, derefGroupID(groupID), responseID)
+		return 0, nil, "", nil
+	}
+	if _, custom := CustomModelResolutionFromContext(ctx); custom && (!openAIStickyAccountMatchesGroup(account, groupID) || (s.openAIGroupRequiresPrivacySet(ctx, groupID) && !account.IsPrivacySet())) {
 		return 0, nil, "", nil
 	}
 	// OAuth/SetupToken continuation state lives on the WSv2 session and cannot
@@ -605,7 +619,7 @@ func (s *OpenAIGatewayService) resolveAccountByPreviousResponseIDForCapability(
 			_ = store.DeleteResponseAccount(ctx, derefGroupID(groupID), responseID)
 			return 0, nil, "", nil
 		}
-		if !s.openAIAccountMatchesSchedulingGroup(latest, groupID) {
+		if !s.openAIAccountMatchesSchedulingGroup(ctx, latest, groupID) {
 			return 0, nil, "", nil
 		}
 		if s.openAIGroupRequiresPrivacySet(ctx, groupID) && !latest.IsPrivacySet() {

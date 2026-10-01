@@ -27,6 +27,8 @@ import (
 	"github.com/Wei-Shaw/sub2api/ent/channelmonitorhistory"
 	"github.com/Wei-Shaw/sub2api/ent/channelmonitorrequesttemplate"
 	"github.com/Wei-Shaw/sub2api/ent/compositemodelroute"
+	"github.com/Wei-Shaw/sub2api/ent/custommodel"
+	"github.com/Wei-Shaw/sub2api/ent/custommodeldownstreamgroup"
 	"github.com/Wei-Shaw/sub2api/ent/errorpassthroughrule"
 	"github.com/Wei-Shaw/sub2api/ent/group"
 	"github.com/Wei-Shaw/sub2api/ent/idempotencyrecord"
@@ -79,6 +81,8 @@ const (
 	TypeChannelMonitorHistory         = "ChannelMonitorHistory"
 	TypeChannelMonitorRequestTemplate = "ChannelMonitorRequestTemplate"
 	TypeCompositeModelRoute           = "CompositeModelRoute"
+	TypeCustomModel                   = "CustomModel"
+	TypeCustomModelDownstreamGroup    = "CustomModelDownstreamGroup"
 	TypeErrorPassthroughRule          = "ErrorPassthroughRule"
 	TypeGroup                         = "Group"
 	TypeIdempotencyRecord             = "IdempotencyRecord"
@@ -20755,6 +20759,1383 @@ func (m *CompositeModelRouteMutation) ResetEdge(name string) error {
 	return fmt.Errorf("unknown CompositeModelRoute edge %s", name)
 }
 
+// CustomModelMutation represents an operation that mutates the CustomModel nodes in the graph.
+type CustomModelMutation struct {
+	config
+	op                       Op
+	typ                      string
+	id                       *int64
+	created_at               *time.Time
+	updated_at               *time.Time
+	deleted_at               *time.Time
+	model_id                 *string
+	upstream_model           *string
+	system_prompt            *string
+	enabled                  *bool
+	description              *string
+	clearedFields            map[string]struct{}
+	upstream_group           *int64
+	clearedupstream_group    bool
+	downstream_groups        map[int64]struct{}
+	removeddownstream_groups map[int64]struct{}
+	cleareddownstream_groups bool
+	done                     bool
+	oldValue                 func(context.Context) (*CustomModel, error)
+	predicates               []predicate.CustomModel
+}
+
+var _ ent.Mutation = (*CustomModelMutation)(nil)
+
+// custommodelOption allows management of the mutation configuration using functional options.
+type custommodelOption func(*CustomModelMutation)
+
+// newCustomModelMutation creates new mutation for the CustomModel entity.
+func newCustomModelMutation(c config, op Op, opts ...custommodelOption) *CustomModelMutation {
+	m := &CustomModelMutation{
+		config:        c,
+		op:            op,
+		typ:           TypeCustomModel,
+		clearedFields: make(map[string]struct{}),
+	}
+	for _, opt := range opts {
+		opt(m)
+	}
+	return m
+}
+
+// withCustomModelID sets the ID field of the mutation.
+func withCustomModelID(id int64) custommodelOption {
+	return func(m *CustomModelMutation) {
+		var (
+			err   error
+			once  sync.Once
+			value *CustomModel
+		)
+		m.oldValue = func(ctx context.Context) (*CustomModel, error) {
+			once.Do(func() {
+				if m.done {
+					err = errors.New("querying old values post mutation is not allowed")
+				} else {
+					value, err = m.Client().CustomModel.Get(ctx, id)
+				}
+			})
+			return value, err
+		}
+		m.id = &id
+	}
+}
+
+// withCustomModel sets the old CustomModel of the mutation.
+func withCustomModel(node *CustomModel) custommodelOption {
+	return func(m *CustomModelMutation) {
+		m.oldValue = func(context.Context) (*CustomModel, error) {
+			return node, nil
+		}
+		m.id = &node.ID
+	}
+}
+
+// Client returns a new `ent.Client` from the mutation. If the mutation was
+// executed in a transaction (ent.Tx), a transactional client is returned.
+func (m CustomModelMutation) Client() *Client {
+	client := &Client{config: m.config}
+	client.init()
+	return client
+}
+
+// Tx returns an `ent.Tx` for mutations that were executed in transactions;
+// it returns an error otherwise.
+func (m CustomModelMutation) Tx() (*Tx, error) {
+	if _, ok := m.driver.(*txDriver); !ok {
+		return nil, errors.New("ent: mutation is not running in a transaction")
+	}
+	tx := &Tx{config: m.config}
+	tx.init()
+	return tx, nil
+}
+
+// ID returns the ID value in the mutation. Note that the ID is only available
+// if it was provided to the builder or after it was returned from the database.
+func (m *CustomModelMutation) ID() (id int64, exists bool) {
+	if m.id == nil {
+		return
+	}
+	return *m.id, true
+}
+
+// IDs queries the database and returns the entity ids that match the mutation's predicate.
+// That means, if the mutation is applied within a transaction with an isolation level such
+// as sql.LevelSerializable, the returned ids match the ids of the rows that will be updated
+// or updated by the mutation.
+func (m *CustomModelMutation) IDs(ctx context.Context) ([]int64, error) {
+	switch {
+	case m.op.Is(OpUpdateOne | OpDeleteOne):
+		id, exists := m.ID()
+		if exists {
+			return []int64{id}, nil
+		}
+		fallthrough
+	case m.op.Is(OpUpdate | OpDelete):
+		return m.Client().CustomModel.Query().Where(m.predicates...).IDs(ctx)
+	default:
+		return nil, fmt.Errorf("IDs is not allowed on %s operations", m.op)
+	}
+}
+
+// SetCreatedAt sets the "created_at" field.
+func (m *CustomModelMutation) SetCreatedAt(t time.Time) {
+	m.created_at = &t
+}
+
+// CreatedAt returns the value of the "created_at" field in the mutation.
+func (m *CustomModelMutation) CreatedAt() (r time.Time, exists bool) {
+	v := m.created_at
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldCreatedAt returns the old "created_at" field's value of the CustomModel entity.
+// If the CustomModel object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *CustomModelMutation) OldCreatedAt(ctx context.Context) (v time.Time, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldCreatedAt is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldCreatedAt requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldCreatedAt: %w", err)
+	}
+	return oldValue.CreatedAt, nil
+}
+
+// ResetCreatedAt resets all changes to the "created_at" field.
+func (m *CustomModelMutation) ResetCreatedAt() {
+	m.created_at = nil
+}
+
+// SetUpdatedAt sets the "updated_at" field.
+func (m *CustomModelMutation) SetUpdatedAt(t time.Time) {
+	m.updated_at = &t
+}
+
+// UpdatedAt returns the value of the "updated_at" field in the mutation.
+func (m *CustomModelMutation) UpdatedAt() (r time.Time, exists bool) {
+	v := m.updated_at
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldUpdatedAt returns the old "updated_at" field's value of the CustomModel entity.
+// If the CustomModel object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *CustomModelMutation) OldUpdatedAt(ctx context.Context) (v time.Time, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldUpdatedAt is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldUpdatedAt requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldUpdatedAt: %w", err)
+	}
+	return oldValue.UpdatedAt, nil
+}
+
+// ResetUpdatedAt resets all changes to the "updated_at" field.
+func (m *CustomModelMutation) ResetUpdatedAt() {
+	m.updated_at = nil
+}
+
+// SetDeletedAt sets the "deleted_at" field.
+func (m *CustomModelMutation) SetDeletedAt(t time.Time) {
+	m.deleted_at = &t
+}
+
+// DeletedAt returns the value of the "deleted_at" field in the mutation.
+func (m *CustomModelMutation) DeletedAt() (r time.Time, exists bool) {
+	v := m.deleted_at
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldDeletedAt returns the old "deleted_at" field's value of the CustomModel entity.
+// If the CustomModel object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *CustomModelMutation) OldDeletedAt(ctx context.Context) (v *time.Time, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldDeletedAt is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldDeletedAt requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldDeletedAt: %w", err)
+	}
+	return oldValue.DeletedAt, nil
+}
+
+// ClearDeletedAt clears the value of the "deleted_at" field.
+func (m *CustomModelMutation) ClearDeletedAt() {
+	m.deleted_at = nil
+	m.clearedFields[custommodel.FieldDeletedAt] = struct{}{}
+}
+
+// DeletedAtCleared returns if the "deleted_at" field was cleared in this mutation.
+func (m *CustomModelMutation) DeletedAtCleared() bool {
+	_, ok := m.clearedFields[custommodel.FieldDeletedAt]
+	return ok
+}
+
+// ResetDeletedAt resets all changes to the "deleted_at" field.
+func (m *CustomModelMutation) ResetDeletedAt() {
+	m.deleted_at = nil
+	delete(m.clearedFields, custommodel.FieldDeletedAt)
+}
+
+// SetModelID sets the "model_id" field.
+func (m *CustomModelMutation) SetModelID(s string) {
+	m.model_id = &s
+}
+
+// ModelID returns the value of the "model_id" field in the mutation.
+func (m *CustomModelMutation) ModelID() (r string, exists bool) {
+	v := m.model_id
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldModelID returns the old "model_id" field's value of the CustomModel entity.
+// If the CustomModel object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *CustomModelMutation) OldModelID(ctx context.Context) (v string, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldModelID is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldModelID requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldModelID: %w", err)
+	}
+	return oldValue.ModelID, nil
+}
+
+// ResetModelID resets all changes to the "model_id" field.
+func (m *CustomModelMutation) ResetModelID() {
+	m.model_id = nil
+}
+
+// SetUpstreamGroupID sets the "upstream_group_id" field.
+func (m *CustomModelMutation) SetUpstreamGroupID(i int64) {
+	m.upstream_group = &i
+}
+
+// UpstreamGroupID returns the value of the "upstream_group_id" field in the mutation.
+func (m *CustomModelMutation) UpstreamGroupID() (r int64, exists bool) {
+	v := m.upstream_group
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldUpstreamGroupID returns the old "upstream_group_id" field's value of the CustomModel entity.
+// If the CustomModel object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *CustomModelMutation) OldUpstreamGroupID(ctx context.Context) (v int64, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldUpstreamGroupID is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldUpstreamGroupID requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldUpstreamGroupID: %w", err)
+	}
+	return oldValue.UpstreamGroupID, nil
+}
+
+// ResetUpstreamGroupID resets all changes to the "upstream_group_id" field.
+func (m *CustomModelMutation) ResetUpstreamGroupID() {
+	m.upstream_group = nil
+}
+
+// SetUpstreamModel sets the "upstream_model" field.
+func (m *CustomModelMutation) SetUpstreamModel(s string) {
+	m.upstream_model = &s
+}
+
+// UpstreamModel returns the value of the "upstream_model" field in the mutation.
+func (m *CustomModelMutation) UpstreamModel() (r string, exists bool) {
+	v := m.upstream_model
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldUpstreamModel returns the old "upstream_model" field's value of the CustomModel entity.
+// If the CustomModel object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *CustomModelMutation) OldUpstreamModel(ctx context.Context) (v string, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldUpstreamModel is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldUpstreamModel requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldUpstreamModel: %w", err)
+	}
+	return oldValue.UpstreamModel, nil
+}
+
+// ResetUpstreamModel resets all changes to the "upstream_model" field.
+func (m *CustomModelMutation) ResetUpstreamModel() {
+	m.upstream_model = nil
+}
+
+// SetSystemPrompt sets the "system_prompt" field.
+func (m *CustomModelMutation) SetSystemPrompt(s string) {
+	m.system_prompt = &s
+}
+
+// SystemPrompt returns the value of the "system_prompt" field in the mutation.
+func (m *CustomModelMutation) SystemPrompt() (r string, exists bool) {
+	v := m.system_prompt
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldSystemPrompt returns the old "system_prompt" field's value of the CustomModel entity.
+// If the CustomModel object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *CustomModelMutation) OldSystemPrompt(ctx context.Context) (v string, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldSystemPrompt is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldSystemPrompt requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldSystemPrompt: %w", err)
+	}
+	return oldValue.SystemPrompt, nil
+}
+
+// ClearSystemPrompt clears the value of the "system_prompt" field.
+func (m *CustomModelMutation) ClearSystemPrompt() {
+	m.system_prompt = nil
+	m.clearedFields[custommodel.FieldSystemPrompt] = struct{}{}
+}
+
+// SystemPromptCleared returns if the "system_prompt" field was cleared in this mutation.
+func (m *CustomModelMutation) SystemPromptCleared() bool {
+	_, ok := m.clearedFields[custommodel.FieldSystemPrompt]
+	return ok
+}
+
+// ResetSystemPrompt resets all changes to the "system_prompt" field.
+func (m *CustomModelMutation) ResetSystemPrompt() {
+	m.system_prompt = nil
+	delete(m.clearedFields, custommodel.FieldSystemPrompt)
+}
+
+// SetEnabled sets the "enabled" field.
+func (m *CustomModelMutation) SetEnabled(b bool) {
+	m.enabled = &b
+}
+
+// Enabled returns the value of the "enabled" field in the mutation.
+func (m *CustomModelMutation) Enabled() (r bool, exists bool) {
+	v := m.enabled
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldEnabled returns the old "enabled" field's value of the CustomModel entity.
+// If the CustomModel object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *CustomModelMutation) OldEnabled(ctx context.Context) (v bool, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldEnabled is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldEnabled requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldEnabled: %w", err)
+	}
+	return oldValue.Enabled, nil
+}
+
+// ResetEnabled resets all changes to the "enabled" field.
+func (m *CustomModelMutation) ResetEnabled() {
+	m.enabled = nil
+}
+
+// SetDescription sets the "description" field.
+func (m *CustomModelMutation) SetDescription(s string) {
+	m.description = &s
+}
+
+// Description returns the value of the "description" field in the mutation.
+func (m *CustomModelMutation) Description() (r string, exists bool) {
+	v := m.description
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldDescription returns the old "description" field's value of the CustomModel entity.
+// If the CustomModel object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *CustomModelMutation) OldDescription(ctx context.Context) (v string, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldDescription is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldDescription requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldDescription: %w", err)
+	}
+	return oldValue.Description, nil
+}
+
+// ClearDescription clears the value of the "description" field.
+func (m *CustomModelMutation) ClearDescription() {
+	m.description = nil
+	m.clearedFields[custommodel.FieldDescription] = struct{}{}
+}
+
+// DescriptionCleared returns if the "description" field was cleared in this mutation.
+func (m *CustomModelMutation) DescriptionCleared() bool {
+	_, ok := m.clearedFields[custommodel.FieldDescription]
+	return ok
+}
+
+// ResetDescription resets all changes to the "description" field.
+func (m *CustomModelMutation) ResetDescription() {
+	m.description = nil
+	delete(m.clearedFields, custommodel.FieldDescription)
+}
+
+// ClearUpstreamGroup clears the "upstream_group" edge to the Group entity.
+func (m *CustomModelMutation) ClearUpstreamGroup() {
+	m.clearedupstream_group = true
+	m.clearedFields[custommodel.FieldUpstreamGroupID] = struct{}{}
+}
+
+// UpstreamGroupCleared reports if the "upstream_group" edge to the Group entity was cleared.
+func (m *CustomModelMutation) UpstreamGroupCleared() bool {
+	return m.clearedupstream_group
+}
+
+// UpstreamGroupIDs returns the "upstream_group" edge IDs in the mutation.
+// Note that IDs always returns len(IDs) <= 1 for unique edges, and you should use
+// UpstreamGroupID instead. It exists only for internal usage by the builders.
+func (m *CustomModelMutation) UpstreamGroupIDs() (ids []int64) {
+	if id := m.upstream_group; id != nil {
+		ids = append(ids, *id)
+	}
+	return
+}
+
+// ResetUpstreamGroup resets all changes to the "upstream_group" edge.
+func (m *CustomModelMutation) ResetUpstreamGroup() {
+	m.upstream_group = nil
+	m.clearedupstream_group = false
+}
+
+// AddDownstreamGroupIDs adds the "downstream_groups" edge to the Group entity by ids.
+func (m *CustomModelMutation) AddDownstreamGroupIDs(ids ...int64) {
+	if m.downstream_groups == nil {
+		m.downstream_groups = make(map[int64]struct{})
+	}
+	for i := range ids {
+		m.downstream_groups[ids[i]] = struct{}{}
+	}
+}
+
+// ClearDownstreamGroups clears the "downstream_groups" edge to the Group entity.
+func (m *CustomModelMutation) ClearDownstreamGroups() {
+	m.cleareddownstream_groups = true
+}
+
+// DownstreamGroupsCleared reports if the "downstream_groups" edge to the Group entity was cleared.
+func (m *CustomModelMutation) DownstreamGroupsCleared() bool {
+	return m.cleareddownstream_groups
+}
+
+// RemoveDownstreamGroupIDs removes the "downstream_groups" edge to the Group entity by IDs.
+func (m *CustomModelMutation) RemoveDownstreamGroupIDs(ids ...int64) {
+	if m.removeddownstream_groups == nil {
+		m.removeddownstream_groups = make(map[int64]struct{})
+	}
+	for i := range ids {
+		delete(m.downstream_groups, ids[i])
+		m.removeddownstream_groups[ids[i]] = struct{}{}
+	}
+}
+
+// RemovedDownstreamGroups returns the removed IDs of the "downstream_groups" edge to the Group entity.
+func (m *CustomModelMutation) RemovedDownstreamGroupsIDs() (ids []int64) {
+	for id := range m.removeddownstream_groups {
+		ids = append(ids, id)
+	}
+	return
+}
+
+// DownstreamGroupsIDs returns the "downstream_groups" edge IDs in the mutation.
+func (m *CustomModelMutation) DownstreamGroupsIDs() (ids []int64) {
+	for id := range m.downstream_groups {
+		ids = append(ids, id)
+	}
+	return
+}
+
+// ResetDownstreamGroups resets all changes to the "downstream_groups" edge.
+func (m *CustomModelMutation) ResetDownstreamGroups() {
+	m.downstream_groups = nil
+	m.cleareddownstream_groups = false
+	m.removeddownstream_groups = nil
+}
+
+// Where appends a list predicates to the CustomModelMutation builder.
+func (m *CustomModelMutation) Where(ps ...predicate.CustomModel) {
+	m.predicates = append(m.predicates, ps...)
+}
+
+// WhereP appends storage-level predicates to the CustomModelMutation builder. Using this method,
+// users can use type-assertion to append predicates that do not depend on any generated package.
+func (m *CustomModelMutation) WhereP(ps ...func(*sql.Selector)) {
+	p := make([]predicate.CustomModel, len(ps))
+	for i := range ps {
+		p[i] = ps[i]
+	}
+	m.Where(p...)
+}
+
+// Op returns the operation name.
+func (m *CustomModelMutation) Op() Op {
+	return m.op
+}
+
+// SetOp allows setting the mutation operation.
+func (m *CustomModelMutation) SetOp(op Op) {
+	m.op = op
+}
+
+// Type returns the node type of this mutation (CustomModel).
+func (m *CustomModelMutation) Type() string {
+	return m.typ
+}
+
+// Fields returns all fields that were changed during this mutation. Note that in
+// order to get all numeric fields that were incremented/decremented, call
+// AddedFields().
+func (m *CustomModelMutation) Fields() []string {
+	fields := make([]string, 0, 9)
+	if m.created_at != nil {
+		fields = append(fields, custommodel.FieldCreatedAt)
+	}
+	if m.updated_at != nil {
+		fields = append(fields, custommodel.FieldUpdatedAt)
+	}
+	if m.deleted_at != nil {
+		fields = append(fields, custommodel.FieldDeletedAt)
+	}
+	if m.model_id != nil {
+		fields = append(fields, custommodel.FieldModelID)
+	}
+	if m.upstream_group != nil {
+		fields = append(fields, custommodel.FieldUpstreamGroupID)
+	}
+	if m.upstream_model != nil {
+		fields = append(fields, custommodel.FieldUpstreamModel)
+	}
+	if m.system_prompt != nil {
+		fields = append(fields, custommodel.FieldSystemPrompt)
+	}
+	if m.enabled != nil {
+		fields = append(fields, custommodel.FieldEnabled)
+	}
+	if m.description != nil {
+		fields = append(fields, custommodel.FieldDescription)
+	}
+	return fields
+}
+
+// Field returns the value of a field with the given name. The second boolean
+// return value indicates that this field was not set, or was not defined in the
+// schema.
+func (m *CustomModelMutation) Field(name string) (ent.Value, bool) {
+	switch name {
+	case custommodel.FieldCreatedAt:
+		return m.CreatedAt()
+	case custommodel.FieldUpdatedAt:
+		return m.UpdatedAt()
+	case custommodel.FieldDeletedAt:
+		return m.DeletedAt()
+	case custommodel.FieldModelID:
+		return m.ModelID()
+	case custommodel.FieldUpstreamGroupID:
+		return m.UpstreamGroupID()
+	case custommodel.FieldUpstreamModel:
+		return m.UpstreamModel()
+	case custommodel.FieldSystemPrompt:
+		return m.SystemPrompt()
+	case custommodel.FieldEnabled:
+		return m.Enabled()
+	case custommodel.FieldDescription:
+		return m.Description()
+	}
+	return nil, false
+}
+
+// OldField returns the old value of the field from the database. An error is
+// returned if the mutation operation is not UpdateOne, or the query to the
+// database failed.
+func (m *CustomModelMutation) OldField(ctx context.Context, name string) (ent.Value, error) {
+	switch name {
+	case custommodel.FieldCreatedAt:
+		return m.OldCreatedAt(ctx)
+	case custommodel.FieldUpdatedAt:
+		return m.OldUpdatedAt(ctx)
+	case custommodel.FieldDeletedAt:
+		return m.OldDeletedAt(ctx)
+	case custommodel.FieldModelID:
+		return m.OldModelID(ctx)
+	case custommodel.FieldUpstreamGroupID:
+		return m.OldUpstreamGroupID(ctx)
+	case custommodel.FieldUpstreamModel:
+		return m.OldUpstreamModel(ctx)
+	case custommodel.FieldSystemPrompt:
+		return m.OldSystemPrompt(ctx)
+	case custommodel.FieldEnabled:
+		return m.OldEnabled(ctx)
+	case custommodel.FieldDescription:
+		return m.OldDescription(ctx)
+	}
+	return nil, fmt.Errorf("unknown CustomModel field %s", name)
+}
+
+// SetField sets the value of a field with the given name. It returns an error if
+// the field is not defined in the schema, or if the type mismatched the field
+// type.
+func (m *CustomModelMutation) SetField(name string, value ent.Value) error {
+	switch name {
+	case custommodel.FieldCreatedAt:
+		v, ok := value.(time.Time)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetCreatedAt(v)
+		return nil
+	case custommodel.FieldUpdatedAt:
+		v, ok := value.(time.Time)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetUpdatedAt(v)
+		return nil
+	case custommodel.FieldDeletedAt:
+		v, ok := value.(time.Time)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetDeletedAt(v)
+		return nil
+	case custommodel.FieldModelID:
+		v, ok := value.(string)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetModelID(v)
+		return nil
+	case custommodel.FieldUpstreamGroupID:
+		v, ok := value.(int64)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetUpstreamGroupID(v)
+		return nil
+	case custommodel.FieldUpstreamModel:
+		v, ok := value.(string)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetUpstreamModel(v)
+		return nil
+	case custommodel.FieldSystemPrompt:
+		v, ok := value.(string)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetSystemPrompt(v)
+		return nil
+	case custommodel.FieldEnabled:
+		v, ok := value.(bool)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetEnabled(v)
+		return nil
+	case custommodel.FieldDescription:
+		v, ok := value.(string)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetDescription(v)
+		return nil
+	}
+	return fmt.Errorf("unknown CustomModel field %s", name)
+}
+
+// AddedFields returns all numeric fields that were incremented/decremented during
+// this mutation.
+func (m *CustomModelMutation) AddedFields() []string {
+	var fields []string
+	return fields
+}
+
+// AddedField returns the numeric value that was incremented/decremented on a field
+// with the given name. The second boolean return value indicates that this field
+// was not set, or was not defined in the schema.
+func (m *CustomModelMutation) AddedField(name string) (ent.Value, bool) {
+	switch name {
+	}
+	return nil, false
+}
+
+// AddField adds the value to the field with the given name. It returns an error if
+// the field is not defined in the schema, or if the type mismatched the field
+// type.
+func (m *CustomModelMutation) AddField(name string, value ent.Value) error {
+	switch name {
+	}
+	return fmt.Errorf("unknown CustomModel numeric field %s", name)
+}
+
+// ClearedFields returns all nullable fields that were cleared during this
+// mutation.
+func (m *CustomModelMutation) ClearedFields() []string {
+	var fields []string
+	if m.FieldCleared(custommodel.FieldDeletedAt) {
+		fields = append(fields, custommodel.FieldDeletedAt)
+	}
+	if m.FieldCleared(custommodel.FieldSystemPrompt) {
+		fields = append(fields, custommodel.FieldSystemPrompt)
+	}
+	if m.FieldCleared(custommodel.FieldDescription) {
+		fields = append(fields, custommodel.FieldDescription)
+	}
+	return fields
+}
+
+// FieldCleared returns a boolean indicating if a field with the given name was
+// cleared in this mutation.
+func (m *CustomModelMutation) FieldCleared(name string) bool {
+	_, ok := m.clearedFields[name]
+	return ok
+}
+
+// ClearField clears the value of the field with the given name. It returns an
+// error if the field is not defined in the schema.
+func (m *CustomModelMutation) ClearField(name string) error {
+	switch name {
+	case custommodel.FieldDeletedAt:
+		m.ClearDeletedAt()
+		return nil
+	case custommodel.FieldSystemPrompt:
+		m.ClearSystemPrompt()
+		return nil
+	case custommodel.FieldDescription:
+		m.ClearDescription()
+		return nil
+	}
+	return fmt.Errorf("unknown CustomModel nullable field %s", name)
+}
+
+// ResetField resets all changes in the mutation for the field with the given name.
+// It returns an error if the field is not defined in the schema.
+func (m *CustomModelMutation) ResetField(name string) error {
+	switch name {
+	case custommodel.FieldCreatedAt:
+		m.ResetCreatedAt()
+		return nil
+	case custommodel.FieldUpdatedAt:
+		m.ResetUpdatedAt()
+		return nil
+	case custommodel.FieldDeletedAt:
+		m.ResetDeletedAt()
+		return nil
+	case custommodel.FieldModelID:
+		m.ResetModelID()
+		return nil
+	case custommodel.FieldUpstreamGroupID:
+		m.ResetUpstreamGroupID()
+		return nil
+	case custommodel.FieldUpstreamModel:
+		m.ResetUpstreamModel()
+		return nil
+	case custommodel.FieldSystemPrompt:
+		m.ResetSystemPrompt()
+		return nil
+	case custommodel.FieldEnabled:
+		m.ResetEnabled()
+		return nil
+	case custommodel.FieldDescription:
+		m.ResetDescription()
+		return nil
+	}
+	return fmt.Errorf("unknown CustomModel field %s", name)
+}
+
+// AddedEdges returns all edge names that were set/added in this mutation.
+func (m *CustomModelMutation) AddedEdges() []string {
+	edges := make([]string, 0, 2)
+	if m.upstream_group != nil {
+		edges = append(edges, custommodel.EdgeUpstreamGroup)
+	}
+	if m.downstream_groups != nil {
+		edges = append(edges, custommodel.EdgeDownstreamGroups)
+	}
+	return edges
+}
+
+// AddedIDs returns all IDs (to other nodes) that were added for the given edge
+// name in this mutation.
+func (m *CustomModelMutation) AddedIDs(name string) []ent.Value {
+	switch name {
+	case custommodel.EdgeUpstreamGroup:
+		if id := m.upstream_group; id != nil {
+			return []ent.Value{*id}
+		}
+	case custommodel.EdgeDownstreamGroups:
+		ids := make([]ent.Value, 0, len(m.downstream_groups))
+		for id := range m.downstream_groups {
+			ids = append(ids, id)
+		}
+		return ids
+	}
+	return nil
+}
+
+// RemovedEdges returns all edge names that were removed in this mutation.
+func (m *CustomModelMutation) RemovedEdges() []string {
+	edges := make([]string, 0, 2)
+	if m.removeddownstream_groups != nil {
+		edges = append(edges, custommodel.EdgeDownstreamGroups)
+	}
+	return edges
+}
+
+// RemovedIDs returns all IDs (to other nodes) that were removed for the edge with
+// the given name in this mutation.
+func (m *CustomModelMutation) RemovedIDs(name string) []ent.Value {
+	switch name {
+	case custommodel.EdgeDownstreamGroups:
+		ids := make([]ent.Value, 0, len(m.removeddownstream_groups))
+		for id := range m.removeddownstream_groups {
+			ids = append(ids, id)
+		}
+		return ids
+	}
+	return nil
+}
+
+// ClearedEdges returns all edge names that were cleared in this mutation.
+func (m *CustomModelMutation) ClearedEdges() []string {
+	edges := make([]string, 0, 2)
+	if m.clearedupstream_group {
+		edges = append(edges, custommodel.EdgeUpstreamGroup)
+	}
+	if m.cleareddownstream_groups {
+		edges = append(edges, custommodel.EdgeDownstreamGroups)
+	}
+	return edges
+}
+
+// EdgeCleared returns a boolean which indicates if the edge with the given name
+// was cleared in this mutation.
+func (m *CustomModelMutation) EdgeCleared(name string) bool {
+	switch name {
+	case custommodel.EdgeUpstreamGroup:
+		return m.clearedupstream_group
+	case custommodel.EdgeDownstreamGroups:
+		return m.cleareddownstream_groups
+	}
+	return false
+}
+
+// ClearEdge clears the value of the edge with the given name. It returns an error
+// if that edge is not defined in the schema.
+func (m *CustomModelMutation) ClearEdge(name string) error {
+	switch name {
+	case custommodel.EdgeUpstreamGroup:
+		m.ClearUpstreamGroup()
+		return nil
+	}
+	return fmt.Errorf("unknown CustomModel unique edge %s", name)
+}
+
+// ResetEdge resets all changes to the edge with the given name in this mutation.
+// It returns an error if the edge is not defined in the schema.
+func (m *CustomModelMutation) ResetEdge(name string) error {
+	switch name {
+	case custommodel.EdgeUpstreamGroup:
+		m.ResetUpstreamGroup()
+		return nil
+	case custommodel.EdgeDownstreamGroups:
+		m.ResetDownstreamGroups()
+		return nil
+	}
+	return fmt.Errorf("unknown CustomModel edge %s", name)
+}
+
+// CustomModelDownstreamGroupMutation represents an operation that mutates the CustomModelDownstreamGroup nodes in the graph.
+type CustomModelDownstreamGroupMutation struct {
+	config
+	op                  Op
+	typ                 string
+	created_at          *time.Time
+	clearedFields       map[string]struct{}
+	custom_model        *int64
+	clearedcustom_model bool
+	group               *int64
+	clearedgroup        bool
+	done                bool
+	oldValue            func(context.Context) (*CustomModelDownstreamGroup, error)
+	predicates          []predicate.CustomModelDownstreamGroup
+}
+
+var _ ent.Mutation = (*CustomModelDownstreamGroupMutation)(nil)
+
+// custommodeldownstreamgroupOption allows management of the mutation configuration using functional options.
+type custommodeldownstreamgroupOption func(*CustomModelDownstreamGroupMutation)
+
+// newCustomModelDownstreamGroupMutation creates new mutation for the CustomModelDownstreamGroup entity.
+func newCustomModelDownstreamGroupMutation(c config, op Op, opts ...custommodeldownstreamgroupOption) *CustomModelDownstreamGroupMutation {
+	m := &CustomModelDownstreamGroupMutation{
+		config:        c,
+		op:            op,
+		typ:           TypeCustomModelDownstreamGroup,
+		clearedFields: make(map[string]struct{}),
+	}
+	for _, opt := range opts {
+		opt(m)
+	}
+	return m
+}
+
+// Client returns a new `ent.Client` from the mutation. If the mutation was
+// executed in a transaction (ent.Tx), a transactional client is returned.
+func (m CustomModelDownstreamGroupMutation) Client() *Client {
+	client := &Client{config: m.config}
+	client.init()
+	return client
+}
+
+// Tx returns an `ent.Tx` for mutations that were executed in transactions;
+// it returns an error otherwise.
+func (m CustomModelDownstreamGroupMutation) Tx() (*Tx, error) {
+	if _, ok := m.driver.(*txDriver); !ok {
+		return nil, errors.New("ent: mutation is not running in a transaction")
+	}
+	tx := &Tx{config: m.config}
+	tx.init()
+	return tx, nil
+}
+
+// SetCustomModelID sets the "custom_model_id" field.
+func (m *CustomModelDownstreamGroupMutation) SetCustomModelID(i int64) {
+	m.custom_model = &i
+}
+
+// CustomModelID returns the value of the "custom_model_id" field in the mutation.
+func (m *CustomModelDownstreamGroupMutation) CustomModelID() (r int64, exists bool) {
+	v := m.custom_model
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// ResetCustomModelID resets all changes to the "custom_model_id" field.
+func (m *CustomModelDownstreamGroupMutation) ResetCustomModelID() {
+	m.custom_model = nil
+}
+
+// SetGroupID sets the "group_id" field.
+func (m *CustomModelDownstreamGroupMutation) SetGroupID(i int64) {
+	m.group = &i
+}
+
+// GroupID returns the value of the "group_id" field in the mutation.
+func (m *CustomModelDownstreamGroupMutation) GroupID() (r int64, exists bool) {
+	v := m.group
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// ResetGroupID resets all changes to the "group_id" field.
+func (m *CustomModelDownstreamGroupMutation) ResetGroupID() {
+	m.group = nil
+}
+
+// SetCreatedAt sets the "created_at" field.
+func (m *CustomModelDownstreamGroupMutation) SetCreatedAt(t time.Time) {
+	m.created_at = &t
+}
+
+// CreatedAt returns the value of the "created_at" field in the mutation.
+func (m *CustomModelDownstreamGroupMutation) CreatedAt() (r time.Time, exists bool) {
+	v := m.created_at
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// ResetCreatedAt resets all changes to the "created_at" field.
+func (m *CustomModelDownstreamGroupMutation) ResetCreatedAt() {
+	m.created_at = nil
+}
+
+// ClearCustomModel clears the "custom_model" edge to the CustomModel entity.
+func (m *CustomModelDownstreamGroupMutation) ClearCustomModel() {
+	m.clearedcustom_model = true
+	m.clearedFields[custommodeldownstreamgroup.FieldCustomModelID] = struct{}{}
+}
+
+// CustomModelCleared reports if the "custom_model" edge to the CustomModel entity was cleared.
+func (m *CustomModelDownstreamGroupMutation) CustomModelCleared() bool {
+	return m.clearedcustom_model
+}
+
+// CustomModelIDs returns the "custom_model" edge IDs in the mutation.
+// Note that IDs always returns len(IDs) <= 1 for unique edges, and you should use
+// CustomModelID instead. It exists only for internal usage by the builders.
+func (m *CustomModelDownstreamGroupMutation) CustomModelIDs() (ids []int64) {
+	if id := m.custom_model; id != nil {
+		ids = append(ids, *id)
+	}
+	return
+}
+
+// ResetCustomModel resets all changes to the "custom_model" edge.
+func (m *CustomModelDownstreamGroupMutation) ResetCustomModel() {
+	m.custom_model = nil
+	m.clearedcustom_model = false
+}
+
+// ClearGroup clears the "group" edge to the Group entity.
+func (m *CustomModelDownstreamGroupMutation) ClearGroup() {
+	m.clearedgroup = true
+	m.clearedFields[custommodeldownstreamgroup.FieldGroupID] = struct{}{}
+}
+
+// GroupCleared reports if the "group" edge to the Group entity was cleared.
+func (m *CustomModelDownstreamGroupMutation) GroupCleared() bool {
+	return m.clearedgroup
+}
+
+// GroupIDs returns the "group" edge IDs in the mutation.
+// Note that IDs always returns len(IDs) <= 1 for unique edges, and you should use
+// GroupID instead. It exists only for internal usage by the builders.
+func (m *CustomModelDownstreamGroupMutation) GroupIDs() (ids []int64) {
+	if id := m.group; id != nil {
+		ids = append(ids, *id)
+	}
+	return
+}
+
+// ResetGroup resets all changes to the "group" edge.
+func (m *CustomModelDownstreamGroupMutation) ResetGroup() {
+	m.group = nil
+	m.clearedgroup = false
+}
+
+// Where appends a list predicates to the CustomModelDownstreamGroupMutation builder.
+func (m *CustomModelDownstreamGroupMutation) Where(ps ...predicate.CustomModelDownstreamGroup) {
+	m.predicates = append(m.predicates, ps...)
+}
+
+// WhereP appends storage-level predicates to the CustomModelDownstreamGroupMutation builder. Using this method,
+// users can use type-assertion to append predicates that do not depend on any generated package.
+func (m *CustomModelDownstreamGroupMutation) WhereP(ps ...func(*sql.Selector)) {
+	p := make([]predicate.CustomModelDownstreamGroup, len(ps))
+	for i := range ps {
+		p[i] = ps[i]
+	}
+	m.Where(p...)
+}
+
+// Op returns the operation name.
+func (m *CustomModelDownstreamGroupMutation) Op() Op {
+	return m.op
+}
+
+// SetOp allows setting the mutation operation.
+func (m *CustomModelDownstreamGroupMutation) SetOp(op Op) {
+	m.op = op
+}
+
+// Type returns the node type of this mutation (CustomModelDownstreamGroup).
+func (m *CustomModelDownstreamGroupMutation) Type() string {
+	return m.typ
+}
+
+// Fields returns all fields that were changed during this mutation. Note that in
+// order to get all numeric fields that were incremented/decremented, call
+// AddedFields().
+func (m *CustomModelDownstreamGroupMutation) Fields() []string {
+	fields := make([]string, 0, 3)
+	if m.custom_model != nil {
+		fields = append(fields, custommodeldownstreamgroup.FieldCustomModelID)
+	}
+	if m.group != nil {
+		fields = append(fields, custommodeldownstreamgroup.FieldGroupID)
+	}
+	if m.created_at != nil {
+		fields = append(fields, custommodeldownstreamgroup.FieldCreatedAt)
+	}
+	return fields
+}
+
+// Field returns the value of a field with the given name. The second boolean
+// return value indicates that this field was not set, or was not defined in the
+// schema.
+func (m *CustomModelDownstreamGroupMutation) Field(name string) (ent.Value, bool) {
+	switch name {
+	case custommodeldownstreamgroup.FieldCustomModelID:
+		return m.CustomModelID()
+	case custommodeldownstreamgroup.FieldGroupID:
+		return m.GroupID()
+	case custommodeldownstreamgroup.FieldCreatedAt:
+		return m.CreatedAt()
+	}
+	return nil, false
+}
+
+// OldField returns the old value of the field from the database. An error is
+// returned if the mutation operation is not UpdateOne, or the query to the
+// database failed.
+func (m *CustomModelDownstreamGroupMutation) OldField(ctx context.Context, name string) (ent.Value, error) {
+	return nil, errors.New("edge schema CustomModelDownstreamGroup does not support getting old values")
+}
+
+// SetField sets the value of a field with the given name. It returns an error if
+// the field is not defined in the schema, or if the type mismatched the field
+// type.
+func (m *CustomModelDownstreamGroupMutation) SetField(name string, value ent.Value) error {
+	switch name {
+	case custommodeldownstreamgroup.FieldCustomModelID:
+		v, ok := value.(int64)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetCustomModelID(v)
+		return nil
+	case custommodeldownstreamgroup.FieldGroupID:
+		v, ok := value.(int64)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetGroupID(v)
+		return nil
+	case custommodeldownstreamgroup.FieldCreatedAt:
+		v, ok := value.(time.Time)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetCreatedAt(v)
+		return nil
+	}
+	return fmt.Errorf("unknown CustomModelDownstreamGroup field %s", name)
+}
+
+// AddedFields returns all numeric fields that were incremented/decremented during
+// this mutation.
+func (m *CustomModelDownstreamGroupMutation) AddedFields() []string {
+	var fields []string
+	return fields
+}
+
+// AddedField returns the numeric value that was incremented/decremented on a field
+// with the given name. The second boolean return value indicates that this field
+// was not set, or was not defined in the schema.
+func (m *CustomModelDownstreamGroupMutation) AddedField(name string) (ent.Value, bool) {
+	switch name {
+	}
+	return nil, false
+}
+
+// AddField adds the value to the field with the given name. It returns an error if
+// the field is not defined in the schema, or if the type mismatched the field
+// type.
+func (m *CustomModelDownstreamGroupMutation) AddField(name string, value ent.Value) error {
+	switch name {
+	}
+	return fmt.Errorf("unknown CustomModelDownstreamGroup numeric field %s", name)
+}
+
+// ClearedFields returns all nullable fields that were cleared during this
+// mutation.
+func (m *CustomModelDownstreamGroupMutation) ClearedFields() []string {
+	return nil
+}
+
+// FieldCleared returns a boolean indicating if a field with the given name was
+// cleared in this mutation.
+func (m *CustomModelDownstreamGroupMutation) FieldCleared(name string) bool {
+	_, ok := m.clearedFields[name]
+	return ok
+}
+
+// ClearField clears the value of the field with the given name. It returns an
+// error if the field is not defined in the schema.
+func (m *CustomModelDownstreamGroupMutation) ClearField(name string) error {
+	return fmt.Errorf("unknown CustomModelDownstreamGroup nullable field %s", name)
+}
+
+// ResetField resets all changes in the mutation for the field with the given name.
+// It returns an error if the field is not defined in the schema.
+func (m *CustomModelDownstreamGroupMutation) ResetField(name string) error {
+	switch name {
+	case custommodeldownstreamgroup.FieldCustomModelID:
+		m.ResetCustomModelID()
+		return nil
+	case custommodeldownstreamgroup.FieldGroupID:
+		m.ResetGroupID()
+		return nil
+	case custommodeldownstreamgroup.FieldCreatedAt:
+		m.ResetCreatedAt()
+		return nil
+	}
+	return fmt.Errorf("unknown CustomModelDownstreamGroup field %s", name)
+}
+
+// AddedEdges returns all edge names that were set/added in this mutation.
+func (m *CustomModelDownstreamGroupMutation) AddedEdges() []string {
+	edges := make([]string, 0, 2)
+	if m.custom_model != nil {
+		edges = append(edges, custommodeldownstreamgroup.EdgeCustomModel)
+	}
+	if m.group != nil {
+		edges = append(edges, custommodeldownstreamgroup.EdgeGroup)
+	}
+	return edges
+}
+
+// AddedIDs returns all IDs (to other nodes) that were added for the given edge
+// name in this mutation.
+func (m *CustomModelDownstreamGroupMutation) AddedIDs(name string) []ent.Value {
+	switch name {
+	case custommodeldownstreamgroup.EdgeCustomModel:
+		if id := m.custom_model; id != nil {
+			return []ent.Value{*id}
+		}
+	case custommodeldownstreamgroup.EdgeGroup:
+		if id := m.group; id != nil {
+			return []ent.Value{*id}
+		}
+	}
+	return nil
+}
+
+// RemovedEdges returns all edge names that were removed in this mutation.
+func (m *CustomModelDownstreamGroupMutation) RemovedEdges() []string {
+	edges := make([]string, 0, 2)
+	return edges
+}
+
+// RemovedIDs returns all IDs (to other nodes) that were removed for the edge with
+// the given name in this mutation.
+func (m *CustomModelDownstreamGroupMutation) RemovedIDs(name string) []ent.Value {
+	return nil
+}
+
+// ClearedEdges returns all edge names that were cleared in this mutation.
+func (m *CustomModelDownstreamGroupMutation) ClearedEdges() []string {
+	edges := make([]string, 0, 2)
+	if m.clearedcustom_model {
+		edges = append(edges, custommodeldownstreamgroup.EdgeCustomModel)
+	}
+	if m.clearedgroup {
+		edges = append(edges, custommodeldownstreamgroup.EdgeGroup)
+	}
+	return edges
+}
+
+// EdgeCleared returns a boolean which indicates if the edge with the given name
+// was cleared in this mutation.
+func (m *CustomModelDownstreamGroupMutation) EdgeCleared(name string) bool {
+	switch name {
+	case custommodeldownstreamgroup.EdgeCustomModel:
+		return m.clearedcustom_model
+	case custommodeldownstreamgroup.EdgeGroup:
+		return m.clearedgroup
+	}
+	return false
+}
+
+// ClearEdge clears the value of the edge with the given name. It returns an error
+// if that edge is not defined in the schema.
+func (m *CustomModelDownstreamGroupMutation) ClearEdge(name string) error {
+	switch name {
+	case custommodeldownstreamgroup.EdgeCustomModel:
+		m.ClearCustomModel()
+		return nil
+	case custommodeldownstreamgroup.EdgeGroup:
+		m.ClearGroup()
+		return nil
+	}
+	return fmt.Errorf("unknown CustomModelDownstreamGroup unique edge %s", name)
+}
+
+// ResetEdge resets all changes to the edge with the given name in this mutation.
+// It returns an error if the edge is not defined in the schema.
+func (m *CustomModelDownstreamGroupMutation) ResetEdge(name string) error {
+	switch name {
+	case custommodeldownstreamgroup.EdgeCustomModel:
+		m.ResetCustomModel()
+		return nil
+	case custommodeldownstreamgroup.EdgeGroup:
+		m.ResetGroup()
+		return nil
+	}
+	return fmt.Errorf("unknown CustomModelDownstreamGroup edge %s", name)
+}
+
 // ErrorPassthroughRuleMutation represents an operation that mutates the ErrorPassthroughRule nodes in the graph.
 type ErrorPassthroughRuleMutation struct {
 	config
@@ -22196,6 +23577,12 @@ type GroupMutation struct {
 	allowed_users                           map[int64]struct{}
 	removedallowed_users                    map[int64]struct{}
 	clearedallowed_users                    bool
+	custom_models_upstream                  map[int64]struct{}
+	removedcustom_models_upstream           map[int64]struct{}
+	clearedcustom_models_upstream           bool
+	custom_models_downstream                map[int64]struct{}
+	removedcustom_models_downstream         map[int64]struct{}
+	clearedcustom_models_downstream         bool
 	done                                    bool
 	oldValue                                func(context.Context) (*Group, error)
 	predicates                              []predicate.Group
@@ -25887,6 +27274,114 @@ func (m *GroupMutation) ResetAllowedUsers() {
 	m.removedallowed_users = nil
 }
 
+// AddCustomModelsUpstreamIDs adds the "custom_models_upstream" edge to the CustomModel entity by ids.
+func (m *GroupMutation) AddCustomModelsUpstreamIDs(ids ...int64) {
+	if m.custom_models_upstream == nil {
+		m.custom_models_upstream = make(map[int64]struct{})
+	}
+	for i := range ids {
+		m.custom_models_upstream[ids[i]] = struct{}{}
+	}
+}
+
+// ClearCustomModelsUpstream clears the "custom_models_upstream" edge to the CustomModel entity.
+func (m *GroupMutation) ClearCustomModelsUpstream() {
+	m.clearedcustom_models_upstream = true
+}
+
+// CustomModelsUpstreamCleared reports if the "custom_models_upstream" edge to the CustomModel entity was cleared.
+func (m *GroupMutation) CustomModelsUpstreamCleared() bool {
+	return m.clearedcustom_models_upstream
+}
+
+// RemoveCustomModelsUpstreamIDs removes the "custom_models_upstream" edge to the CustomModel entity by IDs.
+func (m *GroupMutation) RemoveCustomModelsUpstreamIDs(ids ...int64) {
+	if m.removedcustom_models_upstream == nil {
+		m.removedcustom_models_upstream = make(map[int64]struct{})
+	}
+	for i := range ids {
+		delete(m.custom_models_upstream, ids[i])
+		m.removedcustom_models_upstream[ids[i]] = struct{}{}
+	}
+}
+
+// RemovedCustomModelsUpstream returns the removed IDs of the "custom_models_upstream" edge to the CustomModel entity.
+func (m *GroupMutation) RemovedCustomModelsUpstreamIDs() (ids []int64) {
+	for id := range m.removedcustom_models_upstream {
+		ids = append(ids, id)
+	}
+	return
+}
+
+// CustomModelsUpstreamIDs returns the "custom_models_upstream" edge IDs in the mutation.
+func (m *GroupMutation) CustomModelsUpstreamIDs() (ids []int64) {
+	for id := range m.custom_models_upstream {
+		ids = append(ids, id)
+	}
+	return
+}
+
+// ResetCustomModelsUpstream resets all changes to the "custom_models_upstream" edge.
+func (m *GroupMutation) ResetCustomModelsUpstream() {
+	m.custom_models_upstream = nil
+	m.clearedcustom_models_upstream = false
+	m.removedcustom_models_upstream = nil
+}
+
+// AddCustomModelsDownstreamIDs adds the "custom_models_downstream" edge to the CustomModel entity by ids.
+func (m *GroupMutation) AddCustomModelsDownstreamIDs(ids ...int64) {
+	if m.custom_models_downstream == nil {
+		m.custom_models_downstream = make(map[int64]struct{})
+	}
+	for i := range ids {
+		m.custom_models_downstream[ids[i]] = struct{}{}
+	}
+}
+
+// ClearCustomModelsDownstream clears the "custom_models_downstream" edge to the CustomModel entity.
+func (m *GroupMutation) ClearCustomModelsDownstream() {
+	m.clearedcustom_models_downstream = true
+}
+
+// CustomModelsDownstreamCleared reports if the "custom_models_downstream" edge to the CustomModel entity was cleared.
+func (m *GroupMutation) CustomModelsDownstreamCleared() bool {
+	return m.clearedcustom_models_downstream
+}
+
+// RemoveCustomModelsDownstreamIDs removes the "custom_models_downstream" edge to the CustomModel entity by IDs.
+func (m *GroupMutation) RemoveCustomModelsDownstreamIDs(ids ...int64) {
+	if m.removedcustom_models_downstream == nil {
+		m.removedcustom_models_downstream = make(map[int64]struct{})
+	}
+	for i := range ids {
+		delete(m.custom_models_downstream, ids[i])
+		m.removedcustom_models_downstream[ids[i]] = struct{}{}
+	}
+}
+
+// RemovedCustomModelsDownstream returns the removed IDs of the "custom_models_downstream" edge to the CustomModel entity.
+func (m *GroupMutation) RemovedCustomModelsDownstreamIDs() (ids []int64) {
+	for id := range m.removedcustom_models_downstream {
+		ids = append(ids, id)
+	}
+	return
+}
+
+// CustomModelsDownstreamIDs returns the "custom_models_downstream" edge IDs in the mutation.
+func (m *GroupMutation) CustomModelsDownstreamIDs() (ids []int64) {
+	for id := range m.custom_models_downstream {
+		ids = append(ids, id)
+	}
+	return
+}
+
+// ResetCustomModelsDownstream resets all changes to the "custom_models_downstream" edge.
+func (m *GroupMutation) ResetCustomModelsDownstream() {
+	m.custom_models_downstream = nil
+	m.clearedcustom_models_downstream = false
+	m.removedcustom_models_downstream = nil
+}
+
 // Where appends a list predicates to the GroupMutation builder.
 func (m *GroupMutation) Where(ps ...predicate.Group) {
 	m.predicates = append(m.predicates, ps...)
@@ -27587,7 +29082,7 @@ func (m *GroupMutation) ResetField(name string) error {
 
 // AddedEdges returns all edge names that were set/added in this mutation.
 func (m *GroupMutation) AddedEdges() []string {
-	edges := make([]string, 0, 6)
+	edges := make([]string, 0, 8)
 	if m.api_keys != nil {
 		edges = append(edges, group.EdgeAPIKeys)
 	}
@@ -27605,6 +29100,12 @@ func (m *GroupMutation) AddedEdges() []string {
 	}
 	if m.allowed_users != nil {
 		edges = append(edges, group.EdgeAllowedUsers)
+	}
+	if m.custom_models_upstream != nil {
+		edges = append(edges, group.EdgeCustomModelsUpstream)
+	}
+	if m.custom_models_downstream != nil {
+		edges = append(edges, group.EdgeCustomModelsDownstream)
 	}
 	return edges
 }
@@ -27649,13 +29150,25 @@ func (m *GroupMutation) AddedIDs(name string) []ent.Value {
 			ids = append(ids, id)
 		}
 		return ids
+	case group.EdgeCustomModelsUpstream:
+		ids := make([]ent.Value, 0, len(m.custom_models_upstream))
+		for id := range m.custom_models_upstream {
+			ids = append(ids, id)
+		}
+		return ids
+	case group.EdgeCustomModelsDownstream:
+		ids := make([]ent.Value, 0, len(m.custom_models_downstream))
+		for id := range m.custom_models_downstream {
+			ids = append(ids, id)
+		}
+		return ids
 	}
 	return nil
 }
 
 // RemovedEdges returns all edge names that were removed in this mutation.
 func (m *GroupMutation) RemovedEdges() []string {
-	edges := make([]string, 0, 6)
+	edges := make([]string, 0, 8)
 	if m.removedapi_keys != nil {
 		edges = append(edges, group.EdgeAPIKeys)
 	}
@@ -27673,6 +29186,12 @@ func (m *GroupMutation) RemovedEdges() []string {
 	}
 	if m.removedallowed_users != nil {
 		edges = append(edges, group.EdgeAllowedUsers)
+	}
+	if m.removedcustom_models_upstream != nil {
+		edges = append(edges, group.EdgeCustomModelsUpstream)
+	}
+	if m.removedcustom_models_downstream != nil {
+		edges = append(edges, group.EdgeCustomModelsDownstream)
 	}
 	return edges
 }
@@ -27717,13 +29236,25 @@ func (m *GroupMutation) RemovedIDs(name string) []ent.Value {
 			ids = append(ids, id)
 		}
 		return ids
+	case group.EdgeCustomModelsUpstream:
+		ids := make([]ent.Value, 0, len(m.removedcustom_models_upstream))
+		for id := range m.removedcustom_models_upstream {
+			ids = append(ids, id)
+		}
+		return ids
+	case group.EdgeCustomModelsDownstream:
+		ids := make([]ent.Value, 0, len(m.removedcustom_models_downstream))
+		for id := range m.removedcustom_models_downstream {
+			ids = append(ids, id)
+		}
+		return ids
 	}
 	return nil
 }
 
 // ClearedEdges returns all edge names that were cleared in this mutation.
 func (m *GroupMutation) ClearedEdges() []string {
-	edges := make([]string, 0, 6)
+	edges := make([]string, 0, 8)
 	if m.clearedapi_keys {
 		edges = append(edges, group.EdgeAPIKeys)
 	}
@@ -27741,6 +29272,12 @@ func (m *GroupMutation) ClearedEdges() []string {
 	}
 	if m.clearedallowed_users {
 		edges = append(edges, group.EdgeAllowedUsers)
+	}
+	if m.clearedcustom_models_upstream {
+		edges = append(edges, group.EdgeCustomModelsUpstream)
+	}
+	if m.clearedcustom_models_downstream {
+		edges = append(edges, group.EdgeCustomModelsDownstream)
 	}
 	return edges
 }
@@ -27761,6 +29298,10 @@ func (m *GroupMutation) EdgeCleared(name string) bool {
 		return m.clearedaccounts
 	case group.EdgeAllowedUsers:
 		return m.clearedallowed_users
+	case group.EdgeCustomModelsUpstream:
+		return m.clearedcustom_models_upstream
+	case group.EdgeCustomModelsDownstream:
+		return m.clearedcustom_models_downstream
 	}
 	return false
 }
@@ -27794,6 +29335,12 @@ func (m *GroupMutation) ResetEdge(name string) error {
 		return nil
 	case group.EdgeAllowedUsers:
 		m.ResetAllowedUsers()
+		return nil
+	case group.EdgeCustomModelsUpstream:
+		m.ResetCustomModelsUpstream()
+		return nil
+	case group.EdgeCustomModelsDownstream:
+		m.ResetCustomModelsDownstream()
 		return nil
 	}
 	return fmt.Errorf("unknown Group edge %s", name)

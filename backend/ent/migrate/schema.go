@@ -863,6 +863,97 @@ var (
 			},
 		},
 	}
+	// CustomModelsColumns holds the columns for the "custom_models" table.
+	CustomModelsColumns = []*schema.Column{
+		{Name: "id", Type: field.TypeInt64, Increment: true},
+		{Name: "created_at", Type: field.TypeTime, SchemaType: map[string]string{"postgres": "timestamptz"}},
+		{Name: "updated_at", Type: field.TypeTime, SchemaType: map[string]string{"postgres": "timestamptz"}},
+		{Name: "deleted_at", Type: field.TypeTime, Nullable: true, SchemaType: map[string]string{"postgres": "timestamptz"}},
+		{Name: "model_id", Type: field.TypeString, Size: 200},
+		{Name: "upstream_model", Type: field.TypeString, Size: 200},
+		{Name: "system_prompt", Type: field.TypeString, Nullable: true, SchemaType: map[string]string{"postgres": "text"}},
+		{Name: "enabled", Type: field.TypeBool, Default: true},
+		{Name: "description", Type: field.TypeString, Nullable: true, SchemaType: map[string]string{"postgres": "text"}},
+		{Name: "upstream_group_id", Type: field.TypeInt64},
+	}
+	// CustomModelsTable holds the schema information for the "custom_models" table.
+	CustomModelsTable = &schema.Table{
+		Name:       "custom_models",
+		Columns:    CustomModelsColumns,
+		PrimaryKey: []*schema.Column{CustomModelsColumns[0]},
+		ForeignKeys: []*schema.ForeignKey{
+			{
+				Symbol:     "custom_models_groups_custom_models_upstream",
+				Columns:    []*schema.Column{CustomModelsColumns[9]},
+				RefColumns: []*schema.Column{GroupsColumns[0]},
+				OnDelete:   schema.Cascade,
+			},
+		},
+		Indexes: []*schema.Index{
+			{
+				Name:    "idx_custom_models_model_id_unique_active",
+				Unique:  true,
+				Columns: []*schema.Column{CustomModelsColumns[4]},
+				Annotation: &entsql.IndexAnnotation{
+					Where: "deleted_at IS NULL",
+				},
+			},
+			{
+				Name:    "idx_custom_models_upstream_group_id",
+				Unique:  false,
+				Columns: []*schema.Column{CustomModelsColumns[9]},
+				Annotation: &entsql.IndexAnnotation{
+					Where: "deleted_at IS NULL",
+				},
+			},
+			{
+				Name:    "idx_custom_models_enabled",
+				Unique:  false,
+				Columns: []*schema.Column{CustomModelsColumns[7]},
+				Annotation: &entsql.IndexAnnotation{
+					Where: "deleted_at IS NULL",
+				},
+			},
+			{
+				Name:    "idx_custom_models_deleted_at",
+				Unique:  false,
+				Columns: []*schema.Column{CustomModelsColumns[3]},
+			},
+		},
+	}
+	// CustomModelDownstreamGroupsColumns holds the columns for the "custom_model_downstream_groups" table.
+	CustomModelDownstreamGroupsColumns = []*schema.Column{
+		{Name: "created_at", Type: field.TypeTime, SchemaType: map[string]string{"postgres": "timestamptz"}},
+		{Name: "custom_model_id", Type: field.TypeInt64},
+		{Name: "group_id", Type: field.TypeInt64},
+	}
+	// CustomModelDownstreamGroupsTable holds the schema information for the "custom_model_downstream_groups" table.
+	CustomModelDownstreamGroupsTable = &schema.Table{
+		Name:       "custom_model_downstream_groups",
+		Columns:    CustomModelDownstreamGroupsColumns,
+		PrimaryKey: []*schema.Column{CustomModelDownstreamGroupsColumns[1], CustomModelDownstreamGroupsColumns[2]},
+		ForeignKeys: []*schema.ForeignKey{
+			{
+				Symbol:     "custom_model_downstream_groups_custom_models_custom_model",
+				Columns:    []*schema.Column{CustomModelDownstreamGroupsColumns[1]},
+				RefColumns: []*schema.Column{CustomModelsColumns[0]},
+				OnDelete:   schema.Cascade,
+			},
+			{
+				Symbol:     "custom_model_downstream_groups_groups_group",
+				Columns:    []*schema.Column{CustomModelDownstreamGroupsColumns[2]},
+				RefColumns: []*schema.Column{GroupsColumns[0]},
+				OnDelete:   schema.Cascade,
+			},
+		},
+		Indexes: []*schema.Index{
+			{
+				Name:    "idx_custom_model_downstream_groups_group_id",
+				Unique:  false,
+				Columns: []*schema.Column{CustomModelDownstreamGroupsColumns[2]},
+			},
+		},
+	}
 	// ErrorPassthroughRulesColumns holds the columns for the "error_passthrough_rules" table.
 	ErrorPassthroughRulesColumns = []*schema.Column{
 		{Name: "id", Type: field.TypeInt64, Increment: true},
@@ -2103,6 +2194,8 @@ var (
 		ChannelMonitorHistoriesTable,
 		ChannelMonitorRequestTemplatesTable,
 		CompositeModelRoutesTable,
+		CustomModelsTable,
+		CustomModelDownstreamGroupsTable,
 		ErrorPassthroughRulesTable,
 		GroupsTable,
 		IdempotencyRecordsTable,
@@ -2189,6 +2282,15 @@ func init() {
 	CompositeModelRoutesTable.ForeignKeys[0].RefTable = GroupsTable
 	CompositeModelRoutesTable.Annotation = &entsql.Annotation{
 		Table: "composite_model_routes",
+	}
+	CustomModelsTable.ForeignKeys[0].RefTable = GroupsTable
+	CustomModelsTable.Annotation = &entsql.Annotation{
+		Table: "custom_models",
+	}
+	CustomModelDownstreamGroupsTable.ForeignKeys[0].RefTable = CustomModelsTable
+	CustomModelDownstreamGroupsTable.ForeignKeys[1].RefTable = GroupsTable
+	CustomModelDownstreamGroupsTable.Annotation = &entsql.Annotation{
+		Table: "custom_model_downstream_groups",
 	}
 	ErrorPassthroughRulesTable.Annotation = &entsql.Annotation{
 		Table: "error_passthrough_rules",

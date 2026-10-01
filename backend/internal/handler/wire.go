@@ -14,6 +14,9 @@ func ProvideAdminHandlers(
 	dashboardHandler *admin.DashboardHandler,
 	userHandler *admin.UserHandler,
 	groupHandler *admin.GroupHandler,
+	customModelHandler *admin.CustomModelHandler,
+	traceAdminHandler *admin.TraceAdminHandler,
+	accountUsageExportHandler *admin.AccountUsageExportHandler,
 	accountHandler *admin.AccountHandler,
 	announcementHandler *admin.AnnouncementHandler,
 	dataManagementHandler *admin.DataManagementHandler,
@@ -58,6 +61,9 @@ func ProvideAdminHandlers(
 		Dashboard:              dashboardHandler,
 		User:                   userHandler,
 		Group:                  groupHandler,
+		CustomModel:            customModelHandler,
+		TraceAdmin:             traceAdminHandler,
+		AccountUsageExport:     accountUsageExportHandler,
 		Account:                accountHandler,
 		Announcement:           announcementHandler,
 		DataManagement:         dataManagementHandler,
@@ -111,10 +117,11 @@ func ProvideGatewayHandler(
 	cfg *config.Config,
 	settingService *service.SettingService,
 	coordinator *securityaudit.Coordinator,
+	customModels *service.CustomModelService,
 ) *GatewayHandler {
 	h := NewGatewayHandler(gatewayService, openAIGatewayService, geminiCompatService, antigravityGatewayService,
 		userService, concurrencyService, billingCacheService, usageService, apiKeyService, usageRecordWorkerPool,
-		errorPassthroughService, contentModerationService, userMsgQueueService, cfg, settingService)
+		errorPassthroughService, contentModerationService, userMsgQueueService, cfg, settingService, customModels)
 	h.securityAuditCoordinator = coordinator
 	return h
 }
@@ -132,10 +139,11 @@ func ProvideOpenAIGatewayHandler(
 	grokQuotaService *service.GrokQuotaService,
 	cfg *config.Config,
 	coordinator *securityaudit.Coordinator,
+	customModels *service.CustomModelService,
 ) *OpenAIGatewayHandler {
 	gatewayService.SetPluginManager(pluginManager)
 	h := NewOpenAIGatewayHandler(gatewayService, concurrencyService, billingCacheService, apiKeyService,
-		usageRecordWorkerPool, errorPassthroughService, contentModerationService, opsService, cfg)
+		usageRecordWorkerPool, errorPassthroughService, contentModerationService, opsService, cfg, customModels)
 	h.securityAuditCoordinator = coordinator
 	h.grokMediaEligibilityProber = grokQuotaService
 	return h
@@ -253,6 +261,9 @@ var ProviderSet = wire.NewSet(
 	admin.NewDashboardHandler,
 	admin.NewUserHandler,
 	admin.NewGroupHandlerWithConfig,
+	admin.NewCustomModelHandler,
+	admin.NewTraceAdminHandler,
+	admin.NewAccountUsageExportHandler,
 	admin.ProvideAccountHandler,
 	admin.NewAnnouncementHandler,
 	admin.NewDataManagementHandler,

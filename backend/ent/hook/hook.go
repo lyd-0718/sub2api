@@ -189,6 +189,30 @@ func (f CompositeModelRouteFunc) Mutate(ctx context.Context, m ent.Mutation) (en
 	return nil, fmt.Errorf("unexpected mutation type %T. expect *ent.CompositeModelRouteMutation", m)
 }
 
+// The CustomModelFunc type is an adapter to allow the use of ordinary
+// function as CustomModel mutator.
+type CustomModelFunc func(context.Context, *ent.CustomModelMutation) (ent.Value, error)
+
+// Mutate calls f(ctx, m).
+func (f CustomModelFunc) Mutate(ctx context.Context, m ent.Mutation) (ent.Value, error) {
+	if mv, ok := m.(*ent.CustomModelMutation); ok {
+		return f(ctx, mv)
+	}
+	return nil, fmt.Errorf("unexpected mutation type %T. expect *ent.CustomModelMutation", m)
+}
+
+// The CustomModelDownstreamGroupFunc type is an adapter to allow the use of ordinary
+// function as CustomModelDownstreamGroup mutator.
+type CustomModelDownstreamGroupFunc func(context.Context, *ent.CustomModelDownstreamGroupMutation) (ent.Value, error)
+
+// Mutate calls f(ctx, m).
+func (f CustomModelDownstreamGroupFunc) Mutate(ctx context.Context, m ent.Mutation) (ent.Value, error) {
+	if mv, ok := m.(*ent.CustomModelDownstreamGroupMutation); ok {
+		return f(ctx, mv)
+	}
+	return nil, fmt.Errorf("unexpected mutation type %T. expect *ent.CustomModelDownstreamGroupMutation", m)
+}
+
 // The ErrorPassthroughRuleFunc type is an adapter to allow the use of ordinary
 // function as ErrorPassthroughRule mutator.
 type ErrorPassthroughRuleFunc func(context.Context, *ent.ErrorPassthroughRuleMutation) (ent.Value, error)

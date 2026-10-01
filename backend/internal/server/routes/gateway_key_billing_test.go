@@ -83,26 +83,13 @@ func newKeyBillingRouteTestRouter(runMode string) (*gin.Engine, *keyBillingRoute
 		nil, nil, nil, nil, nil, rateRepo, nil, cfg, nil, nil, nil,
 		nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil,
 	)
-	gatewayHandler := handler.NewGatewayHandler(
-		gatewayService, openAIGatewayService, nil, nil, nil, nil, nil, nil,
-		apiKeyService, nil, nil, nil, nil, cfg, nil,
-	)
+	gatewayHandler := handler.NewGatewayHandler(gatewayService, openAIGatewayService, nil, nil, nil, nil, nil, nil, apiKeyService, nil, nil, nil, nil, cfg, nil, nil)
 
 	router := gin.New()
 	if web.HasEmbeddedFrontend() {
 		router.Use(web.ServeEmbeddedFrontend())
 	}
-	RegisterGatewayRoutes(
-		router,
-		&handler.Handlers{Gateway: gatewayHandler, OpenAIGateway: &handler.OpenAIGatewayHandler{}},
-		servermiddleware.NewAPIKeyAuthMiddleware(apiKeyService, nil, cfg),
-		apiKeyService,
-		nil,
-		nil,
-		nil,
-		nil,
-		cfg,
-	)
+	RegisterGatewayRoutes(router, &handler.Handlers{Gateway: gatewayHandler, OpenAIGateway: &handler.OpenAIGatewayHandler{}}, servermiddleware.NewAPIKeyAuthMiddleware(apiKeyService, nil, cfg), apiKeyService, nil, nil, nil, nil, nil, cfg)
 	return router, rateRepo, apiKey.Key
 }
 

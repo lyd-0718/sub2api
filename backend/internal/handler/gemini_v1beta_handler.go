@@ -45,6 +45,15 @@ func (h *GatewayHandler) GeminiV1BetaListModels(c *gin.Context) {
 		googleError(c, http.StatusBadRequest, "API key group platform is not gemini")
 		return
 	}
+	customModelIDs, err := customDiscoveryModelIDs(c.Request.Context(), h.customModelService, apiKey)
+	if err != nil {
+		googleError(c, http.StatusInternalServerError, "Failed to list custom models")
+		return
+	}
+	customModels := make([]gemini.Model, 0, len(customModelIDs))
+	for _, id := range customModelIDs {
+		customModels = append(customModels, gemini.FallbackModel(id))
+	}
 
 	// 分组级模型白名单开启时过滤 models[].name（名字形如 models/xxx）。
 	filterGeminiModels := func(models []gemini.Model) []gemini.Model {
@@ -69,15 +78,20 @@ func (h *GatewayHandler) GeminiV1BetaListModels(c *gin.Context) {
 	for _, id := range agModelIDs {
 		agModels = append(agModels, gemini.FallbackModel(id))
 	}
+	extraModels := mergeGeminiModelLists(agModels, customModels)
 	if forcePlatform == service.PlatformAntigravity {
-		c.JSON(http.StatusOK, gemini.ModelsListResponse{Models: filterGeminiModels(agModels)})
+		c.JSON(http.StatusOK, gemini.ModelsListResponse{Models: filterGeminiModels(extraModels)})
 		return
 	}
 
 	account, err := h.geminiCompatService.SelectAccountForAIStudioEndpoints(c.Request.Context(), apiKey.GroupID)
 	if err != nil {
 		if len(agModels) > 0 {
-			c.JSON(http.StatusOK, gemini.ModelsListResponse{Models: filterGeminiModels(agModels)})
+			c.JSON(http.StatusOK, gemini.ModelsListResponse{Models: filterGeminiModels(extraModels)})
+			return
+		}
+		if len(customModels) > 0 {
+			c.JSON(http.StatusOK, gemini.ModelsListResponse{Models: filterGeminiModels(mergeGeminiModelLists(gemini.DefaultModels(), customModels))})
 			return
 		}
 		markOpsRoutingCapacityLimitedIfNoAvailable(c, err)
@@ -91,12 +105,15 @@ func (h *GatewayHandler) GeminiV1BetaListModels(c *gin.Context) {
 		return
 	}
 	if shouldFallbackGeminiModels(res) {
-		c.JSON(http.StatusOK, gemini.ModelsListResponse{Models: filterGeminiModels(mergeGeminiModelLists(gemini.DefaultModels(), agModels))})
+		c.JSON(http.StatusOK, gemini.ModelsListResponse{Models: filterGeminiModels(mergeGeminiModelLists(gemini.DefaultModels(), extraModels))})
 		return
 	}
-	if res.StatusCode == http.StatusOK && len(agModels) > 0 {
-		if merged, ok := appendUpstreamGeminiModels(res.Body, agModels); ok {
+	if res.StatusCode == http.StatusOK && len(extraModels) > 0 {
+		if merged, ok := appendUpstreamGeminiModels(res.Body, extraModels); ok {
 			res.Body = merged
+		} else if len(customModels) > 0 {
+			googleError(c, http.StatusBadGateway, "Invalid upstream Gemini model catalogue")
+			return
 		}
 	}
 
@@ -223,12 +240,8 @@ func (h *GatewayHandler) GeminiV1BetaGetModel(c *gin.Context) {
 		googleError(c, http.StatusUnauthorized, "Invalid API key")
 		return
 	}
-	// 检查平台：优先使用强制平台（/antigravity 路由），否则要求 gemini 分组
-	forcePlatform, hasForcePlatform := middleware.GetForcePlatformFromContext(c)
-	if !hasForcePlatform && effectiveAPIKeyPlatform(c, apiKey) != service.PlatformGemini {
-		googleError(c, http.StatusBadRequest, "API key group platform is not gemini")
-		return
-	}
+	// Custom discovery is scoped to the downstream group, independent of the
+	// target protocol selected for inference.
 
 	modelName := strings.TrimSpace(c.Param("model"))
 	if modelName == "" {
@@ -239,6 +252,39 @@ func (h *GatewayHandler) GeminiV1BetaGetModel(c *gin.Context) {
 	// 见 service/upstream_path_guard.go。
 	if !service.IsSafeGeminiModelPathSegment(modelName) {
 		googleError(c, http.StatusBadRequest, "Invalid model in URL")
+		return
+	}
+	customModelIDs, err := customDiscoveryModelIDs(c.Request.Context(), h.customModelService, apiKey)
+	if err != nil {
+		googleError(c, http.StatusInternalServerError, "Failed to list custom models")
+		return
+	}
+	for _, id := range customModelIDs {
+		if modelName == strings.TrimPrefix(id, "models/") {
+			c.JSON(http.StatusOK, gemini.FallbackModel(id))
+			return
+		}
+	}
+	if h.customModelService != nil {
+		for _, publicID := range []string{modelName, "models/" + modelName} {
+			model, err := h.customModelService.Get(c.Request.Context(), publicID)
+			if err != nil && !errors.Is(err, service.ErrCustomModelNotFound) {
+				googleError(c, http.StatusInternalServerError, "Failed to look up custom model")
+				return
+			}
+			if model != nil {
+				googleError(c, http.StatusNotFound, "Model is not available for this group")
+				return
+			}
+		}
+	}
+	if apiKey.Group != nil && !apiKey.Group.ModelAllowlist.Allows(modelName) {
+		googleError(c, http.StatusNotFound, "Model is not available for this group")
+		return
+	}
+	forcePlatform, hasForcePlatform := middleware.GetForcePlatformFromContext(c)
+	if !hasForcePlatform && effectiveAPIKeyPlatform(c, apiKey) != service.PlatformGemini {
+		googleError(c, http.StatusBadRequest, "API key group platform is not gemini")
 		return
 	}
 	if resolvedModel, ok := service.ResolvedUpstreamModelFromContext(c.Request.Context()); ok && strings.TrimSpace(resolvedModel) != "" {

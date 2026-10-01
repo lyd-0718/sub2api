@@ -20,6 +20,8 @@ import (
 	"github.com/Wei-Shaw/sub2api/ent/channelmonitorhistory"
 	"github.com/Wei-Shaw/sub2api/ent/channelmonitorrequesttemplate"
 	"github.com/Wei-Shaw/sub2api/ent/compositemodelroute"
+	"github.com/Wei-Shaw/sub2api/ent/custommodel"
+	"github.com/Wei-Shaw/sub2api/ent/custommodeldownstreamgroup"
 	"github.com/Wei-Shaw/sub2api/ent/errorpassthroughrule"
 	"github.com/Wei-Shaw/sub2api/ent/group"
 	"github.com/Wei-Shaw/sub2api/ent/idempotencyrecord"
@@ -927,6 +929,71 @@ func init() {
 	compositemodelrouteDescEnabled := compositemodelrouteFields[7].Descriptor()
 	// compositemodelroute.DefaultEnabled holds the default value on creation for the enabled field.
 	compositemodelroute.DefaultEnabled = compositemodelrouteDescEnabled.Default.(bool)
+	custommodelMixin := schema.CustomModel{}.Mixin()
+	custommodelMixinHooks1 := custommodelMixin[1].Hooks()
+	custommodel.Hooks[0] = custommodelMixinHooks1[0]
+	custommodelMixinInters1 := custommodelMixin[1].Interceptors()
+	custommodel.Interceptors[0] = custommodelMixinInters1[0]
+	custommodelMixinFields0 := custommodelMixin[0].Fields()
+	_ = custommodelMixinFields0
+	custommodelFields := schema.CustomModel{}.Fields()
+	_ = custommodelFields
+	// custommodelDescCreatedAt is the schema descriptor for created_at field.
+	custommodelDescCreatedAt := custommodelMixinFields0[0].Descriptor()
+	// custommodel.DefaultCreatedAt holds the default value on creation for the created_at field.
+	custommodel.DefaultCreatedAt = custommodelDescCreatedAt.Default.(func() time.Time)
+	// custommodelDescUpdatedAt is the schema descriptor for updated_at field.
+	custommodelDescUpdatedAt := custommodelMixinFields0[1].Descriptor()
+	// custommodel.DefaultUpdatedAt holds the default value on creation for the updated_at field.
+	custommodel.DefaultUpdatedAt = custommodelDescUpdatedAt.Default.(func() time.Time)
+	// custommodel.UpdateDefaultUpdatedAt holds the default value on update for the updated_at field.
+	custommodel.UpdateDefaultUpdatedAt = custommodelDescUpdatedAt.UpdateDefault.(func() time.Time)
+	// custommodelDescModelID is the schema descriptor for model_id field.
+	custommodelDescModelID := custommodelFields[0].Descriptor()
+	// custommodel.ModelIDValidator is a validator for the "model_id" field. It is called by the builders before save.
+	custommodel.ModelIDValidator = func() func(string) error {
+		validators := custommodelDescModelID.Validators
+		fns := [...]func(string) error{
+			validators[0].(func(string) error),
+			validators[1].(func(string) error),
+		}
+		return func(model_id string) error {
+			for _, fn := range fns {
+				if err := fn(model_id); err != nil {
+					return err
+				}
+			}
+			return nil
+		}
+	}()
+	// custommodelDescUpstreamModel is the schema descriptor for upstream_model field.
+	custommodelDescUpstreamModel := custommodelFields[2].Descriptor()
+	// custommodel.UpstreamModelValidator is a validator for the "upstream_model" field. It is called by the builders before save.
+	custommodel.UpstreamModelValidator = func() func(string) error {
+		validators := custommodelDescUpstreamModel.Validators
+		fns := [...]func(string) error{
+			validators[0].(func(string) error),
+			validators[1].(func(string) error),
+		}
+		return func(upstream_model string) error {
+			for _, fn := range fns {
+				if err := fn(upstream_model); err != nil {
+					return err
+				}
+			}
+			return nil
+		}
+	}()
+	// custommodelDescEnabled is the schema descriptor for enabled field.
+	custommodelDescEnabled := custommodelFields[4].Descriptor()
+	// custommodel.DefaultEnabled holds the default value on creation for the enabled field.
+	custommodel.DefaultEnabled = custommodelDescEnabled.Default.(bool)
+	custommodeldownstreamgroupFields := schema.CustomModelDownstreamGroup{}.Fields()
+	_ = custommodeldownstreamgroupFields
+	// custommodeldownstreamgroupDescCreatedAt is the schema descriptor for created_at field.
+	custommodeldownstreamgroupDescCreatedAt := custommodeldownstreamgroupFields[2].Descriptor()
+	// custommodeldownstreamgroup.DefaultCreatedAt holds the default value on creation for the created_at field.
+	custommodeldownstreamgroup.DefaultCreatedAt = custommodeldownstreamgroupDescCreatedAt.Default.(func() time.Time)
 	errorpassthroughruleMixin := schema.ErrorPassthroughRule{}.Mixin()
 	errorpassthroughruleMixinFields0 := errorpassthroughruleMixin[0].Fields()
 	_ = errorpassthroughruleMixinFields0

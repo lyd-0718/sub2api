@@ -255,7 +255,13 @@ func (s *OpenAIGatewayService) SelectAccountForModel(ctx context.Context, groupI
 // SelectAccountForModelWithExclusions selects an account supporting the requested model while excluding specified accounts.
 // SelectAccountForModelWithExclusions 选择支持指定模型的账号，同时排除指定的账号。
 func (s *OpenAIGatewayService) SelectAccountForModelWithExclusions(ctx context.Context, groupID *int64, sessionHash string, requestedModel string, excludedIDs map[int64]struct{}) (*Account, error) {
-	return s.selectAccountForModelWithExclusions(s.withOpenAIQuotaAutoPauseContext(ctx), groupID, PlatformOpenAI, sessionHash, requestedModel, excludedIDs, false, 0, "", false)
+	groupID = CustomModelRoutingGroupID(ctx, groupID)
+	ctx = s.withOpenAIGroupPrivacyRequirement(ctx, groupID)
+	platform := PlatformOpenAI
+	if _, custom := CustomModelResolutionFromContext(ctx); custom {
+		platform, _ = ResolvedTargetPlatformFromContext(ctx)
+	}
+	return s.selectAccountForModelWithExclusions(s.withOpenAIQuotaAutoPauseContext(ctx), groupID, platform, sessionHash, requestedModel, excludedIDs, false, 0, "", false)
 }
 
 // SelectAccountForTokenCount selects an account for a non-billable token-count
@@ -269,6 +275,11 @@ func (s *OpenAIGatewayService) SelectAccountForTokenCount(
 	requiredCapability OpenAIEndpointCapability,
 	platform string,
 ) (*Account, error) {
+	groupID = CustomModelRoutingGroupID(ctx, groupID)
+	ctx = s.withOpenAIGroupPrivacyRequirement(ctx, groupID)
+	if _, custom := CustomModelResolutionFromContext(ctx); custom {
+		platform, _ = ResolvedTargetPlatformFromContext(ctx)
+	}
 	ctx = WithOpenAIProfitControlSuppressed(ctx)
 	ctx = s.withOpenAIQuotaAutoPauseContext(ctx)
 	return s.selectAccountForModelWithExclusions(
@@ -983,7 +994,7 @@ func (s *OpenAIGatewayService) tryStickySessionHit(ctx context.Context, groupID 
 		return nil
 	}
 	account = s.recheckSelectedOpenAIAccountFromDB(ctx, account, groupID, platform, requestedModel, requireCompact, requiredCapability)
-	if account == nil || !s.openAIAccountMatchesSchedulingGroup(account, groupID) {
+	if account == nil || !s.openAIAccountMatchesSchedulingGroup(ctx, account, groupID) {
 		_ = s.deleteStickySessionAccountID(ctx, groupID, sessionHash)
 		return nil
 	}
@@ -1113,12 +1124,17 @@ func (s *OpenAIGatewayService) isBetterAccount(candidate, current *Account) bool
 
 // SelectAccountWithLoadAwareness selects an account with load-awareness and wait plan.
 func (s *OpenAIGatewayService) SelectAccountWithLoadAwareness(ctx context.Context, groupID *int64, sessionHash string, requestedModel string, excludedIDs map[int64]struct{}) (*AccountSelectionResult, error) {
+	groupID = CustomModelRoutingGroupID(ctx, groupID)
+	platform := PlatformOpenAI
+	if _, custom := CustomModelResolutionFromContext(ctx); custom {
+		platform, _ = ResolvedTargetPlatformFromContext(ctx)
+	}
 	ctx = s.withOpenAIQuotaAutoPauseContext(ctx)
 	ctx = s.withOpenAIGroupPrivacyRequirement(ctx, groupID)
 	// 分组利润控制：legacy 公共入口同样装门，保证不经
 	// selectAccountWithScheduler 的调用方也无法绕过利润准入。
 	ctx = s.withOpenAIProfitControlGate(ctx, groupID)
-	return s.selectAccountWithLoadAwareness(ctx, groupID, PlatformOpenAI, sessionHash, requestedModel, excludedIDs, false, "", true)
+	return s.selectAccountWithLoadAwareness(ctx, groupID, platform, sessionHash, requestedModel, excludedIDs, false, "", true)
 }
 
 func (s *OpenAIGatewayService) selectAccountWithLoadAwareness(ctx context.Context, groupID *int64, platform string, sessionHash string, requestedModel string, excludedIDs map[int64]struct{}, requireCompact bool, requiredCapability OpenAIEndpointCapability, useUpstreamTokenCost bool) (*AccountSelectionResult, error) {
@@ -1205,7 +1221,7 @@ func (s *OpenAIGatewayService) selectAccountWithLoadAwareness(ctx context.Contex
 					account = s.recheckSelectedOpenAIAccountFromDB(ctx, account, groupID, platform, requestedModel, requireCompact, requiredCapability)
 					if account == nil {
 						_ = s.deleteStickySessionAccountID(ctx, groupID, sessionHash)
-					} else if !s.openAIAccountMatchesSchedulingGroup(account, groupID) {
+					} else if !s.openAIAccountMatchesSchedulingGroup(ctx, account, groupID) {
 						_ = s.deleteStickySessionAccountID(ctx, groupID, sessionHash)
 					} else if s.isOpenAIAccountRequestRuntimeBlocked(account, requestedModel) {
 						_ = s.deleteStickySessionAccountID(ctx, groupID, sessionHash)
@@ -1484,8 +1500,9 @@ func (s *OpenAIGatewayService) selectAccountWithLoadAwareness(ctx context.Contex
 }
 
 func (s *OpenAIGatewayService) listSchedulableAccounts(ctx context.Context, groupID *int64, platform string) ([]Account, error) {
+	_, custom := CustomModelResolutionFromContext(ctx)
 	platform = NormalizeOpenAICompatiblePlatform(platform)
-	if s.schedulerSnapshot != nil {
+	if s.schedulerSnapshot != nil && !(custom && s.schedulerSnapshot.isRunModeSimple()) {
 		accounts, _, err := s.schedulerSnapshot.ListSchedulableAccounts(ctx, groupID, platform, false)
 		if err != nil {
 			return accounts, err
@@ -1499,7 +1516,7 @@ func (s *OpenAIGatewayService) listSchedulableAccounts(ctx context.Context, grou
 	}
 	var accounts []Account
 	var err error
-	if s.cfg != nil && s.cfg.RunMode == config.RunModeSimple {
+	if s.cfg != nil && s.cfg.RunMode == config.RunModeSimple && !custom {
 		accounts, err = s.accountRepo.ListSchedulableByPlatform(ctx, platform)
 	} else if groupID != nil {
 		accounts, err = s.accountRepo.ListSchedulableByGroupIDAndPlatform(ctx, *groupID, platform)
@@ -1599,6 +1616,9 @@ func (s *OpenAIGatewayService) recheckSelectedOpenAIAccountFromDBBeforeProfit(ct
 	}
 	platform = NormalizeOpenAICompatiblePlatform(platform)
 	if s.schedulerSnapshot == nil || s.accountRepo == nil {
+		if _, custom := CustomModelResolutionFromContext(ctx); custom && !openAIStickyAccountMatchesGroup(account, groupID) {
+			return nil
+		}
 		if s.openAIGroupRequiresPrivacySet(ctx, groupID) && !account.IsPrivacySet() {
 			return nil
 		}
@@ -1621,7 +1641,7 @@ func (s *OpenAIGatewayService) recheckSelectedOpenAIAccountFromDBBeforeProfit(ct
 	if err != nil || latest == nil {
 		return nil
 	}
-	if !s.openAIAccountMatchesSchedulingGroup(latest, groupID) {
+	if !s.openAIAccountMatchesSchedulingGroup(ctx, latest, groupID) {
 		return nil
 	}
 	if s.openAIGroupRequiresPrivacySet(ctx, groupID) && !latest.IsPrivacySet() {
@@ -1645,8 +1665,9 @@ func (s *OpenAIGatewayService) recheckSelectedOpenAIAccountFromDBBeforeProfit(ct
 	return latest
 }
 
-func (s *OpenAIGatewayService) openAIAccountMatchesSchedulingGroup(account *Account, groupID *int64) bool {
-	if s != nil && s.cfg != nil && s.cfg.RunMode == config.RunModeSimple {
+func (s *OpenAIGatewayService) openAIAccountMatchesSchedulingGroup(ctx context.Context, account *Account, groupID *int64) bool {
+	_, custom := CustomModelResolutionFromContext(ctx)
+	if s != nil && s.cfg != nil && s.cfg.RunMode == config.RunModeSimple && !custom {
 		return account != nil
 	}
 	return openAIStickyAccountMatchesGroup(account, groupID)

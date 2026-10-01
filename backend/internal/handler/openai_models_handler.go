@@ -11,7 +11,7 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-func (h *GatewayHandler) pinnedOpenAIModels(c *gin.Context, group *service.Group) {
+func (h *GatewayHandler) pinnedOpenAIModels(c *gin.Context, group *service.Group, customModels []string) {
 	if c.Request.Context().Err() != nil {
 		return
 	}
@@ -22,6 +22,9 @@ func (h *GatewayHandler) pinnedOpenAIModels(c *gin.Context, group *service.Group
 	etag := c.GetHeader("If-None-Match")
 	if c.Param("model") != "" {
 		etag = "" // A collection ETag cannot validate a single-model representation.
+	}
+	if len(customModels) > 0 {
+		etag = "" // Validate only after merging the downstream custom catalogue.
 	}
 	response, account, err := h.openAIGatewayService.FetchPinnedOpenAIModelsList(
 		c.Request.Context(), group, h.maxAccountSwitches, etag,
@@ -38,6 +41,18 @@ func (h *GatewayHandler) pinnedOpenAIModels(c *gin.Context, group *service.Group
 		return
 	}
 	setOpsSelectedAccount(c, account.ID, account.Platform)
+	if len(customModels) > 0 {
+		response.Body, err = appendCustomModelList(response.Body, customModels, service.PlatformOpenAI)
+		if err != nil {
+			writeOpenAIModelsError(c, http.StatusBadGateway, "upstream_error", "Failed to merge model catalogue")
+			return
+		}
+		clientETag := c.GetHeader("If-None-Match")
+		if c.Param("model") != "" {
+			clientETag = ""
+		}
+		applyCustomDiscoveryETag(response, clientETag)
+	}
 	writeOpenAIModelsResponse(c, response)
 }
 

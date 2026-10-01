@@ -19,33 +19,23 @@ import (
 func newGatewayRoutesTestRouterWithGroup(group *service.Group) *gin.Engine {
 	gin.SetMode(gin.TestMode)
 	router := gin.New()
-	RegisterGatewayRoutes(
-		router,
-		&handler.Handlers{
+	RegisterGatewayRoutes(router, &handler.Handlers{
 			Gateway:       &handler.GatewayHandler{},
 			OpenAIGateway: &handler.OpenAIGatewayHandler{},
 			AsyncImage:    handler.NewAsyncImageHandler(nil, nil),
-		},
-		servermiddleware.APIKeyAuthMiddleware(func(c *gin.Context) {
+		}, servermiddleware.APIKeyAuthMiddleware(func(c *gin.Context) {
 			groupID := int64(1)
 			c.Set(string(servermiddleware.ContextKeyAPIKey), &service.APIKey{
 				GroupID: &groupID,
 				Group:   group,
 			})
 			c.Next()
-		}),
-		nil,
-		nil,
-		nil,
-		nil,
-		nil,
-		&config.Config{
+		}), nil, nil, nil, nil, nil, nil, &config.Config{
 			Gateway: config.GatewayConfig{
 				MaxBodySize:     1024 * 1024,
 				TextMaxBodySize: 1024 * 1024,
 			},
-		},
-	)
+		})
 	return router
 }
 
@@ -61,41 +51,45 @@ func allowlistGroup(platform string, enabled bool, models ...string) *service.Gr
 
 // TestGatewayRoutesGroupModelAllowlistMountedOnEveryGatewayRoute follows the
 // source-level route assertion convention of prompt_audit_route_coverage_test.go:
-// every gateway chain must mount groupModelAllowlist after api key auth and
-// before the composite rewrite (gateway.go + rootRoute helper).
+// every gateway chain must mount groupModelAllowlist after api key auth, then
+// customTarget (custom model resolution), and only then the composite rewrite
+// (gateway.go + rootRoute helper) — the composite middleware defers to an
+// already-resolved custom model.
 func TestGatewayRoutesGroupModelAllowlistMountedOnEveryGatewayRoute(t *testing.T) {
 	routeSource, err := os.ReadFile("gateway.go")
 	require.NoError(t, err)
 	source := string(routeSource)
 
-	// rootRoute helper：apiKeyAuth 之后、compositeTarget 之前。
-	rootHelper := regexp.MustCompile(regexp.QuoteMeta(`r.Handle(method, path, limit, clientRequestID, opsErrorLogger, endpointNorm, gin.HandlerFunc(apiKeyAuth), groupModelAllowlist, compositeTarget, requireGroupAnthropic, handler)`))
+	// rootRoute helper：apiKeyAuth 之后、customTarget 与 compositeTarget 之前。
+	rootHelper := regexp.MustCompile(regexp.QuoteMeta(`r.Handle(method, path, limit, clientRequestID, opsErrorLogger, endpointNorm, gin.HandlerFunc(apiKeyAuth), groupModelAllowlist, customTarget, compositeTarget, requireGroupAnthropic, handler)`))
 	require.Regexp(t, rootHelper, source,
-		"root alias helper must place the allowlist between apiKeyAuth and compositeTarget")
+		"root alias helper must place the allowlist between apiKeyAuth and customTarget/compositeTarget")
 
 	chains := []struct {
 		group     string
 		auth      string
 		marker    string
+		custom    string
 		composite string
 	}{
-		{group: "gateway", auth: "gin.HandlerFunc(apiKeyAuth)", marker: "gateway.Use(groupModelAllowlist)", composite: "gateway.Use(compositeTarget)"},
-		{group: "gemini", auth: "middleware.APIKeyAuthWithSubscriptionGoogle(apiKeyService, subscriptionService, cfg)", marker: "gemini.Use(groupModelAllowlist)", composite: "gemini.Use(compositeGeminiTarget)"},
-		{group: "antigravityV1", auth: "gin.HandlerFunc(apiKeyAuth)", marker: "antigravityV1.Use(groupModelAllowlist)", composite: "antigravityV1.Use(requireGroupAnthropic)"},
-		{group: "antigravityV1Beta", auth: "middleware.APIKeyAuthWithSubscriptionGoogle(apiKeyService, subscriptionService, cfg)", marker: "antigravityV1Beta.Use(groupModelAllowlist)", composite: "antigravityV1Beta.Use(requireGroupGoogle)"},
+		{group: "gateway", auth: "gin.HandlerFunc(apiKeyAuth)", marker: "gateway.Use(groupModelAllowlist)", custom: "gateway.Use(customTarget)", composite: "gateway.Use(compositeTarget)"},
+		{group: "gemini", auth: "middleware.APIKeyAuthWithSubscriptionGoogle(apiKeyService, subscriptionService, cfg)", marker: "gemini.Use(groupModelAllowlist)", custom: "gemini.Use(customTarget)", composite: "gemini.Use(compositeGeminiTarget)"},
+		{group: "antigravityV1", auth: "gin.HandlerFunc(apiKeyAuth)", marker: "antigravityV1.Use(groupModelAllowlist)", custom: "antigravityV1.Use(customTarget)", composite: "antigravityV1.Use(requireGroupAnthropic)"},
+		{group: "antigravityV1Beta", auth: "middleware.APIKeyAuthWithSubscriptionGoogle(apiKeyService, subscriptionService, cfg)", marker: "antigravityV1Beta.Use(groupModelAllowlist)", custom: "antigravityV1Beta.Use(customTarget)", composite: "antigravityV1Beta.Use(requireGroupGoogle)"},
 	}
 	for _, chain := range chains {
 		re := regexp.MustCompile(
 			regexp.QuoteMeta(chain.group+".Use("+chain.auth) +
 				`[\s\S]{0,400}?` + regexp.QuoteMeta(chain.marker) +
+				`[\s\S]{0,400}?` + regexp.QuoteMeta(chain.custom) +
 				`[\s\S]{0,400}?` + regexp.QuoteMeta(chain.composite))
 		require.Regexp(t, re, source,
-			"%s chain must mount groupModelAllowlist after auth and before %s", chain.group, chain.composite)
+			"%s chain must mount groupModelAllowlist after auth, then customTarget, then %s", chain.group, chain.composite)
 	}
 
 	// codexDirect 链是一条 Use 调用，直接断言顺序。
-	codexDirect := regexp.MustCompile(regexp.QuoteMeta(`codexDirect.Use(bodyLimit, clientRequestID, opsErrorLogger, endpointNorm, gin.HandlerFunc(apiKeyAuth), groupModelAllowlist, compositeTarget, requireGroupAnthropic)`))
-	require.Regexp(t, codexDirect, source, "codexDirect chain must mount the allowlist after auth and before compositeTarget")
+	codexDirect := regexp.MustCompile(regexp.QuoteMeta(`codexDirect.Use(bodyLimit, clientRequestID, opsErrorLogger, endpointNorm, gin.HandlerFunc(apiKeyAuth), groupModelAllowlist, customTarget, compositeTarget, requireGroupAnthropic)`))
+	require.Regexp(t, codexDirect, source, "codexDirect chain must mount the allowlist after auth, then customTarget, then compositeTarget")
 
 	// 所有带 apiKeyAuth 的根路径路由必须收敛到 rootRoute，避免漏挂。
 	stray := regexp.MustCompile(`\br\.(GET|POST|PUT|PATCH|DELETE)\("[^"]+",[^(]*apiKeyAuth`)

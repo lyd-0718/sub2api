@@ -116,6 +116,10 @@ func (s *GeminiMessagesCompatService) SelectAccountForModel(ctx context.Context,
 }
 
 func (s *GeminiMessagesCompatService) SelectAccountForModelWithExclusions(ctx context.Context, groupID *int64, sessionHash string, requestedModel string, excludedIDs map[int64]struct{}) (*Account, error) {
+	groupID = CustomModelRoutingGroupID(ctx, groupID)
+	if resolution, custom := CustomModelResolutionFromContext(ctx); custom && groupID != nil && *groupID == resolution.UpstreamGroupID {
+		ctx = context.WithValue(ctx, gatewayCustomSchedulingGroupContextKey{}, resolution.UpstreamGroup)
+	}
 	// 1. 确定目标平台和调度模式
 	// Determine target platform and scheduling mode
 	platform, useMixedScheduling, hasForcePlatform, err := s.resolvePlatformAndSchedulingMode(ctx, groupID)
@@ -171,6 +175,10 @@ func (s *GeminiMessagesCompatService) SelectAccountForModelWithExclusions(ctx co
 // resolvePlatformAndSchedulingMode resolves target platform and scheduling mode.
 // Returns: platform name, whether to use mixed scheduling, whether force platform, error.
 func (s *GeminiMessagesCompatService) resolvePlatformAndSchedulingMode(ctx context.Context, groupID *int64) (platform string, useMixedScheduling bool, hasForcePlatform bool, err error) {
+	if _, custom := CustomModelResolutionFromContext(ctx); custom {
+		platform, _ = ResolvedTargetPlatformFromContext(ctx)
+		return platform, platform == PlatformGemini, false, nil
+	}
 	// 优先检查 context 中的强制平台（/antigravity 路由）
 	forcePlatform, hasForcePlatform := ctx.Value(ctxkey.ForcePlatform).(string)
 	if hasForcePlatform && forcePlatform != "" {
@@ -226,6 +234,10 @@ func (s *GeminiMessagesCompatService) tryStickySessionHit(
 	if err != nil {
 		return nil
 	}
+	if _, custom := CustomModelResolutionFromContext(ctx); custom && !openAIStickyAccountMatchesGroup(account, groupID) {
+		_ = s.cache.DeleteSessionAccountID(ctx, derefGroupID(groupID), cacheKey)
+		return nil
+	}
 
 	// 检查账号是否需要清理粘性会话
 	// Check if sticky session should be cleared
@@ -267,6 +279,9 @@ func (s *GeminiMessagesCompatService) isAccountUsableForRequestWithPrecheck(
 	useMixedScheduling bool,
 	precheckResult map[int64]bool,
 ) bool {
+	if group, ok := ctx.Value(gatewayCustomSchedulingGroupContextKey{}).(*Group); ok && group != nil && group.RequirePrivacySet && !account.IsPrivacySet() {
+		return false
+	}
 	// 检查模型调度能力
 	// Check model scheduling capability
 	if !account.IsSchedulableForModelWithContext(ctx, requestedModel) {
@@ -456,7 +471,8 @@ func (s *GeminiMessagesCompatService) hydrateSelectedAccount(ctx context.Context
 }
 
 func (s *GeminiMessagesCompatService) listSchedulableAccountsOnce(ctx context.Context, groupID *int64, platform string, hasForcePlatform bool) ([]Account, error) {
-	if s.schedulerSnapshot != nil {
+	_, custom := CustomModelResolutionFromContext(ctx)
+	if s.schedulerSnapshot != nil && !(custom && s.schedulerSnapshot.isRunModeSimple()) {
 		accounts, _, err := s.schedulerSnapshot.ListSchedulableAccounts(ctx, groupID, platform, hasForcePlatform)
 		return accounts, err
 	}

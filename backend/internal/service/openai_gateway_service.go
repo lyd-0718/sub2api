@@ -590,6 +590,7 @@ func NewOpenAIGatewayService(
 
 // ResolveChannelMapping 解析渠道级模型映射（代理到 ChannelService）
 func (s *OpenAIGatewayService) ResolveChannelMapping(ctx context.Context, groupID int64, model string) ChannelMappingResult {
+	groupID = *CustomModelRoutingGroupID(ctx, &groupID)
 	if s.channelService == nil {
 		return ChannelMappingResult{MappedModel: model}
 	}
@@ -598,6 +599,7 @@ func (s *OpenAIGatewayService) ResolveChannelMapping(ctx context.Context, groupI
 
 // IsModelRestricted 检查模型是否被渠道限制（代理到 ChannelService）
 func (s *OpenAIGatewayService) IsModelRestricted(ctx context.Context, groupID int64, model string) bool {
+	groupID = *CustomModelRoutingGroupID(ctx, &groupID)
 	if s.channelService == nil {
 		return false
 	}
@@ -607,6 +609,7 @@ func (s *OpenAIGatewayService) IsModelRestricted(ctx context.Context, groupID in
 // ResolveChannelMappingAndRestrict 解析渠道映射。
 // 模型限制检查已移至调度阶段，restricted 始终返回 false。
 func (s *OpenAIGatewayService) ResolveChannelMappingAndRestrict(ctx context.Context, groupID *int64, model string) (ChannelMappingResult, bool) {
+	groupID = CustomModelRoutingGroupID(ctx, groupID)
 	if s.channelService == nil {
 		return ChannelMappingResult{MappedModel: model}, false
 	}
@@ -618,9 +621,10 @@ func (s *OpenAIGatewayService) isCodexImageGenerationBridgeEnabled(ctx context.C
 		return *override
 	}
 	if s != nil && s.channelService != nil && apiKey != nil && apiKey.GroupID != nil {
-		ch, err := s.channelService.GetChannelForGroup(ctx, *apiKey.GroupID)
+		groupID := CustomModelRoutingGroupID(ctx, apiKey.GroupID)
+		ch, err := s.channelService.GetChannelForGroup(ctx, *groupID)
 		if err != nil {
-			slog.Warn("failed to resolve codex image generation bridge channel override", "group_id", *apiKey.GroupID, "error", err)
+			slog.Warn("failed to resolve codex image generation bridge channel override", "group_id", *groupID, "error", err)
 		} else if override := ch.CodexImageGenerationBridgeOverride(PlatformOpenAI); override != nil {
 			return *override
 		}
