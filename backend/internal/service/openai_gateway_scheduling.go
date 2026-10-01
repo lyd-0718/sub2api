@@ -409,7 +409,14 @@ func openAICompatibleAccountEligibilityFailureReasonBeforeProfit(ctx context.Con
 	// non-owner would forward the raw public alias and get model_not_found or
 	// hit an unrelated same-name upstream model.
 	if source, ok := CompositeRouteSourceFromContext(ctx); ok && source == CompositeRouteSourceAccount {
-		if publicModel, modelOK := RequestedPublicModelFromContext(ctx); modelOK && !explicitModelMappingClaims(*account, publicModel) {
+		publicModel, modelOK := RequestedPublicModelFromContext(ctx)
+		// 自定义模型：客户端书写的是自定义别名，账号映射里只会有解析后的上游模型，
+		// 归属校验必须比对上游模型，否则全部候选账号会被误判为非属主
+		// （account_model_not_owned → pool=0，503）。
+		if resolution, custom := CustomModelResolutionFromContext(ctx); custom && resolution.UpstreamModel != "" {
+			publicModel, modelOK = resolution.UpstreamModel, true
+		}
+		if modelOK && !explicitModelMappingClaims(*account, publicModel) {
 			return "account_model_not_owned"
 		}
 	}

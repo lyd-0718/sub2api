@@ -213,3 +213,37 @@ func TestCustomModelRoutingCompositeUpstreamUsesResolvedPlatform(t *testing.T) {
 	require.Equal(t, "custom-public", publicModel)
 	require.Equal(t, PlatformAnthropic, key.Group.Platform)
 }
+
+// TestCustomModelOwnershipCheckUsesResolvedUpstreamModel 锁定 v0.2.11 引入的
+// account_model 归属校验与自定义模型的交互：composite 路由来源=账号映射时，
+// 归属校验必须比对【解析后的上游模型】。客户端书写的是自定义别名
+// （jailbreak/glm），账号映射里只会有上游模型（z-ai/glm-5.3）；用别名比对会把
+// 全部候选账号误判为非属主（account_model_not_owned → pool=0 → 503）。
+func TestCustomModelOwnershipCheckUsesResolvedUpstreamModel(t *testing.T) {
+	upstream := &Group{ID: 9202, Platform: PlatformComposite, Status: StatusActive, Hydrated: true}
+	ctx := WithCustomModelResolution(context.Background(), &CustomModelResolution{
+		ModelID: "jailbreak/glm", UpstreamGroupID: upstream.ID, UpstreamGroup: upstream,
+		UpstreamModel: "z-ai/glm-5.3", SystemPrompt: "jailbreak",
+	}, 9201)
+	ctx = WithCompositeRouteDecision(ctx, CompositeRouteDecision{
+		Matched: true, Source: CompositeRouteSourceAccount, GroupID: 9201,
+		PublicModel: "jailbreak/glm", TargetPlatform: PlatformOpenRouter, UpstreamModel: "z-ai/glm-5.3",
+	})
+
+	owner := &Account{
+		ID: 38, Name: "openrouter-glm", Platform: PlatformOpenRouter, Type: AccountTypeAPIKey,
+		Status: StatusActive, Schedulable: true, Concurrency: 1,
+		Credentials: map[string]any{"model_mapping": map[string]any{"z-ai/glm-5.3": "z-ai/glm-5.3"}},
+	}
+	require.NotEqual(t, "account_model_not_owned",
+		openAICompatibleAccountEligibilityFailureReasonBeforeProfit(ctx, owner, PlatformOpenRouter, "z-ai/glm-5.3", false, ""))
+
+	// 未映射上游模型的账号仍须被拒绝（防止修成"一律放行"）。
+	nonOwner := &Account{
+		ID: 99, Name: "openrouter-other", Platform: PlatformOpenRouter, Type: AccountTypeAPIKey,
+		Status: StatusActive, Schedulable: true, Concurrency: 1,
+		Credentials: map[string]any{"model_mapping": map[string]any{"z-ai/other": "z-ai/other"}},
+	}
+	require.Equal(t, "account_model_not_owned",
+		openAICompatibleAccountEligibilityFailureReasonBeforeProfit(ctx, nonOwner, PlatformOpenRouter, "z-ai/glm-5.3", false, ""))
+}
