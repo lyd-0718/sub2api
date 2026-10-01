@@ -5,7 +5,7 @@
 > **这个 fork 是什么**：`Wei-Shaw/sub2api` 官方版（当前合并到 **v0.2.11**，2026-10-01）+ 五个自研/增强模块——
 > ① 本文档讲的 **Session Trace 录制**；② **CN（kimi 等国产 Coding Plan）账号并发受限治理**（403 三分类、额度耗尽停调自动恢复、历史 error 账号自动归队），设计文档见 **`PLAN-cn-cap-v6.md`**；③ **账号级 TLS 指纹出站**；④ **OpenRouter 平台 + 供应商路由**；⑤ **自定义模型**（独立模型定义、系统提示词及 prepend/append/replace 注入模式、上游号池和多下游分组绑定，使用说明见 [README_CN.md](README_CN.md#自定义模型)）。
 > 部署分支：fork 的 **`trace` 分支**（GitHub 默认分支已设为 trace）。
-> 当前生产镜像：`sub2api-trace:0.2.11-80ab6d0`（2026-10-02 部署，健康运行中；上一版 `0.2.8-57932a0`，回滚直接换镜像即可）。服务器现保留三个镜像（`0.2.11-80ab6d0` / `0.2.8-57932a0` / `0.2.8-9a945b1`）；要回滚到更早的版本（如下文的 `dc9713e`、`0.2.7-*`），先用部署流程第 1、2 步从 GitHub 按对应提交重新构建出同名镜像，再改 image。
+> 当前生产镜像：`sub2api-trace:0.2.11-111379b8f`（2026-10-02 部署，含自定义模型调度修复；上一版 `0.2.11-80ab6d0`，回滚直接换镜像即可）。服务器现保留四个镜像（`0.2.11-111379b8f` / `0.2.11-80ab6d0` / `0.2.8-57932a0` / `0.2.8-9a945b1`）；要回滚到更早的版本（如下文的 `dc9713e`、`0.2.7-*`），先用部署流程第 1、2 步从 GitHub 按对应提交重新构建出同名镜像，再改 image。
 
 ## 这套东西是什么
 
@@ -112,7 +112,7 @@ git push origin trace   # 若上游改了 .github/workflows，gh 的 OAuth token
 
 （v0.2.8 合并实录 2026-09-24：237 个提交 6 个文件冲突。`wire_gen.go` 3 处均为双方往同一行加参数：`ProvideGrokQuotaService` 保留我方 TLS 指纹参数 + 上游新增 `openAIReferralClient`；`ProvideAdminHandlers` 用上游行（+`openCodeGoUsageService`）后接我方 trace/CN 手工接线；`provideCleanup` 用上游参数表末尾追加 `accountErrorRecoveryService`。Gemini 5 个文件与上游 #7432 撞车，取上游版本再叠我方三处语义（见第 9 项）。**非文本冲突**：上游把 `claude.DefaultHeaders` 从 map 变量改成函数，我方 `account_error_recovery_service.go` 的 range 编译失败，改为 `claude.DefaultHeaders()`——合并后先 `go build` 再看测试。）
 
-（v0.2.11 合并实录 2026-10-01：131 个提交 6 个文件冲突，无新增数据库迁移。`wire_gen.go` 2 处、`handler/wire.go` 1 处、`openai_gateway_handler.go` 1 处均为双方往同一位置加参数/逻辑，双边保留：`ProvideAdminHandlers` 末尾追加 `claudeResetCreditService`；`ProvideOpenAIGatewayHandler` 同时保留我方 `customModels` 与上游 `compositeResolver`；WebSocket 首轮路由合流为「自定义模型解析 → composite 路由决策（`wsRouteModel`）→ `ensureCompositeTargetPlatform(wsRouteModel)`」。`openai_gateway_scheduling.go` 1 处：上游 account_model 归属校验与我方 `openAIAccountPlatformMatches` 合流。`antigravity_gateway_compat_test.go` 2 处、`EditAccountModal.spec.ts` 1 处：双方各自新增不同测试，双边保留。教训：①编辑器把 `file.go:行范围` 形式的路径当新文件写出，曾产生 5 个冒号垃圾文件、真实文件冲突标记被误提交——合并后先 `grep -rn "^<<<<<<<\|^>>>>>>>"` 自查；②`go build ... | head` 的退出码是 head 的，验证退出码不要接管道。）
+（v0.2.11 合并实录 2026-10-01：131 个提交 6 个文件冲突，无新增数据库迁移。`wire_gen.go` 2 处、`handler/wire.go` 1 处、`openai_gateway_handler.go` 1 处均为双方往同一位置加参数/逻辑，双边保留：`ProvideAdminHandlers` 末尾追加 `claudeResetCreditService`；`ProvideOpenAIGatewayHandler` 同时保留我方 `customModels` 与上游 `compositeResolver`；WebSocket 首轮路由合流为「自定义模型解析 → composite 路由决策（`wsRouteModel`）→ `ensureCompositeTargetPlatform(wsRouteModel)`」。`openai_gateway_scheduling.go` 1 处：上游 account_model 归属校验与我方 `openAIAccountPlatformMatches` 合流。`antigravity_gateway_compat_test.go` 2 处、`EditAccountModal.spec.ts` 1 处：双方各自新增不同测试，双边保留。教训：①编辑器把 `file.go:行范围` 形式的路径当新文件写出，曾产生 5 个冒号垃圾文件、真实文件冲突标记被误提交——合并后先 `grep -rn "^<<<<<<<\|^>>>>>>>"` 自查；②`go build ... | head` 的退出码是 head 的，验证退出码不要接管道。**2026-10-02 合并后修复**：上游 account_model 归属校验（composite 路由来源=账号映射时，账号须显式映射本次请求的模型）与自定义模型冲突——客户端书写的是自定义别名（`jailbreak/glm`），账号映射里只有解析后的上游模型（`z-ai/glm-5.3`），全部候选账号被判 `account_model_not_owned` → pool=0 → 503；Anthropic 侧 `gateway_scheduling.go` 在自定义模型特性里已有兼容，本次按同法补齐 OpenAI 侧两处（`openai_account_scheduler.go` / `openai_gateway_scheduling.go`），并加回归测试 `TestCustomModelOwnershipCheckUsesResolvedUpstreamModel`。）
 
 **merge 冲突面（trace 分支对上游的全部改动）：**
 
@@ -168,6 +168,8 @@ cd /opt/sub2api && docker compose up -d sub2api
 ```
 
 回滚 `9a945b1`（OpenRouter 平台）：**先改账号、再换镜像**——旧代码不认识 `openrouter` 平台，直接换镜像会让 OpenRouter 账号无法调度。① SQL：`update accounts set platform='deepseek', updated_at=now() where id in (22,38)`，并给这两个账号各插一条 `scheduler_outbox` 的 `account_changed`、给分组 7/9/12 各插一条 `group_changed`；② image 改回 `sub2api-trace:0.2.8-dc9713e`（该镜像已清理，需先按提交 `dc9713e` 重新构建）后 `up -d`。迁移 `240z` 只是扩大 CHECK 取值，旧代码无感，不用回退；`extra.openrouter_provider_routing` 对旧代码无影响。迁移前账号快照：`/opt/sub2api/backups/openrouter_accounts_pre_migration_20260924-124745.tsv`；部署前库备份：`/opt/sub2api/backup-pre-0.2.8-9a945b1-20260924-1246.sql.gz`。
+
+回滚 `0.2.11-111379b8f`（2026-10-02 修复版）：纯代码修复（自定义模型在 OpenAI 网关调度被 account_model 归属校验误杀 → 503），**无数据库迁移** → 直接换回 `sub2api-trace:0.2.11-80ab6d0`（或 `0.2.8-57932a0`）后 `up -d` 即可。compose 备份：`docker-compose.yml.bak-20261002-fix1`。验收：`jailbreak/glm`（→ z-ai/glm-5.3 @ Friendli）、`jailbreak/k3`（→ k3，prompt_tokens≈8365）、`jailbreak/glm-5.3-flash`（→ z-ai/glm-5.3-flash @ Wafer，返回 OK）三发均 200。
 
 回滚 `0.2.11-80ab6d0`（2026-10-02 部署）：迁移 242/243/244 均为纯追加（242 新增 custom_models 两张表、243 `accounts.recovery_version` 列、244 `custom_models.injection_mode` 列 + CHECK），旧代码忽略新表/新列 → 直接改回 `sub2api-trace:0.2.8-57932a0` 后 `up -d` 即可，无需恢复数据库。部署前库备份：`/opt/sub2api/backup-pre-0.2.11-20261002-0020.sql.gz`；compose 备份：`docker-compose.yml.bak-20261002`。**本镜像由本地提交 `80ab6d05d` 的源码归档在服务器直接构建**（构建时该提交尚未推送 GitHub，推送后即对齐）。部署验收：health 200、242/243/244 迁移 applied、`[CNRecovery] started (interval=10m0s)`、无 ERROR 日志、trace 正常落盘。
 
