@@ -146,6 +146,15 @@
             <p id="custom-model-prompt-help" class="mt-1 text-xs text-gray-500">{{ t('admin.customModels.form.systemPromptHelp') }}</p>
           </div>
           <div>
+            <label for="custom-model-injection-mode" class="input-label">{{ t('admin.customModels.form.injectionMode') }}</label>
+            <select id="custom-model-injection-mode" v-model="form.injection_mode" class="input" aria-describedby="custom-model-injection-mode-help">
+              <option value="prepend">{{ t('admin.customModels.form.injectionModePrepend') }}</option>
+              <option value="append">{{ t('admin.customModels.form.injectionModeAppend') }}</option>
+              <option value="replace">{{ t('admin.customModels.form.injectionModeReplace') }}</option>
+            </select>
+            <p id="custom-model-injection-mode-help" class="mt-1 text-xs text-gray-500">{{ t('admin.customModels.form.injectionModeHelp') }}</p>
+          </div>
+          <div>
             <label for="custom-model-description" class="input-label">{{ t('admin.customModels.form.description') }}</label>
             <textarea id="custom-model-description" v-model="form.description" class="input" :placeholder="t('admin.customModels.form.descriptionPlaceholder')" rows="3" />
           </div>
@@ -251,7 +260,8 @@ const groupSearch = ref('')
 const formErrors = ref<Record<string, string>>({})
 const emptyForm = () => ({
   model_id: '', upstream_group_id: null as number | null, upstream_model: '',
-  system_prompt: '', description: '', enabled: true, downstream_groups: [] as number[]
+  system_prompt: '', injection_mode: 'prepend', description: '', enabled: true,
+  downstream_groups: [] as number[]
 })
 const form = ref(emptyForm())
 let requestId = 0
@@ -365,6 +375,7 @@ function handleEdit(model: CustomModel) {
   form.value = {
     model_id: model.model_id, upstream_group_id: model.upstream_group_id,
     upstream_model: model.upstream_model, system_prompt: model.system_prompt ?? '',
+    injection_mode: model.injection_mode ?? 'prepend',
     description: model.description ?? '', enabled: model.enabled,
     downstream_groups: [...(model.downstream_groups ?? [])]
   }
@@ -392,6 +403,7 @@ async function handleSubmit() {
   const payload: CreateCustomModelRequest = {
     model_id: form.value.model_id.trim(), upstream_group_id: form.value.upstream_group_id!,
     upstream_model: form.value.upstream_model.trim(), system_prompt: form.value.system_prompt,
+    injection_mode: form.value.injection_mode,
     description: form.value.description, enabled: form.value.enabled,
     downstream_groups: [...form.value.downstream_groups]
   }

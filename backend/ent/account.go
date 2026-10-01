@@ -65,6 +65,8 @@ type Account struct {
 	RateLimitedAt *time.Time `json:"rate_limited_at,omitempty"`
 	// RateLimitResetAt holds the value of the "rate_limit_reset_at" field.
 	RateLimitResetAt *time.Time `json:"rate_limit_reset_at,omitempty"`
+	// Optimistic lock version for account error recovery CAS operations
+	RecoveryVersion int `json:"recovery_version,omitempty"`
 	// OverloadUntil holds the value of the "overload_until" field.
 	OverloadUntil *time.Time `json:"overload_until,omitempty"`
 	// TempUnschedulableUntil holds the value of the "temp_unschedulable_until" field.
@@ -175,7 +177,7 @@ func (*Account) scanValues(columns []string) ([]any, error) {
 			values[i] = new(sql.NullBool)
 		case account.FieldRateMultiplier:
 			values[i] = new(sql.NullFloat64)
-		case account.FieldID, account.FieldProxyID, account.FieldProxyFallbackOriginID, account.FieldConcurrency, account.FieldLoadFactor, account.FieldPriority, account.FieldParentAccountID:
+		case account.FieldID, account.FieldProxyID, account.FieldProxyFallbackOriginID, account.FieldConcurrency, account.FieldLoadFactor, account.FieldPriority, account.FieldRecoveryVersion, account.FieldParentAccountID:
 			values[i] = new(sql.NullInt64)
 		case account.FieldName, account.FieldNotes, account.FieldPlatform, account.FieldType, account.FieldStatus, account.FieldErrorMessage, account.FieldTempUnschedulableReason, account.FieldSessionWindowStatus, account.FieldQuotaDimension:
 			values[i] = new(sql.NullString)
@@ -353,6 +355,12 @@ func (_m *Account) assignValues(columns []string, values []any) error {
 			} else if value.Valid {
 				_m.RateLimitResetAt = new(time.Time)
 				*_m.RateLimitResetAt = value.Time
+			}
+		case account.FieldRecoveryVersion:
+			if value, ok := values[i].(*sql.NullInt64); !ok {
+				return fmt.Errorf("unexpected type %T for field recovery_version", values[i])
+			} else if value.Valid {
+				_m.RecoveryVersion = int(value.Int64)
 			}
 		case account.FieldOverloadUntil:
 			if value, ok := values[i].(*sql.NullTime); !ok {
@@ -563,6 +571,9 @@ func (_m *Account) String() string {
 		builder.WriteString("rate_limit_reset_at=")
 		builder.WriteString(v.Format(time.ANSIC))
 	}
+	builder.WriteString(", ")
+	builder.WriteString("recovery_version=")
+	builder.WriteString(fmt.Sprintf("%v", _m.RecoveryVersion))
 	builder.WriteString(", ")
 	if v := _m.OverloadUntil; v != nil {
 		builder.WriteString("overload_until=")

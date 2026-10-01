@@ -254,8 +254,12 @@ func init() {
 	accountDescSchedulable := accountFields[17].Descriptor()
 	// account.DefaultSchedulable holds the default value on creation for the schedulable field.
 	account.DefaultSchedulable = accountDescSchedulable.Default.(bool)
+	// accountDescRecoveryVersion is the schema descriptor for recovery_version field.
+	accountDescRecoveryVersion := accountFields[20].Descriptor()
+	// account.DefaultRecoveryVersion holds the default value on creation for the recovery_version field.
+	account.DefaultRecoveryVersion = accountDescRecoveryVersion.Default.(int)
 	// accountDescSessionWindowStatus is the schema descriptor for session_window_status field.
-	accountDescSessionWindowStatus := accountFields[25].Descriptor()
+	accountDescSessionWindowStatus := accountFields[26].Descriptor()
 	// account.SessionWindowStatusValidator is a validator for the "session_window_status" field. It is called by the builders before save.
 	account.SessionWindowStatusValidator = accountDescSessionWindowStatus.Validators[0].(func(string) error)
 	accountgroupFields := schema.AccountGroup{}.Fields()
@@ -984,8 +988,14 @@ func init() {
 			return nil
 		}
 	}()
+	// custommodelDescInjectionMode is the schema descriptor for injection_mode field.
+	custommodelDescInjectionMode := custommodelFields[4].Descriptor()
+	// custommodel.DefaultInjectionMode holds the default value on creation for the injection_mode field.
+	custommodel.DefaultInjectionMode = custommodelDescInjectionMode.Default.(string)
+	// custommodel.InjectionModeValidator is a validator for the "injection_mode" field. It is called by the builders before save.
+	custommodel.InjectionModeValidator = custommodelDescInjectionMode.Validators[0].(func(string) error)
 	// custommodelDescEnabled is the schema descriptor for enabled field.
-	custommodelDescEnabled := custommodelFields[4].Descriptor()
+	custommodelDescEnabled := custommodelFields[5].Descriptor()
 	// custommodel.DefaultEnabled holds the default value on creation for the enabled field.
 	custommodel.DefaultEnabled = custommodelDescEnabled.Default.(bool)
 	custommodeldownstreamgroupFields := schema.CustomModelDownstreamGroup{}.Fields()

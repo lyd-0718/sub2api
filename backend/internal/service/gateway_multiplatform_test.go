@@ -193,7 +193,7 @@ func (m *mockAccountRepoForPlatform) SetRateLimitedIfLater(ctx context.Context, 
 func (m *mockAccountRepoForPlatform) ListCNQuotaDisabled(ctx context.Context, platform string) ([]*Account, error) {
 	return nil, nil
 }
-func (m *mockAccountRepoForPlatform) RestoreRecoveredAccount(ctx context.Context, accountID int64, expectedUpdatedAt time.Time) (bool, error) {
+func (m *mockAccountRepoForPlatform) RestoreRecoveredAccount(ctx context.Context, accountID int64, expectedRecoveryVersion int) (bool, error) {
 	return false, nil
 }
 func (m *mockAccountRepoForPlatform) SetModelRateLimit(ctx context.Context, id int64, scope string, resetAt time.Time, reason ...string) error {

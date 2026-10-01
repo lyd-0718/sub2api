@@ -410,6 +410,27 @@ func (_u *AccountUpdate) ClearRateLimitResetAt() *AccountUpdate {
 	return _u
 }
 
+// SetRecoveryVersion sets the "recovery_version" field.
+func (_u *AccountUpdate) SetRecoveryVersion(v int) *AccountUpdate {
+	_u.mutation.ResetRecoveryVersion()
+	_u.mutation.SetRecoveryVersion(v)
+	return _u
+}
+
+// SetNillableRecoveryVersion sets the "recovery_version" field if the given value is not nil.
+func (_u *AccountUpdate) SetNillableRecoveryVersion(v *int) *AccountUpdate {
+	if v != nil {
+		_u.SetRecoveryVersion(*v)
+	}
+	return _u
+}
+
+// AddRecoveryVersion adds value to the "recovery_version" field.
+func (_u *AccountUpdate) AddRecoveryVersion(v int) *AccountUpdate {
+	_u.mutation.AddRecoveryVersion(v)
+	return _u
+}
+
 // SetOverloadUntil sets the "overload_until" field.
 func (_u *AccountUpdate) SetOverloadUntil(v time.Time) *AccountUpdate {
 	_u.mutation.SetOverloadUntil(v)
@@ -906,6 +927,12 @@ func (_u *AccountUpdate) sqlSave(ctx context.Context) (_node int, err error) {
 	}
 	if _u.mutation.RateLimitResetAtCleared() {
 		_spec.ClearField(account.FieldRateLimitResetAt, field.TypeTime)
+	}
+	if value, ok := _u.mutation.RecoveryVersion(); ok {
+		_spec.SetField(account.FieldRecoveryVersion, field.TypeInt, value)
+	}
+	if value, ok := _u.mutation.AddedRecoveryVersion(); ok {
+		_spec.AddField(account.FieldRecoveryVersion, field.TypeInt, value)
 	}
 	if value, ok := _u.mutation.OverloadUntil(); ok {
 		_spec.SetField(account.FieldOverloadUntil, field.TypeTime, value)
@@ -1550,6 +1577,27 @@ func (_u *AccountUpdateOne) ClearRateLimitResetAt() *AccountUpdateOne {
 	return _u
 }
 
+// SetRecoveryVersion sets the "recovery_version" field.
+func (_u *AccountUpdateOne) SetRecoveryVersion(v int) *AccountUpdateOne {
+	_u.mutation.ResetRecoveryVersion()
+	_u.mutation.SetRecoveryVersion(v)
+	return _u
+}
+
+// SetNillableRecoveryVersion sets the "recovery_version" field if the given value is not nil.
+func (_u *AccountUpdateOne) SetNillableRecoveryVersion(v *int) *AccountUpdateOne {
+	if v != nil {
+		_u.SetRecoveryVersion(*v)
+	}
+	return _u
+}
+
+// AddRecoveryVersion adds value to the "recovery_version" field.
+func (_u *AccountUpdateOne) AddRecoveryVersion(v int) *AccountUpdateOne {
+	_u.mutation.AddRecoveryVersion(v)
+	return _u
+}
+
 // SetOverloadUntil sets the "overload_until" field.
 func (_u *AccountUpdateOne) SetOverloadUntil(v time.Time) *AccountUpdateOne {
 	_u.mutation.SetOverloadUntil(v)
@@ -2076,6 +2124,12 @@ func (_u *AccountUpdateOne) sqlSave(ctx context.Context) (_node *Account, err er
 	}
 	if _u.mutation.RateLimitResetAtCleared() {
 		_spec.ClearField(account.FieldRateLimitResetAt, field.TypeTime)
+	}
+	if value, ok := _u.mutation.RecoveryVersion(); ok {
+		_spec.SetField(account.FieldRecoveryVersion, field.TypeInt, value)
+	}
+	if value, ok := _u.mutation.AddedRecoveryVersion(); ok {
+		_spec.AddField(account.FieldRecoveryVersion, field.TypeInt, value)
 	}
 	if value, ok := _u.mutation.OverloadUntil(); ok {
 		_spec.SetField(account.FieldOverloadUntil, field.TypeTime, value)

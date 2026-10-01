@@ -13,6 +13,7 @@ type CustomModel struct {
 	UpstreamGroupID  int64     `json:"upstream_group_id"`
 	UpstreamModel    string    `json:"upstream_model"`
 	SystemPrompt     string    `json:"system_prompt"`
+	InjectionMode    string    `json:"injection_mode"`
 	Enabled          bool      `json:"enabled"`
 	Description      string    `json:"description"`
 	DownstreamGroups []int64   `json:"downstream_groups"`
@@ -31,6 +32,7 @@ func CustomModelFromService(model *service.CustomModel) *CustomModel {
 		UpstreamGroupID:  model.UpstreamGroupID,
 		UpstreamModel:    model.UpstreamModel,
 		SystemPrompt:     model.SystemPrompt,
+		InjectionMode:    model.InjectionMode,
 		Enabled:          model.Enabled,
 		Description:      model.Description,
 		DownstreamGroups: model.DownstreamGroups,

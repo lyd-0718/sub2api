@@ -2439,14 +2439,11 @@ func (h *OpenAIGatewayHandler) ResponsesWebSocket(c *gin.Context) {
 		closeOpenAIClientWS(wsConn, coderws.StatusPolicyViolation, fmt.Sprintf("Model %q is not available for this group", blocked))
 		return
 	}
-<<<<<<< HEAD
 	reqModel, err = h.resolveCustomWebSocketModel(c, apiKey, reqModel)
 	if err != nil {
 		closeOpenAIClientWS(wsConn, coderws.StatusPolicyViolation, "Custom model is unavailable: "+err.Error())
 		return
 	}
-	ensureCompositeTargetPlatform(c, apiKey, reqModel)
-=======
 	// Keep the client model in the frame for admission, response identity and usage.
 	// Apply the resolved upstream model through MapRequestModel on every turn.
 	wsRouteModel := reqModel
@@ -2462,7 +2459,7 @@ func (h *OpenAIGatewayHandler) ResponsesWebSocket(c *gin.Context) {
 			wsRouteModel = decision.UpstreamModel
 		}
 	}
->>>>>>> upstream/main
+	ensureCompositeTargetPlatform(c, apiKey, wsRouteModel)
 	ctx = c.Request.Context()
 	if apiKey.Group != nil && apiKey.Group.Platform == service.PlatformComposite {
 		platform, ok := service.ResolvedTargetPlatformFromContext(ctx)

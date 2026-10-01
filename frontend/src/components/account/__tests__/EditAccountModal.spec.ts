@@ -331,7 +331,6 @@ describe('EditAccountModal', () => {
 
   afterEach(() => vi.useRealTimers())
 
-<<<<<<< HEAD
   it('shows and saves TLS fingerprinting for Kimi API-key accounts', async () => {
     const account = buildAccount()
     account.platform = 'kimi'
@@ -384,7 +383,8 @@ describe('EditAccountModal', () => {
     expect(extra).not.toHaveProperty('enable_tls_fingerprint')
     expect(extra).not.toHaveProperty('tls_fingerprint_profile_id')
     wrapper.unmount()
-=======
+  })
+
   it('passes existing non-identity mappings to the whitelist selector and preserves them on save', async () => {
     const account = buildAccount()
     account.credentials.model_mapping = { 'gpt-5.2': 'gpt-5.2', 'gpt-latest': 'deepseek-chat' }
@@ -401,7 +401,6 @@ describe('EditAccountModal', () => {
     expect(wrapper.getComponent(ModelWhitelistSelectorStub).props('modelMappings')).toEqual([
       { from: 'gpt-latest', to: 'deepseek-chat' }
     ])
->>>>>>> upstream/main
   })
 
   it('sets expiry presets from now instead of extending the saved expiry', async () => {

@@ -27,6 +27,7 @@ type CreateCustomModelRequest struct {
 	UpstreamGroupID  int64   `json:"upstream_group_id" binding:"required"`
 	UpstreamModel    string  `json:"upstream_model" binding:"required"`
 	SystemPrompt     string  `json:"system_prompt"`
+	InjectionMode    string  `json:"injection_mode"`
 	Enabled          *bool   `json:"enabled"`
 	Description      string  `json:"description"`
 	DownstreamGroups []int64 `json:"downstream_groups"`
@@ -38,6 +39,7 @@ type UpdateCustomModelRequest struct {
 	UpstreamGroupID  *int64   `json:"upstream_group_id"`
 	UpstreamModel    *string  `json:"upstream_model"`
 	SystemPrompt     *string  `json:"system_prompt"`
+	InjectionMode    *string  `json:"injection_mode"`
 	Enabled          *bool    `json:"enabled"`
 	Description      *string  `json:"description"`
 	DownstreamGroups *[]int64 `json:"downstream_groups"`
@@ -103,6 +105,7 @@ func (h *CustomModelHandler) Create(c *gin.Context) {
 		UpstreamGroupID:  req.UpstreamGroupID,
 		UpstreamModel:    req.UpstreamModel,
 		SystemPrompt:     req.SystemPrompt,
+		InjectionMode:    req.InjectionMode,
 		Enabled:          req.Enabled,
 		Description:      req.Description,
 		DownstreamGroups: req.DownstreamGroups,
@@ -135,6 +138,7 @@ func (h *CustomModelHandler) Update(c *gin.Context) {
 		UpstreamGroupID:  req.UpstreamGroupID,
 		UpstreamModel:    req.UpstreamModel,
 		SystemPrompt:     req.SystemPrompt,
+		InjectionMode:    req.InjectionMode,
 		Enabled:          req.Enabled,
 		Description:      req.Description,
 		DownstreamGroups: req.DownstreamGroups,

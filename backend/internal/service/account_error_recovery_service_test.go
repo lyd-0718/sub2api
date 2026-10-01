@@ -2,7 +2,7 @@ package service
 
 // 历史被禁用账号自动归队（AccountErrorRecoveryService）行为测试：
 // 额度判定（本地快照 reset_at：过去=已重置即恢复，未来=仍满且零上游调用；无窗口键=验证仲裁）、
-// 最小请求验证的放行条件、CAS 用「验证之后重读的 updated_at」、CAS 失败不消耗退避预算、
+// 最小请求验证的放行条件、CAS 用「验证之后重读的 recovery_version」、CAS 失败不消耗退避预算、
 // 退避阶梯与 leader 锁。
 //
 // 设计前提（2026-09-16 需求方拍板）：恢复判定不探测上游额度接口——reset_at 是时间点
@@ -22,8 +22,8 @@ import (
 )
 
 type cnRecoveryRestoreCall struct {
-	accountID         int64
-	expectedUpdatedAt time.Time
+	accountID               int64
+	expectedRecoveryVersion int
 }
 
 // cnRecoveryRepoStub 只覆盖自动归队用到的最小仓储面（其余方法照旧 panic）。
@@ -54,8 +54,8 @@ func (r *cnRecoveryRepoStub) GetByID(ctx context.Context, id int64) (*Account, e
 	return account, nil
 }
 
-func (r *cnRecoveryRepoStub) RestoreRecoveredAccount(ctx context.Context, accountID int64, expectedUpdatedAt time.Time) (bool, error) {
-	r.restoreCalls = append(r.restoreCalls, cnRecoveryRestoreCall{accountID: accountID, expectedUpdatedAt: expectedUpdatedAt})
+func (r *cnRecoveryRepoStub) RestoreRecoveredAccount(ctx context.Context, accountID int64, expectedRecoveryVersion int) (bool, error) {
+	r.restoreCalls = append(r.restoreCalls, cnRecoveryRestoreCall{accountID: accountID, expectedRecoveryVersion: expectedRecoveryVersion})
 	if r.restoreErr != nil {
 		return false, r.restoreErr
 	}
@@ -159,15 +159,17 @@ func newCNRecoveryTestService(t *testing.T, now time.Time, repo AccountRepositor
 	return svc
 }
 
-func TestAccountErrorRecoveryService_RestoresAccountUsingReloadedUpdatedAt(t *testing.T) {
+func TestAccountErrorRecoveryService_RestoresAccountUsingReloadedRecoveryVersion(t *testing.T) {
 	now := time.Now()
 	scannedUpdatedAt := now.Add(-30 * time.Minute)
-	// 扫描读到的是旧 updated_at；验证后重读到的才是 CAS 要比对的值。
+	// 扫描读到的是旧快照；验证后重读到的 recovery_version 才是 CAS 要比对的值。
 	reloadedUpdatedAt := now.Add(-2 * time.Second)
 	account := cnRecoveryKimiCodingAccount(scannedUpdatedAt, cnRecoverySnapshotAvailable(now))
+	account.RecoveryVersion = 3
 	byID := &Account{}
 	*byID = *account
 	byID.UpdatedAt = reloadedUpdatedAt
+	byID.RecoveryVersion = 7
 
 	repo := &cnRecoveryRepoStub{
 		disabled:  []*Account{account},
@@ -182,8 +184,8 @@ func TestAccountErrorRecoveryService_RestoresAccountUsingReloadedUpdatedAt(t *te
 	require.Equal(t, 1, upstream.calls, "快照判定已恢复后必须发出最小验证请求")
 	require.Len(t, repo.restoreCalls, 1)
 	require.Equal(t, account.ID, repo.restoreCalls[0].accountID)
-	require.True(t, repo.restoreCalls[0].expectedUpdatedAt.Equal(reloadedUpdatedAt),
-		"CAS 必须用验证之后重读的 updated_at，而不是扫描开始时的旧值")
+	require.Equal(t, 7, repo.restoreCalls[0].expectedRecoveryVersion,
+		"CAS 必须用验证之后重读的 recovery_version，而不是扫描开始时的旧值")
 	require.Empty(t, svc.states, "恢复成功后不再保留退避状态")
 
 	// 验证请求走 anthropic 原生端点，并带最小化请求体。

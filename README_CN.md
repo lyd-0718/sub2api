@@ -188,7 +188,7 @@ Sub2API 是一个 AI API 网关平台，用于分发和管理 AI 产品订阅的
 - **内置支付系统** - 支持 EasyPay 易支付、支付宝官方、微信官方、Stripe，用户自助充值，无需独立部署支付服务（[配置指南](docs/PAYMENT_CN.md)）
 - **管理后台** - Web 界面进行监控和管理
 - **外部系统集成** - 支持通过 iframe 嵌入外部系统（如工单等），扩展管理后台功能
-- **自定义模型** - 独立配置模型别名、上游账号池、系统提示词和可访问的下游分组，不替换原生模型或 composite 分组
+- **自定义模型** - 独立配置模型别名、上游账号池、系统提示词（支持 prepend/append/replace 注入模式）和可访问的下游分组，不替换原生模型或 composite 分组
 
 ## 自定义模型
 
@@ -202,6 +202,7 @@ Sub2API 是一个 AI API 网关平台，用于分发和管理 AI 产品订阅的
 | `upstream_group_id` | 选择已有的 Kimi 分组，使用该分组的账号池 |
 | `upstream_model` | `k3`，转发给上游的模型名 |
 | `system_prompt` | 固定系统提示词，可留空；编辑时清空可移除 |
+| `injection_mode` | 注入模式：`prepend` 前置到客户端系统提示词（默认）/ `append` 后置 / `replace` 整体替换；对 Messages 的 `system`（字符串或 block 数组）、Chat 第一条 system 消息、Responses 的 `instructions`、Gemini 的 `systemInstruction.parts` 均生效 |
 | `downstream_groups` | 多选允许使用此模型的分组；清空后保存，但不向任何分组开放 |
 | `enabled` / `description` | 启用状态与管理备注 |
 
@@ -218,13 +219,13 @@ curl "$SUB2API_BASE_URL/v1/chat/completions" \
 
 请求在网关内部单跳解析为 Kimi 号池的 `k3`。用户、API Key、订阅、配额和消费归属仍使用下游身份；账号选择使用上游分组。用量记录同时保留客户端自定义模型名和实际上游模型名。下游的原生模型目录继续保留，额外合并该分组绑定且启用的自定义模型。
 
-提示词按入站协议前置到 Messages 的 `system`、Chat 的系统消息、Responses 的 `instructions`、Gemini 的 `systemInstruction.parts`，保留客户端已有提示词与消息内容。支持相应 HTTP/SSE 转发和 token 计数；Gemini 原生端点还会改写模型 URL 及 countTokens 的嵌套模型字段。实际可用协议取决于上游平台的现有能力，不会为不支持的端点伪造转换。
+提示词按入站协议注入 Messages 的 `system`、Chat 的第一条 system 消息、Responses 的 `instructions`、Gemini 的 `systemInstruction.parts`，保留客户端已有提示词与消息内容；注入位置（前置 / 后置 / 替换）由 `injection_mode` 决定，Chat 无 system 消息时三种模式统一在队首插入一条。支持相应 HTTP/SSE 转发和 token 计数；Gemini 原生端点还会改写模型 URL 及 countTokens 的嵌套模型字段。实际可用协议取决于上游平台的现有能力，不会为不支持的端点伪造转换。
 
 Responses WebSocket 使用支持该协议的 OpenAI / Grok 上游；每轮沿用连接绑定的自定义模型并重新检查权限。停用后下一轮拒绝；修改上游模型、号池或提示词后需重新连接。
 
 **禁止运行时自定义模型套自定义模型**：可以保存这类配置，但调用时直接拒绝，包括无环链、循环与自引用；不会递归展开或继续选择下一跳。未绑定、已停用、上游不可用的请求也不会回落到原生模型绕过限制。
 
-管理 API 为 `/api/v1/admin/custom-models`（列表 / 创建）及 `/:id`（读取 / 更新 / 删除）。更新时省略字段表示保留原值，`system_prompt: ""`、`downstream_groups: []` 表示明确清空。数据库迁移 `242_create_custom_models.sql` 仅新增独立模型表和分组关联表，不删除或替换已有 composite 路由。
+管理 API 为 `/api/v1/admin/custom-models`（列表 / 创建）及 `/:id`（读取 / 更新 / 删除）。更新时省略字段表示保留原值，`system_prompt: ""`、`downstream_groups: []` 表示明确清空。数据库迁移 `242_create_custom_models.sql` 新增独立模型表和分组关联表、`244_custom_model_injection_mode.sql` 新增 `injection_mode` 列（默认 `prepend`，存量行为不变），不删除或替换已有 composite 路由。
 
 
 ## 生态项目

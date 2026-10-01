@@ -2316,6 +2316,8 @@ type AccountMutation struct {
 	schedulable                 *bool
 	rate_limited_at             *time.Time
 	rate_limit_reset_at         *time.Time
+	recovery_version            *int
+	addrecovery_version         *int
 	overload_until              *time.Time
 	temp_unschedulable_until    *time.Time
 	temp_unschedulable_reason   *string
@@ -3500,6 +3502,62 @@ func (m *AccountMutation) ResetRateLimitResetAt() {
 	delete(m.clearedFields, account.FieldRateLimitResetAt)
 }
 
+// SetRecoveryVersion sets the "recovery_version" field.
+func (m *AccountMutation) SetRecoveryVersion(i int) {
+	m.recovery_version = &i
+	m.addrecovery_version = nil
+}
+
+// RecoveryVersion returns the value of the "recovery_version" field in the mutation.
+func (m *AccountMutation) RecoveryVersion() (r int, exists bool) {
+	v := m.recovery_version
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldRecoveryVersion returns the old "recovery_version" field's value of the Account entity.
+// If the Account object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *AccountMutation) OldRecoveryVersion(ctx context.Context) (v int, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldRecoveryVersion is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldRecoveryVersion requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldRecoveryVersion: %w", err)
+	}
+	return oldValue.RecoveryVersion, nil
+}
+
+// AddRecoveryVersion adds i to the "recovery_version" field.
+func (m *AccountMutation) AddRecoveryVersion(i int) {
+	if m.addrecovery_version != nil {
+		*m.addrecovery_version += i
+	} else {
+		m.addrecovery_version = &i
+	}
+}
+
+// AddedRecoveryVersion returns the value that was added to the "recovery_version" field in this mutation.
+func (m *AccountMutation) AddedRecoveryVersion() (r int, exists bool) {
+	v := m.addrecovery_version
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// ResetRecoveryVersion resets all changes to the "recovery_version" field.
+func (m *AccountMutation) ResetRecoveryVersion() {
+	m.recovery_version = nil
+	m.addrecovery_version = nil
+}
+
 // SetOverloadUntil sets the "overload_until" field.
 func (m *AccountMutation) SetOverloadUntil(t time.Time) {
 	m.overload_until = &t
@@ -4142,7 +4200,7 @@ func (m *AccountMutation) Type() string {
 // order to get all numeric fields that were incremented/decremented, call
 // AddedFields().
 func (m *AccountMutation) Fields() []string {
-	fields := make([]string, 0, 31)
+	fields := make([]string, 0, 32)
 	if m.created_at != nil {
 		fields = append(fields, account.FieldCreatedAt)
 	}
@@ -4211,6 +4269,9 @@ func (m *AccountMutation) Fields() []string {
 	}
 	if m.rate_limit_reset_at != nil {
 		fields = append(fields, account.FieldRateLimitResetAt)
+	}
+	if m.recovery_version != nil {
+		fields = append(fields, account.FieldRecoveryVersion)
 	}
 	if m.overload_until != nil {
 		fields = append(fields, account.FieldOverloadUntil)
@@ -4290,6 +4351,8 @@ func (m *AccountMutation) Field(name string) (ent.Value, bool) {
 		return m.RateLimitedAt()
 	case account.FieldRateLimitResetAt:
 		return m.RateLimitResetAt()
+	case account.FieldRecoveryVersion:
+		return m.RecoveryVersion()
 	case account.FieldOverloadUntil:
 		return m.OverloadUntil()
 	case account.FieldTempUnschedulableUntil:
@@ -4361,6 +4424,8 @@ func (m *AccountMutation) OldField(ctx context.Context, name string) (ent.Value,
 		return m.OldRateLimitedAt(ctx)
 	case account.FieldRateLimitResetAt:
 		return m.OldRateLimitResetAt(ctx)
+	case account.FieldRecoveryVersion:
+		return m.OldRecoveryVersion(ctx)
 	case account.FieldOverloadUntil:
 		return m.OldOverloadUntil(ctx)
 	case account.FieldTempUnschedulableUntil:
@@ -4547,6 +4612,13 @@ func (m *AccountMutation) SetField(name string, value ent.Value) error {
 		}
 		m.SetRateLimitResetAt(v)
 		return nil
+	case account.FieldRecoveryVersion:
+		v, ok := value.(int)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetRecoveryVersion(v)
+		return nil
 	case account.FieldOverloadUntil:
 		v, ok := value.(time.Time)
 		if !ok {
@@ -4626,6 +4698,9 @@ func (m *AccountMutation) AddedFields() []string {
 	if m.addrate_multiplier != nil {
 		fields = append(fields, account.FieldRateMultiplier)
 	}
+	if m.addrecovery_version != nil {
+		fields = append(fields, account.FieldRecoveryVersion)
+	}
 	return fields
 }
 
@@ -4644,6 +4719,8 @@ func (m *AccountMutation) AddedField(name string) (ent.Value, bool) {
 		return m.AddedPriority()
 	case account.FieldRateMultiplier:
 		return m.AddedRateMultiplier()
+	case account.FieldRecoveryVersion:
+		return m.AddedRecoveryVersion()
 	}
 	return nil, false
 }
@@ -4687,6 +4764,13 @@ func (m *AccountMutation) AddField(name string, value ent.Value) error {
 			return fmt.Errorf("unexpected type %T for field %s", value, name)
 		}
 		m.AddRateMultiplier(v)
+		return nil
+	case account.FieldRecoveryVersion:
+		v, ok := value.(int)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.AddRecoveryVersion(v)
 		return nil
 	}
 	return fmt.Errorf("unknown Account numeric field %s", name)
@@ -4888,6 +4972,9 @@ func (m *AccountMutation) ResetField(name string) error {
 		return nil
 	case account.FieldRateLimitResetAt:
 		m.ResetRateLimitResetAt()
+		return nil
+	case account.FieldRecoveryVersion:
+		m.ResetRecoveryVersion()
 		return nil
 	case account.FieldOverloadUntil:
 		m.ResetOverloadUntil()
@@ -20771,6 +20858,7 @@ type CustomModelMutation struct {
 	model_id                 *string
 	upstream_model           *string
 	system_prompt            *string
+	injection_mode           *string
 	enabled                  *bool
 	description              *string
 	clearedFields            map[string]struct{}
@@ -21160,6 +21248,42 @@ func (m *CustomModelMutation) ResetSystemPrompt() {
 	delete(m.clearedFields, custommodel.FieldSystemPrompt)
 }
 
+// SetInjectionMode sets the "injection_mode" field.
+func (m *CustomModelMutation) SetInjectionMode(s string) {
+	m.injection_mode = &s
+}
+
+// InjectionMode returns the value of the "injection_mode" field in the mutation.
+func (m *CustomModelMutation) InjectionMode() (r string, exists bool) {
+	v := m.injection_mode
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldInjectionMode returns the old "injection_mode" field's value of the CustomModel entity.
+// If the CustomModel object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *CustomModelMutation) OldInjectionMode(ctx context.Context) (v string, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldInjectionMode is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldInjectionMode requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldInjectionMode: %w", err)
+	}
+	return oldValue.InjectionMode, nil
+}
+
+// ResetInjectionMode resets all changes to the "injection_mode" field.
+func (m *CustomModelMutation) ResetInjectionMode() {
+	m.injection_mode = nil
+}
+
 // SetEnabled sets the "enabled" field.
 func (m *CustomModelMutation) SetEnabled(b bool) {
 	m.enabled = &b
@@ -21360,7 +21484,7 @@ func (m *CustomModelMutation) Type() string {
 // order to get all numeric fields that were incremented/decremented, call
 // AddedFields().
 func (m *CustomModelMutation) Fields() []string {
-	fields := make([]string, 0, 9)
+	fields := make([]string, 0, 10)
 	if m.created_at != nil {
 		fields = append(fields, custommodel.FieldCreatedAt)
 	}
@@ -21381,6 +21505,9 @@ func (m *CustomModelMutation) Fields() []string {
 	}
 	if m.system_prompt != nil {
 		fields = append(fields, custommodel.FieldSystemPrompt)
+	}
+	if m.injection_mode != nil {
+		fields = append(fields, custommodel.FieldInjectionMode)
 	}
 	if m.enabled != nil {
 		fields = append(fields, custommodel.FieldEnabled)
@@ -21410,6 +21537,8 @@ func (m *CustomModelMutation) Field(name string) (ent.Value, bool) {
 		return m.UpstreamModel()
 	case custommodel.FieldSystemPrompt:
 		return m.SystemPrompt()
+	case custommodel.FieldInjectionMode:
+		return m.InjectionMode()
 	case custommodel.FieldEnabled:
 		return m.Enabled()
 	case custommodel.FieldDescription:
@@ -21437,6 +21566,8 @@ func (m *CustomModelMutation) OldField(ctx context.Context, name string) (ent.Va
 		return m.OldUpstreamModel(ctx)
 	case custommodel.FieldSystemPrompt:
 		return m.OldSystemPrompt(ctx)
+	case custommodel.FieldInjectionMode:
+		return m.OldInjectionMode(ctx)
 	case custommodel.FieldEnabled:
 		return m.OldEnabled(ctx)
 	case custommodel.FieldDescription:
@@ -21498,6 +21629,13 @@ func (m *CustomModelMutation) SetField(name string, value ent.Value) error {
 			return fmt.Errorf("unexpected type %T for field %s", value, name)
 		}
 		m.SetSystemPrompt(v)
+		return nil
+	case custommodel.FieldInjectionMode:
+		v, ok := value.(string)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetInjectionMode(v)
 		return nil
 	case custommodel.FieldEnabled:
 		v, ok := value.(bool)
@@ -21606,6 +21744,9 @@ func (m *CustomModelMutation) ResetField(name string) error {
 		return nil
 	case custommodel.FieldSystemPrompt:
 		m.ResetSystemPrompt()
+		return nil
+	case custommodel.FieldInjectionMode:
+		m.ResetInjectionMode()
 		return nil
 	case custommodel.FieldEnabled:
 		m.ResetEnabled()

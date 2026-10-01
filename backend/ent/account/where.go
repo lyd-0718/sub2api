@@ -160,6 +160,11 @@ func RateLimitResetAt(v time.Time) predicate.Account {
 	return predicate.Account(sql.FieldEQ(FieldRateLimitResetAt, v))
 }
 
+// RecoveryVersion applies equality check predicate on the "recovery_version" field. It's identical to RecoveryVersionEQ.
+func RecoveryVersion(v int) predicate.Account {
+	return predicate.Account(sql.FieldEQ(FieldRecoveryVersion, v))
+}
+
 // OverloadUntil applies equality check predicate on the "overload_until" field. It's identical to OverloadUntilEQ.
 func OverloadUntil(v time.Time) predicate.Account {
 	return predicate.Account(sql.FieldEQ(FieldOverloadUntil, v))
@@ -1203,6 +1208,46 @@ func RateLimitResetAtIsNil() predicate.Account {
 // RateLimitResetAtNotNil applies the NotNil predicate on the "rate_limit_reset_at" field.
 func RateLimitResetAtNotNil() predicate.Account {
 	return predicate.Account(sql.FieldNotNull(FieldRateLimitResetAt))
+}
+
+// RecoveryVersionEQ applies the EQ predicate on the "recovery_version" field.
+func RecoveryVersionEQ(v int) predicate.Account {
+	return predicate.Account(sql.FieldEQ(FieldRecoveryVersion, v))
+}
+
+// RecoveryVersionNEQ applies the NEQ predicate on the "recovery_version" field.
+func RecoveryVersionNEQ(v int) predicate.Account {
+	return predicate.Account(sql.FieldNEQ(FieldRecoveryVersion, v))
+}
+
+// RecoveryVersionIn applies the In predicate on the "recovery_version" field.
+func RecoveryVersionIn(vs ...int) predicate.Account {
+	return predicate.Account(sql.FieldIn(FieldRecoveryVersion, vs...))
+}
+
+// RecoveryVersionNotIn applies the NotIn predicate on the "recovery_version" field.
+func RecoveryVersionNotIn(vs ...int) predicate.Account {
+	return predicate.Account(sql.FieldNotIn(FieldRecoveryVersion, vs...))
+}
+
+// RecoveryVersionGT applies the GT predicate on the "recovery_version" field.
+func RecoveryVersionGT(v int) predicate.Account {
+	return predicate.Account(sql.FieldGT(FieldRecoveryVersion, v))
+}
+
+// RecoveryVersionGTE applies the GTE predicate on the "recovery_version" field.
+func RecoveryVersionGTE(v int) predicate.Account {
+	return predicate.Account(sql.FieldGTE(FieldRecoveryVersion, v))
+}
+
+// RecoveryVersionLT applies the LT predicate on the "recovery_version" field.
+func RecoveryVersionLT(v int) predicate.Account {
+	return predicate.Account(sql.FieldLT(FieldRecoveryVersion, v))
+}
+
+// RecoveryVersionLTE applies the LTE predicate on the "recovery_version" field.
+func RecoveryVersionLTE(v int) predicate.Account {
+	return predicate.Account(sql.FieldLTE(FieldRecoveryVersion, v))
 }
 
 // OverloadUntilEQ applies the EQ predicate on the "overload_until" field.

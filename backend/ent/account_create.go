@@ -307,6 +307,20 @@ func (_c *AccountCreate) SetNillableRateLimitResetAt(v *time.Time) *AccountCreat
 	return _c
 }
 
+// SetRecoveryVersion sets the "recovery_version" field.
+func (_c *AccountCreate) SetRecoveryVersion(v int) *AccountCreate {
+	_c.mutation.SetRecoveryVersion(v)
+	return _c
+}
+
+// SetNillableRecoveryVersion sets the "recovery_version" field if the given value is not nil.
+func (_c *AccountCreate) SetNillableRecoveryVersion(v *int) *AccountCreate {
+	if v != nil {
+		_c.SetRecoveryVersion(*v)
+	}
+	return _c
+}
+
 // SetOverloadUntil sets the "overload_until" field.
 func (_c *AccountCreate) SetOverloadUntil(v time.Time) *AccountCreate {
 	_c.mutation.SetOverloadUntil(v)
@@ -577,6 +591,10 @@ func (_c *AccountCreate) defaults() error {
 		v := account.DefaultSchedulable
 		_c.mutation.SetSchedulable(v)
 	}
+	if _, ok := _c.mutation.RecoveryVersion(); !ok {
+		v := account.DefaultRecoveryVersion
+		_c.mutation.SetRecoveryVersion(v)
+	}
 	if _, ok := _c.mutation.QuotaDimension(); !ok {
 		v := account.DefaultQuotaDimension
 		_c.mutation.SetQuotaDimension(v)
@@ -644,6 +662,9 @@ func (_c *AccountCreate) check() error {
 	}
 	if _, ok := _c.mutation.Schedulable(); !ok {
 		return &ValidationError{Name: "schedulable", err: errors.New(`ent: missing required field "Account.schedulable"`)}
+	}
+	if _, ok := _c.mutation.RecoveryVersion(); !ok {
+		return &ValidationError{Name: "recovery_version", err: errors.New(`ent: missing required field "Account.recovery_version"`)}
 	}
 	if v, ok := _c.mutation.SessionWindowStatus(); ok {
 		if err := account.SessionWindowStatusValidator(v); err != nil {
@@ -772,6 +793,10 @@ func (_c *AccountCreate) createSpec() (*Account, *sqlgraph.CreateSpec) {
 	if value, ok := _c.mutation.RateLimitResetAt(); ok {
 		_spec.SetField(account.FieldRateLimitResetAt, field.TypeTime, value)
 		_node.RateLimitResetAt = &value
+	}
+	if value, ok := _c.mutation.RecoveryVersion(); ok {
+		_spec.SetField(account.FieldRecoveryVersion, field.TypeInt, value)
+		_node.RecoveryVersion = value
 	}
 	if value, ok := _c.mutation.OverloadUntil(); ok {
 		_spec.SetField(account.FieldOverloadUntil, field.TypeTime, value)
@@ -1290,6 +1315,24 @@ func (u *AccountUpsert) UpdateRateLimitResetAt() *AccountUpsert {
 // ClearRateLimitResetAt clears the value of the "rate_limit_reset_at" field.
 func (u *AccountUpsert) ClearRateLimitResetAt() *AccountUpsert {
 	u.SetNull(account.FieldRateLimitResetAt)
+	return u
+}
+
+// SetRecoveryVersion sets the "recovery_version" field.
+func (u *AccountUpsert) SetRecoveryVersion(v int) *AccountUpsert {
+	u.Set(account.FieldRecoveryVersion, v)
+	return u
+}
+
+// UpdateRecoveryVersion sets the "recovery_version" field to the value that was provided on create.
+func (u *AccountUpsert) UpdateRecoveryVersion() *AccountUpsert {
+	u.SetExcluded(account.FieldRecoveryVersion)
+	return u
+}
+
+// AddRecoveryVersion adds v to the "recovery_version" field.
+func (u *AccountUpsert) AddRecoveryVersion(v int) *AccountUpsert {
+	u.Add(account.FieldRecoveryVersion, v)
 	return u
 }
 
@@ -1886,6 +1929,27 @@ func (u *AccountUpsertOne) UpdateRateLimitResetAt() *AccountUpsertOne {
 func (u *AccountUpsertOne) ClearRateLimitResetAt() *AccountUpsertOne {
 	return u.Update(func(s *AccountUpsert) {
 		s.ClearRateLimitResetAt()
+	})
+}
+
+// SetRecoveryVersion sets the "recovery_version" field.
+func (u *AccountUpsertOne) SetRecoveryVersion(v int) *AccountUpsertOne {
+	return u.Update(func(s *AccountUpsert) {
+		s.SetRecoveryVersion(v)
+	})
+}
+
+// AddRecoveryVersion adds v to the "recovery_version" field.
+func (u *AccountUpsertOne) AddRecoveryVersion(v int) *AccountUpsertOne {
+	return u.Update(func(s *AccountUpsert) {
+		s.AddRecoveryVersion(v)
+	})
+}
+
+// UpdateRecoveryVersion sets the "recovery_version" field to the value that was provided on create.
+func (u *AccountUpsertOne) UpdateRecoveryVersion() *AccountUpsertOne {
+	return u.Update(func(s *AccountUpsert) {
+		s.UpdateRecoveryVersion()
 	})
 }
 
@@ -2671,6 +2735,27 @@ func (u *AccountUpsertBulk) UpdateRateLimitResetAt() *AccountUpsertBulk {
 func (u *AccountUpsertBulk) ClearRateLimitResetAt() *AccountUpsertBulk {
 	return u.Update(func(s *AccountUpsert) {
 		s.ClearRateLimitResetAt()
+	})
+}
+
+// SetRecoveryVersion sets the "recovery_version" field.
+func (u *AccountUpsertBulk) SetRecoveryVersion(v int) *AccountUpsertBulk {
+	return u.Update(func(s *AccountUpsert) {
+		s.SetRecoveryVersion(v)
+	})
+}
+
+// AddRecoveryVersion adds v to the "recovery_version" field.
+func (u *AccountUpsertBulk) AddRecoveryVersion(v int) *AccountUpsertBulk {
+	return u.Update(func(s *AccountUpsert) {
+		s.AddRecoveryVersion(v)
+	})
+}
+
+// UpdateRecoveryVersion sets the "recovery_version" field to the value that was provided on create.
+func (u *AccountUpsertBulk) UpdateRecoveryVersion() *AccountUpsertBulk {
+	return u.Update(func(s *AccountUpsert) {
+		s.UpdateRecoveryVersion()
 	})
 }
 

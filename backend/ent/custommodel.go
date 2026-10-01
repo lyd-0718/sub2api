@@ -32,6 +32,8 @@ type CustomModel struct {
 	UpstreamModel string `json:"upstream_model,omitempty"`
 	// System prompt to inject into requests.
 	SystemPrompt string `json:"system_prompt,omitempty"`
+	// System prompt injection strategy: prepend, append, or replace
+	InjectionMode string `json:"injection_mode,omitempty"`
 	// Whether this custom model is active.
 	Enabled bool `json:"enabled,omitempty"`
 	// Description or notes about this custom model.
@@ -82,7 +84,7 @@ func (*CustomModel) scanValues(columns []string) ([]any, error) {
 			values[i] = new(sql.NullBool)
 		case custommodel.FieldID, custommodel.FieldUpstreamGroupID:
 			values[i] = new(sql.NullInt64)
-		case custommodel.FieldModelID, custommodel.FieldUpstreamModel, custommodel.FieldSystemPrompt, custommodel.FieldDescription:
+		case custommodel.FieldModelID, custommodel.FieldUpstreamModel, custommodel.FieldSystemPrompt, custommodel.FieldInjectionMode, custommodel.FieldDescription:
 			values[i] = new(sql.NullString)
 		case custommodel.FieldCreatedAt, custommodel.FieldUpdatedAt, custommodel.FieldDeletedAt:
 			values[i] = new(sql.NullTime)
@@ -149,6 +151,12 @@ func (_m *CustomModel) assignValues(columns []string, values []any) error {
 				return fmt.Errorf("unexpected type %T for field system_prompt", values[i])
 			} else if value.Valid {
 				_m.SystemPrompt = value.String
+			}
+		case custommodel.FieldInjectionMode:
+			if value, ok := values[i].(*sql.NullString); !ok {
+				return fmt.Errorf("unexpected type %T for field injection_mode", values[i])
+			} else if value.Valid {
+				_m.InjectionMode = value.String
 			}
 		case custommodel.FieldEnabled:
 			if value, ok := values[i].(*sql.NullBool); !ok {
@@ -230,6 +238,9 @@ func (_m *CustomModel) String() string {
 	builder.WriteString(", ")
 	builder.WriteString("system_prompt=")
 	builder.WriteString(_m.SystemPrompt)
+	builder.WriteString(", ")
+	builder.WriteString("injection_mode=")
+	builder.WriteString(_m.InjectionMode)
 	builder.WriteString(", ")
 	builder.WriteString("enabled=")
 	builder.WriteString(fmt.Sprintf("%v", _m.Enabled))

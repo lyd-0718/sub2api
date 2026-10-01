@@ -118,6 +118,7 @@ var (
 		{Name: "schedulable", Type: field.TypeBool, Default: true},
 		{Name: "rate_limited_at", Type: field.TypeTime, Nullable: true, SchemaType: map[string]string{"postgres": "timestamptz"}},
 		{Name: "rate_limit_reset_at", Type: field.TypeTime, Nullable: true, SchemaType: map[string]string{"postgres": "timestamptz"}},
+		{Name: "recovery_version", Type: field.TypeInt, Default: 0},
 		{Name: "overload_until", Type: field.TypeTime, Nullable: true, SchemaType: map[string]string{"postgres": "timestamptz"}},
 		{Name: "temp_unschedulable_until", Type: field.TypeTime, Nullable: true, SchemaType: map[string]string{"postgres": "timestamptz"}},
 		{Name: "temp_unschedulable_reason", Type: field.TypeString, Nullable: true, SchemaType: map[string]string{"postgres": "text"}},
@@ -136,13 +137,13 @@ var (
 		ForeignKeys: []*schema.ForeignKey{
 			{
 				Symbol:     "accounts_proxies_proxy",
-				Columns:    []*schema.Column{AccountsColumns[30]},
+				Columns:    []*schema.Column{AccountsColumns[31]},
 				RefColumns: []*schema.Column{ProxiesColumns[0]},
 				OnDelete:   schema.SetNull,
 			},
 			{
 				Symbol:     "accounts_accounts_children",
-				Columns:    []*schema.Column{AccountsColumns[31]},
+				Columns:    []*schema.Column{AccountsColumns[32]},
 				RefColumns: []*schema.Column{AccountsColumns[0]},
 				OnDelete:   schema.Restrict,
 			},
@@ -166,7 +167,7 @@ var (
 			{
 				Name:    "account_proxy_id",
 				Unique:  false,
-				Columns: []*schema.Column{AccountsColumns[30]},
+				Columns: []*schema.Column{AccountsColumns[31]},
 			},
 			{
 				Name:    "account_priority",
@@ -196,7 +197,7 @@ var (
 			{
 				Name:    "account_overload_until",
 				Unique:  false,
-				Columns: []*schema.Column{AccountsColumns[23]},
+				Columns: []*schema.Column{AccountsColumns[24]},
 			},
 			{
 				Name:    "account_platform_priority",
@@ -216,7 +217,7 @@ var (
 			{
 				Name:    "account_parent_account_id",
 				Unique:  false,
-				Columns: []*schema.Column{AccountsColumns[31]},
+				Columns: []*schema.Column{AccountsColumns[32]},
 			},
 		},
 	}
@@ -872,6 +873,7 @@ var (
 		{Name: "model_id", Type: field.TypeString, Size: 200},
 		{Name: "upstream_model", Type: field.TypeString, Size: 200},
 		{Name: "system_prompt", Type: field.TypeString, Nullable: true, SchemaType: map[string]string{"postgres": "text"}},
+		{Name: "injection_mode", Type: field.TypeString, Size: 20, Default: "prepend"},
 		{Name: "enabled", Type: field.TypeBool, Default: true},
 		{Name: "description", Type: field.TypeString, Nullable: true, SchemaType: map[string]string{"postgres": "text"}},
 		{Name: "upstream_group_id", Type: field.TypeInt64},
@@ -884,7 +886,7 @@ var (
 		ForeignKeys: []*schema.ForeignKey{
 			{
 				Symbol:     "custom_models_groups_custom_models_upstream",
-				Columns:    []*schema.Column{CustomModelsColumns[9]},
+				Columns:    []*schema.Column{CustomModelsColumns[10]},
 				RefColumns: []*schema.Column{GroupsColumns[0]},
 				OnDelete:   schema.Cascade,
 			},
@@ -901,7 +903,7 @@ var (
 			{
 				Name:    "idx_custom_models_upstream_group_id",
 				Unique:  false,
-				Columns: []*schema.Column{CustomModelsColumns[9]},
+				Columns: []*schema.Column{CustomModelsColumns[10]},
 				Annotation: &entsql.IndexAnnotation{
 					Where: "deleted_at IS NULL",
 				},
@@ -909,7 +911,7 @@ var (
 			{
 				Name:    "idx_custom_models_enabled",
 				Unique:  false,
-				Columns: []*schema.Column{CustomModelsColumns[7]},
+				Columns: []*schema.Column{CustomModelsColumns[8]},
 				Annotation: &entsql.IndexAnnotation{
 					Where: "deleted_at IS NULL",
 				},

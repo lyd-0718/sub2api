@@ -3720,6 +3720,7 @@ func accountEntityToService(m *dbent.Account) *service.Account {
 		AutoPauseOnExpired:      m.AutoPauseOnExpired,
 		CreatedAt:               m.CreatedAt,
 		UpdatedAt:               m.UpdatedAt,
+		RecoveryVersion:         m.RecoveryVersion,
 		Schedulable:             m.Schedulable,
 		RateLimitedAt:           m.RateLimitedAt,
 		RateLimitResetAt:        m.RateLimitResetAt,

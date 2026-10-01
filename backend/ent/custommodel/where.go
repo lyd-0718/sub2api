@@ -90,6 +90,11 @@ func SystemPrompt(v string) predicate.CustomModel {
 	return predicate.CustomModel(sql.FieldEQ(FieldSystemPrompt, v))
 }
 
+// InjectionMode applies equality check predicate on the "injection_mode" field. It's identical to InjectionModeEQ.
+func InjectionMode(v string) predicate.CustomModel {
+	return predicate.CustomModel(sql.FieldEQ(FieldInjectionMode, v))
+}
+
 // Enabled applies equality check predicate on the "enabled" field. It's identical to EnabledEQ.
 func Enabled(v bool) predicate.CustomModel {
 	return predicate.CustomModel(sql.FieldEQ(FieldEnabled, v))
@@ -453,6 +458,71 @@ func SystemPromptEqualFold(v string) predicate.CustomModel {
 // SystemPromptContainsFold applies the ContainsFold predicate on the "system_prompt" field.
 func SystemPromptContainsFold(v string) predicate.CustomModel {
 	return predicate.CustomModel(sql.FieldContainsFold(FieldSystemPrompt, v))
+}
+
+// InjectionModeEQ applies the EQ predicate on the "injection_mode" field.
+func InjectionModeEQ(v string) predicate.CustomModel {
+	return predicate.CustomModel(sql.FieldEQ(FieldInjectionMode, v))
+}
+
+// InjectionModeNEQ applies the NEQ predicate on the "injection_mode" field.
+func InjectionModeNEQ(v string) predicate.CustomModel {
+	return predicate.CustomModel(sql.FieldNEQ(FieldInjectionMode, v))
+}
+
+// InjectionModeIn applies the In predicate on the "injection_mode" field.
+func InjectionModeIn(vs ...string) predicate.CustomModel {
+	return predicate.CustomModel(sql.FieldIn(FieldInjectionMode, vs...))
+}
+
+// InjectionModeNotIn applies the NotIn predicate on the "injection_mode" field.
+func InjectionModeNotIn(vs ...string) predicate.CustomModel {
+	return predicate.CustomModel(sql.FieldNotIn(FieldInjectionMode, vs...))
+}
+
+// InjectionModeGT applies the GT predicate on the "injection_mode" field.
+func InjectionModeGT(v string) predicate.CustomModel {
+	return predicate.CustomModel(sql.FieldGT(FieldInjectionMode, v))
+}
+
+// InjectionModeGTE applies the GTE predicate on the "injection_mode" field.
+func InjectionModeGTE(v string) predicate.CustomModel {
+	return predicate.CustomModel(sql.FieldGTE(FieldInjectionMode, v))
+}
+
+// InjectionModeLT applies the LT predicate on the "injection_mode" field.
+func InjectionModeLT(v string) predicate.CustomModel {
+	return predicate.CustomModel(sql.FieldLT(FieldInjectionMode, v))
+}
+
+// InjectionModeLTE applies the LTE predicate on the "injection_mode" field.
+func InjectionModeLTE(v string) predicate.CustomModel {
+	return predicate.CustomModel(sql.FieldLTE(FieldInjectionMode, v))
+}
+
+// InjectionModeContains applies the Contains predicate on the "injection_mode" field.
+func InjectionModeContains(v string) predicate.CustomModel {
+	return predicate.CustomModel(sql.FieldContains(FieldInjectionMode, v))
+}
+
+// InjectionModeHasPrefix applies the HasPrefix predicate on the "injection_mode" field.
+func InjectionModeHasPrefix(v string) predicate.CustomModel {
+	return predicate.CustomModel(sql.FieldHasPrefix(FieldInjectionMode, v))
+}
+
+// InjectionModeHasSuffix applies the HasSuffix predicate on the "injection_mode" field.
+func InjectionModeHasSuffix(v string) predicate.CustomModel {
+	return predicate.CustomModel(sql.FieldHasSuffix(FieldInjectionMode, v))
+}
+
+// InjectionModeEqualFold applies the EqualFold predicate on the "injection_mode" field.
+func InjectionModeEqualFold(v string) predicate.CustomModel {
+	return predicate.CustomModel(sql.FieldEqualFold(FieldInjectionMode, v))
+}
+
+// InjectionModeContainsFold applies the ContainsFold predicate on the "injection_mode" field.
+func InjectionModeContainsFold(v string) predicate.CustomModel {
+	return predicate.CustomModel(sql.FieldContainsFold(FieldInjectionMode, v))
 }
 
 // EnabledEQ applies the EQ predicate on the "enabled" field.

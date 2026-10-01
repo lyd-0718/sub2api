@@ -182,7 +182,7 @@ func (m *sessionWindowMockRepo) ListCNQuotaDisabled(context.Context, string) ([]
 	panic("unexpected")
 }
 
-func (m *sessionWindowMockRepo) RestoreRecoveredAccount(context.Context, int64, time.Time) (bool, error) {
+func (m *sessionWindowMockRepo) RestoreRecoveredAccount(context.Context, int64, int) (bool, error) {
 	panic("unexpected")
 }
 

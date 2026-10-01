@@ -2018,7 +2018,7 @@ func (s *stubAccountRepo) ListCNQuotaDisabled(ctx context.Context, platform stri
 	return nil, errors.New("not implemented")
 }
 
-func (s *stubAccountRepo) RestoreRecoveredAccount(ctx context.Context, accountID int64, expectedUpdatedAt time.Time) (bool, error) {
+func (s *stubAccountRepo) RestoreRecoveredAccount(ctx context.Context, accountID int64, expectedRecoveryVersion int) (bool, error) {
 	return false, errors.New("not implemented")
 }
 

@@ -12,6 +12,7 @@ export interface CustomModel {
   upstream_group_id: number
   upstream_model: string
   system_prompt: string | null
+  injection_mode: string
   description: string | null
   enabled: boolean
   downstream_groups: number[]
@@ -24,6 +25,7 @@ export interface CreateCustomModelRequest {
   upstream_group_id: number
   upstream_model: string
   system_prompt?: string
+  injection_mode?: string
   description?: string
   enabled?: boolean
   downstream_groups: number[]
@@ -33,6 +35,7 @@ export interface UpdateCustomModelRequest {
   upstream_group_id?: number
   upstream_model?: string
   system_prompt?: string
+  injection_mode?: string
   description?: string
   enabled?: boolean
   downstream_groups?: number[]

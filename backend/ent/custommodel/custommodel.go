@@ -29,6 +29,8 @@ const (
 	FieldUpstreamModel = "upstream_model"
 	// FieldSystemPrompt holds the string denoting the system_prompt field in the database.
 	FieldSystemPrompt = "system_prompt"
+	// FieldInjectionMode holds the string denoting the injection_mode field in the database.
+	FieldInjectionMode = "injection_mode"
 	// FieldEnabled holds the string denoting the enabled field in the database.
 	FieldEnabled = "enabled"
 	// FieldDescription holds the string denoting the description field in the database.
@@ -63,6 +65,7 @@ var Columns = []string{
 	FieldUpstreamGroupID,
 	FieldUpstreamModel,
 	FieldSystemPrompt,
+	FieldInjectionMode,
 	FieldEnabled,
 	FieldDescription,
 }
@@ -101,6 +104,10 @@ var (
 	ModelIDValidator func(string) error
 	// UpstreamModelValidator is a validator for the "upstream_model" field. It is called by the builders before save.
 	UpstreamModelValidator func(string) error
+	// DefaultInjectionMode holds the default value on creation for the "injection_mode" field.
+	DefaultInjectionMode string
+	// InjectionModeValidator is a validator for the "injection_mode" field. It is called by the builders before save.
+	InjectionModeValidator func(string) error
 	// DefaultEnabled holds the default value on creation for the "enabled" field.
 	DefaultEnabled bool
 )
@@ -146,6 +153,11 @@ func ByUpstreamModel(opts ...sql.OrderTermOption) OrderOption {
 // BySystemPrompt orders the results by the system_prompt field.
 func BySystemPrompt(opts ...sql.OrderTermOption) OrderOption {
 	return sql.OrderByField(FieldSystemPrompt, opts...).ToFunc()
+}
+
+// ByInjectionMode orders the results by the injection_mode field.
+func ByInjectionMode(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldInjectionMode, opts...).ToFunc()
 }
 
 // ByEnabled orders the results by the enabled field.

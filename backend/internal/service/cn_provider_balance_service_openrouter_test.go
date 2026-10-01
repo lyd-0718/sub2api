@@ -92,7 +92,7 @@ func TestCNProviderBalanceService_OpenRouterCreditsAndKeyLimit(t *testing.T) {
 	repo := &cnBalanceProbeRepo{account: newOpenRouterBalanceProbeAccount()}
 	upstream := &cnBalanceURLUpstream{responses: map[string]cnBalancePathResponse{
 		"/api/v1/credits": {statusCode: http.StatusOK, body: `{"data":{"total_credits":794,"total_usage":287.138756042}}`},
-		"/api/v1/key": {statusCode: http.StatusOK, body: `{"data":{"limit":500,"limit_remaining":499.99957464}}`},
+		"/api/v1/key":     {statusCode: http.StatusOK, body: `{"data":{"limit":500,"limit_remaining":499.99957464}}`},
 	}}
 	svc := NewCNProviderBalanceService(repo, nil, upstream, nil)
 

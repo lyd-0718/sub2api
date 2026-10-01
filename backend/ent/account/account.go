@@ -62,6 +62,8 @@ const (
 	FieldRateLimitedAt = "rate_limited_at"
 	// FieldRateLimitResetAt holds the string denoting the rate_limit_reset_at field in the database.
 	FieldRateLimitResetAt = "rate_limit_reset_at"
+	// FieldRecoveryVersion holds the string denoting the recovery_version field in the database.
+	FieldRecoveryVersion = "recovery_version"
 	// FieldOverloadUntil holds the string denoting the overload_until field in the database.
 	FieldOverloadUntil = "overload_until"
 	// FieldTempUnschedulableUntil holds the string denoting the temp_unschedulable_until field in the database.
@@ -154,6 +156,7 @@ var Columns = []string{
 	FieldSchedulable,
 	FieldRateLimitedAt,
 	FieldRateLimitResetAt,
+	FieldRecoveryVersion,
 	FieldOverloadUntil,
 	FieldTempUnschedulableUntil,
 	FieldTempUnschedulableReason,
@@ -218,6 +221,8 @@ var (
 	DefaultAutoPauseOnExpired bool
 	// DefaultSchedulable holds the default value on creation for the "schedulable" field.
 	DefaultSchedulable bool
+	// DefaultRecoveryVersion holds the default value on creation for the "recovery_version" field.
+	DefaultRecoveryVersion int
 	// SessionWindowStatusValidator is a validator for the "session_window_status" field. It is called by the builders before save.
 	SessionWindowStatusValidator func(string) error
 )
@@ -359,6 +364,11 @@ func ByRateLimitedAt(opts ...sql.OrderTermOption) OrderOption {
 // ByRateLimitResetAt orders the results by the rate_limit_reset_at field.
 func ByRateLimitResetAt(opts ...sql.OrderTermOption) OrderOption {
 	return sql.OrderByField(FieldRateLimitResetAt, opts...).ToFunc()
+}
+
+// ByRecoveryVersion orders the results by the recovery_version field.
+func ByRecoveryVersion(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldRecoveryVersion, opts...).ToFunc()
 }
 
 // ByOverloadUntil orders the results by the overload_until field.

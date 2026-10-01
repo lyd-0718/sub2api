@@ -20,22 +20,22 @@ func newGatewayRoutesTestRouterWithGroup(group *service.Group) *gin.Engine {
 	gin.SetMode(gin.TestMode)
 	router := gin.New()
 	RegisterGatewayRoutes(router, &handler.Handlers{
-			Gateway:       &handler.GatewayHandler{},
-			OpenAIGateway: &handler.OpenAIGatewayHandler{},
-			AsyncImage:    handler.NewAsyncImageHandler(nil, nil),
-		}, servermiddleware.APIKeyAuthMiddleware(func(c *gin.Context) {
-			groupID := int64(1)
-			c.Set(string(servermiddleware.ContextKeyAPIKey), &service.APIKey{
-				GroupID: &groupID,
-				Group:   group,
-			})
-			c.Next()
-		}), nil, nil, nil, nil, nil, nil, &config.Config{
-			Gateway: config.GatewayConfig{
-				MaxBodySize:     1024 * 1024,
-				TextMaxBodySize: 1024 * 1024,
-			},
+		Gateway:       &handler.GatewayHandler{},
+		OpenAIGateway: &handler.OpenAIGatewayHandler{},
+		AsyncImage:    handler.NewAsyncImageHandler(nil, nil),
+	}, servermiddleware.APIKeyAuthMiddleware(func(c *gin.Context) {
+		groupID := int64(1)
+		c.Set(string(servermiddleware.ContextKeyAPIKey), &service.APIKey{
+			GroupID: &groupID,
+			Group:   group,
 		})
+		c.Next()
+	}), nil, nil, nil, nil, nil, nil, &config.Config{
+		Gateway: config.GatewayConfig{
+			MaxBodySize:     1024 * 1024,
+			TextMaxBodySize: 1024 * 1024,
+		},
+	})
 	return router
 }
 

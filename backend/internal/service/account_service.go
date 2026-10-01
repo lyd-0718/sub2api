@@ -108,10 +108,10 @@ type AccountRepository interface {
 	// 自动归队扫描。不得复用带 status='active' 过滤的 ListByPlatform。
 	ListCNQuotaDisabled(ctx context.Context, platform string) ([]*Account, error)
 	// RestoreRecoveredAccount 单事务 CAS 恢复被禁用账号：WHERE id=? AND
-	// status='error' AND updated_at=expectedUpdatedAt，成功时置回
-	// active + schedulable 并清掉 error / 临时停调 / 限流 / 过载标记。
+	// status='error' AND recovery_version=expectedRecoveryVersion，成功时置回
+	// active + schedulable、recovery_version+1，并清掉 error / 临时停调 / 限流 / 过载标记。
 	// 影响行数 0 → (false, nil)：并发改写，调用方重排且不消耗退避预算。
-	RestoreRecoveredAccount(ctx context.Context, accountID int64, expectedUpdatedAt time.Time) (bool, error)
+	RestoreRecoveredAccount(ctx context.Context, accountID int64, expectedRecoveryVersion int) (bool, error)
 	SetModelRateLimit(ctx context.Context, id int64, scope string, resetAt time.Time, reason ...string) error
 	SetOverloaded(ctx context.Context, id int64, until time.Time) error
 	SetTempUnschedulable(ctx context.Context, id int64, until time.Time, reason string) error

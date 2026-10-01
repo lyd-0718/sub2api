@@ -175,7 +175,7 @@ func (s *accountRepoStub) ListCNQuotaDisabled(ctx context.Context, platform stri
 	panic("unexpected ListCNQuotaDisabled call")
 }
 
-func (s *accountRepoStub) RestoreRecoveredAccount(ctx context.Context, accountID int64, expectedUpdatedAt time.Time) (bool, error) {
+func (s *accountRepoStub) RestoreRecoveredAccount(ctx context.Context, accountID int64, expectedRecoveryVersion int) (bool, error) {
 	panic("unexpected RestoreRecoveredAccount call")
 }
 

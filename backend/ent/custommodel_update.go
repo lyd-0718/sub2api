@@ -117,6 +117,20 @@ func (_u *CustomModelUpdate) ClearSystemPrompt() *CustomModelUpdate {
 	return _u
 }
 
+// SetInjectionMode sets the "injection_mode" field.
+func (_u *CustomModelUpdate) SetInjectionMode(v string) *CustomModelUpdate {
+	_u.mutation.SetInjectionMode(v)
+	return _u
+}
+
+// SetNillableInjectionMode sets the "injection_mode" field if the given value is not nil.
+func (_u *CustomModelUpdate) SetNillableInjectionMode(v *string) *CustomModelUpdate {
+	if v != nil {
+		_u.SetInjectionMode(*v)
+	}
+	return _u
+}
+
 // SetEnabled sets the "enabled" field.
 func (_u *CustomModelUpdate) SetEnabled(v bool) *CustomModelUpdate {
 	_u.mutation.SetEnabled(v)
@@ -257,6 +271,11 @@ func (_u *CustomModelUpdate) check() error {
 			return &ValidationError{Name: "upstream_model", err: fmt.Errorf(`ent: validator failed for field "CustomModel.upstream_model": %w`, err)}
 		}
 	}
+	if v, ok := _u.mutation.InjectionMode(); ok {
+		if err := custommodel.InjectionModeValidator(v); err != nil {
+			return &ValidationError{Name: "injection_mode", err: fmt.Errorf(`ent: validator failed for field "CustomModel.injection_mode": %w`, err)}
+		}
+	}
 	if _u.mutation.UpstreamGroupCleared() && len(_u.mutation.UpstreamGroupIDs()) > 0 {
 		return errors.New(`ent: clearing a required unique edge "CustomModel.upstream_group"`)
 	}
@@ -295,6 +314,9 @@ func (_u *CustomModelUpdate) sqlSave(ctx context.Context) (_node int, err error)
 	}
 	if _u.mutation.SystemPromptCleared() {
 		_spec.ClearField(custommodel.FieldSystemPrompt, field.TypeString)
+	}
+	if value, ok := _u.mutation.InjectionMode(); ok {
+		_spec.SetField(custommodel.FieldInjectionMode, field.TypeString, value)
 	}
 	if value, ok := _u.mutation.Enabled(); ok {
 		_spec.SetField(custommodel.FieldEnabled, field.TypeBool, value)
@@ -487,6 +509,20 @@ func (_u *CustomModelUpdateOne) ClearSystemPrompt() *CustomModelUpdateOne {
 	return _u
 }
 
+// SetInjectionMode sets the "injection_mode" field.
+func (_u *CustomModelUpdateOne) SetInjectionMode(v string) *CustomModelUpdateOne {
+	_u.mutation.SetInjectionMode(v)
+	return _u
+}
+
+// SetNillableInjectionMode sets the "injection_mode" field if the given value is not nil.
+func (_u *CustomModelUpdateOne) SetNillableInjectionMode(v *string) *CustomModelUpdateOne {
+	if v != nil {
+		_u.SetInjectionMode(*v)
+	}
+	return _u
+}
+
 // SetEnabled sets the "enabled" field.
 func (_u *CustomModelUpdateOne) SetEnabled(v bool) *CustomModelUpdateOne {
 	_u.mutation.SetEnabled(v)
@@ -640,6 +676,11 @@ func (_u *CustomModelUpdateOne) check() error {
 			return &ValidationError{Name: "upstream_model", err: fmt.Errorf(`ent: validator failed for field "CustomModel.upstream_model": %w`, err)}
 		}
 	}
+	if v, ok := _u.mutation.InjectionMode(); ok {
+		if err := custommodel.InjectionModeValidator(v); err != nil {
+			return &ValidationError{Name: "injection_mode", err: fmt.Errorf(`ent: validator failed for field "CustomModel.injection_mode": %w`, err)}
+		}
+	}
 	if _u.mutation.UpstreamGroupCleared() && len(_u.mutation.UpstreamGroupIDs()) > 0 {
 		return errors.New(`ent: clearing a required unique edge "CustomModel.upstream_group"`)
 	}
@@ -695,6 +736,9 @@ func (_u *CustomModelUpdateOne) sqlSave(ctx context.Context) (_node *CustomModel
 	}
 	if _u.mutation.SystemPromptCleared() {
 		_spec.ClearField(custommodel.FieldSystemPrompt, field.TypeString)
+	}
+	if value, ok := _u.mutation.InjectionMode(); ok {
+		_spec.SetField(custommodel.FieldInjectionMode, field.TypeString, value)
 	}
 	if value, ok := _u.mutation.Enabled(); ok {
 		_spec.SetField(custommodel.FieldEnabled, field.TypeBool, value)

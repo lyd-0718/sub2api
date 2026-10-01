@@ -38,19 +38,12 @@ type CustomModel struct {
 }
 
 type CustomModelResolution struct {
-	UpstreamGroupID int64
-	UpstreamModel   string
-	SystemPrompt    string
-	InjectionMode   string
-}
-
-type CreateCustomModelInput struct {
 	ModelID         string
 	UpstreamGroupID int64
+	UpstreamGroup   *Group
 	UpstreamModel   string
 	SystemPrompt    string
 	InjectionMode   string
-	Description     string
 }
 
 type CreateCustomModelInput struct {
@@ -58,6 +51,7 @@ type CreateCustomModelInput struct {
 	UpstreamGroupID  int64
 	UpstreamModel    string
 	SystemPrompt     string
+	InjectionMode    string
 	Enabled          *bool
 	Description      string
 	DownstreamGroups []int64
@@ -67,6 +61,7 @@ type UpdateCustomModelInput struct {
 	ModelID          *string
 	UpstreamGroupID  *int64
 	UpstreamModel    *string
+	SystemPrompt     *string
 	InjectionMode    *string
 	Enabled          *bool
 	Description      *string
@@ -167,6 +162,14 @@ func (s *CustomModelService) Update(ctx context.Context, id int64, input *Update
 }
 
 func (s *CustomModelService) validate(ctx context.Context, model *CustomModel) error {
+	// injection_mode：空值归一为 prepend；非法值拒绝（数据库 CHECK 同名约束兜底）。
+	switch model.InjectionMode {
+	case "":
+		model.InjectionMode = "prepend"
+	case "prepend", "append", "replace":
+	default:
+		return infraerrors.BadRequest("INVALID_INJECTION_MODE", "injection_mode must be one of prepend, append, replace")
+	}
 	// Usage attribution fields accept at most 100 bytes. Reject longer names
 	// before routing so successful requests cannot lose their billing records.
 	for _, name := range []string{model.ModelID, model.UpstreamModel} {

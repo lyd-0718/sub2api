@@ -45,6 +45,10 @@ type Account struct {
 	CreatedAt          time.Time
 	UpdatedAt          time.Time
 
+	// RecoveryVersion 是账号恢复（CNRecovery）CAS 的乐观锁版本号。
+	// 与 updated_at 区分：无关字段更新不应让恢复尝试白白失败。
+	RecoveryVersion int
+
 	Schedulable bool
 
 	RateLimitedAt    *time.Time

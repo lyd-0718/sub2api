@@ -97,6 +97,20 @@ func (_c *CustomModelCreate) SetNillableSystemPrompt(v *string) *CustomModelCrea
 	return _c
 }
 
+// SetInjectionMode sets the "injection_mode" field.
+func (_c *CustomModelCreate) SetInjectionMode(v string) *CustomModelCreate {
+	_c.mutation.SetInjectionMode(v)
+	return _c
+}
+
+// SetNillableInjectionMode sets the "injection_mode" field if the given value is not nil.
+func (_c *CustomModelCreate) SetNillableInjectionMode(v *string) *CustomModelCreate {
+	if v != nil {
+		_c.SetInjectionMode(*v)
+	}
+	return _c
+}
+
 // SetEnabled sets the "enabled" field.
 func (_c *CustomModelCreate) SetEnabled(v bool) *CustomModelCreate {
 	_c.mutation.SetEnabled(v)
@@ -196,6 +210,10 @@ func (_c *CustomModelCreate) defaults() error {
 		v := custommodel.DefaultUpdatedAt()
 		_c.mutation.SetUpdatedAt(v)
 	}
+	if _, ok := _c.mutation.InjectionMode(); !ok {
+		v := custommodel.DefaultInjectionMode
+		_c.mutation.SetInjectionMode(v)
+	}
 	if _, ok := _c.mutation.Enabled(); !ok {
 		v := custommodel.DefaultEnabled
 		_c.mutation.SetEnabled(v)
@@ -228,6 +246,14 @@ func (_c *CustomModelCreate) check() error {
 	if v, ok := _c.mutation.UpstreamModel(); ok {
 		if err := custommodel.UpstreamModelValidator(v); err != nil {
 			return &ValidationError{Name: "upstream_model", err: fmt.Errorf(`ent: validator failed for field "CustomModel.upstream_model": %w`, err)}
+		}
+	}
+	if _, ok := _c.mutation.InjectionMode(); !ok {
+		return &ValidationError{Name: "injection_mode", err: errors.New(`ent: missing required field "CustomModel.injection_mode"`)}
+	}
+	if v, ok := _c.mutation.InjectionMode(); ok {
+		if err := custommodel.InjectionModeValidator(v); err != nil {
+			return &ValidationError{Name: "injection_mode", err: fmt.Errorf(`ent: validator failed for field "CustomModel.injection_mode": %w`, err)}
 		}
 	}
 	if _, ok := _c.mutation.Enabled(); !ok {
@@ -286,6 +312,10 @@ func (_c *CustomModelCreate) createSpec() (*CustomModel, *sqlgraph.CreateSpec) {
 	if value, ok := _c.mutation.SystemPrompt(); ok {
 		_spec.SetField(custommodel.FieldSystemPrompt, field.TypeString, value)
 		_node.SystemPrompt = value
+	}
+	if value, ok := _c.mutation.InjectionMode(); ok {
+		_spec.SetField(custommodel.FieldInjectionMode, field.TypeString, value)
+		_node.InjectionMode = value
 	}
 	if value, ok := _c.mutation.Enabled(); ok {
 		_spec.SetField(custommodel.FieldEnabled, field.TypeBool, value)
@@ -464,6 +494,18 @@ func (u *CustomModelUpsert) ClearSystemPrompt() *CustomModelUpsert {
 	return u
 }
 
+// SetInjectionMode sets the "injection_mode" field.
+func (u *CustomModelUpsert) SetInjectionMode(v string) *CustomModelUpsert {
+	u.Set(custommodel.FieldInjectionMode, v)
+	return u
+}
+
+// UpdateInjectionMode sets the "injection_mode" field to the value that was provided on create.
+func (u *CustomModelUpsert) UpdateInjectionMode() *CustomModelUpsert {
+	u.SetExcluded(custommodel.FieldInjectionMode)
+	return u
+}
+
 // SetEnabled sets the "enabled" field.
 func (u *CustomModelUpsert) SetEnabled(v bool) *CustomModelUpsert {
 	u.Set(custommodel.FieldEnabled, v)
@@ -634,6 +676,20 @@ func (u *CustomModelUpsertOne) UpdateSystemPrompt() *CustomModelUpsertOne {
 func (u *CustomModelUpsertOne) ClearSystemPrompt() *CustomModelUpsertOne {
 	return u.Update(func(s *CustomModelUpsert) {
 		s.ClearSystemPrompt()
+	})
+}
+
+// SetInjectionMode sets the "injection_mode" field.
+func (u *CustomModelUpsertOne) SetInjectionMode(v string) *CustomModelUpsertOne {
+	return u.Update(func(s *CustomModelUpsert) {
+		s.SetInjectionMode(v)
+	})
+}
+
+// UpdateInjectionMode sets the "injection_mode" field to the value that was provided on create.
+func (u *CustomModelUpsertOne) UpdateInjectionMode() *CustomModelUpsertOne {
+	return u.Update(func(s *CustomModelUpsert) {
+		s.UpdateInjectionMode()
 	})
 }
 
@@ -978,6 +1034,20 @@ func (u *CustomModelUpsertBulk) UpdateSystemPrompt() *CustomModelUpsertBulk {
 func (u *CustomModelUpsertBulk) ClearSystemPrompt() *CustomModelUpsertBulk {
 	return u.Update(func(s *CustomModelUpsert) {
 		s.ClearSystemPrompt()
+	})
+}
+
+// SetInjectionMode sets the "injection_mode" field.
+func (u *CustomModelUpsertBulk) SetInjectionMode(v string) *CustomModelUpsertBulk {
+	return u.Update(func(s *CustomModelUpsert) {
+		s.SetInjectionMode(v)
+	})
+}
+
+// UpdateInjectionMode sets the "injection_mode" field to the value that was provided on create.
+func (u *CustomModelUpsertBulk) UpdateInjectionMode() *CustomModelUpsertBulk {
+	return u.Update(func(s *CustomModelUpsert) {
+		s.UpdateInjectionMode()
 	})
 }
 

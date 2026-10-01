@@ -413,7 +413,7 @@ func openAICompatibleAccountEligibilityFailureReasonBeforeProfit(ctx context.Con
 			return "account_model_not_owned"
 		}
 	}
-	if !openAIAccountPlatformMatches(ctx, account, platform, requestedModel) || !account.IsOpenAICompatible()
+	if !openAIAccountPlatformMatches(ctx, account, platform, requestedModel) || !account.IsOpenAICompatible() {
 		return "platform_mismatch"
 	}
 	if !account.IsSchedulableForModelWithContext(ctx, requestedModel) {

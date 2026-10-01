@@ -801,7 +801,6 @@ func TestAntigravityCompatKeepaliveAfterFirstEvent(t *testing.T) {
 	require.NoError(t, reader.Close())
 }
 
-<<<<<<< HEAD
 func newAntigravityGeminiVariantAccount() *Account {
 	account := newAntigravityCompatAccount(AccountTypeOAuth)
 	// 与生产账号一致：后台按默认表建号，credentials 里带着裸名自映射。
@@ -856,7 +855,10 @@ func TestAntigravityCompatResolvesBareGeminiByReasoningEffort(t *testing.T) {
 			require.NotNil(t, result)
 			require.Len(t, upstream.requestBodies, 1)
 			require.Equal(t, tt.wantModel, gjson.GetBytes(upstream.requestBodies[0], "model").String())
-=======
+		})
+	}
+}
+
 func TestAntigravityCompatPreContentKeepalive(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	for _, tt := range []struct {
@@ -934,12 +936,10 @@ func TestAntigravityCompatHandlerPreContentKeepalive(t *testing.T) {
 			require.Error(t, <-done)
 			require.Contains(t, recorder.Body.String(), tt.want)
 			require.True(t, IsResponseCommitted(c))
->>>>>>> upstream/main
 		})
 	}
 }
 
-<<<<<<< HEAD
 func TestAntigravityClaudeForwardResolvesBareGeminiByThinking(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	tests := []struct {
@@ -964,7 +964,10 @@ func TestAntigravityClaudeForwardResolvesBareGeminiByThinking(t *testing.T) {
 			require.NoError(t, err)
 			require.Len(t, upstream.requestBodies, 1)
 			require.Equal(t, tt.wantModel, gjson.GetBytes(upstream.requestBodies[0], "model").String())
-=======
+		})
+	}
+}
+
 func TestAntigravityCompatHandlerRepeatsPreContentKeepalive(t *testing.T) {
 	svc := newAntigravityCompatService(config.GatewayConfig{
 		MaxLineSize: defaultMaxLineSize, StreamDataIntervalTimeout: 30, StreamKeepaliveInterval: 0,
@@ -1107,7 +1110,6 @@ func TestAntigravityCompatEmptyAfterKeepaliveReportsStreamError(t *testing.T) {
 			require.NotNil(t, result)
 			require.True(t, IsResponseCommitted(c))
 			require.Contains(t, recorder.Body.String(), tt.want)
->>>>>>> upstream/main
 		})
 	}
 }

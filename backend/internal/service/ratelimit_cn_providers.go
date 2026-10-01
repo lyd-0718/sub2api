@@ -6,7 +6,6 @@ import (
 	"net/http"
 	"strings"
 	"time"
-
 )
 
 // 国产供应商（kimi/zhipu/deepseek）的响应式冷却辅助。
@@ -33,7 +32,6 @@ const cnBalanceLowReasonPrefix = "cn_balance_low"
 const kimiConcurrentRequestLimitMessage = "You've reached your concurrent request limit. Please wait for your ongoing requests to finish and try again."
 
 const cnConcurrencyLimitReasonPrefix = "cn_concurrency_limit"
-
 
 func (s *RateLimitService) handleCNProviderConcurrencyLimit403(
 	ctx context.Context,
