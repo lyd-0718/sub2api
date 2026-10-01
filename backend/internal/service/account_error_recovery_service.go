@@ -13,9 +13,9 @@ package service
 //     快照里没有窗口重置键的，交给第 3 步的验证请求仲裁；
 //  3. 发一条最小请求点火验证（独立出站：HTTPUpstream.Do 原语无计费/用量/健康上报
 //     钩子，出站 URL 过 cnValidateProbeURL）——防「鉴权已死」账号误恢复形成死循环；
-//  4. CAS 恢复：验证后重读 accounts.updated_at 再比对（任何并发写入都会推进它，
-//     用旧值比对影响行数恒为 0）。
-//     必须在「探测 + 验证」完成后【重新读取】updated_at 再做 CAS；
+//  4. CAS 恢复：验证后重读 accounts.recovery_version 再比对（专用于恢复的乐观锁字段，
+//     避免无关账号更新——余额探测、标签、名称——导致假冲突）。
+//     必须在「探测 + 验证」完成后【重新读取】recovery_version 再做 CAS；
 //     影响行数 0 = 并发改写 → 重排下一轮且不消耗退避预算；
 //  5. 退避：10m → 20m → 40m → 封顶 6h，每账号每轮最多 3 次探测。
 
@@ -224,6 +224,7 @@ func (s cnRecoveryRoundStats) String() string {
 }
 
 // recoverOne 处理单个被禁用账号：额度判定 → 最小请求验证 → CAS 恢复。
+// recoverOne 处理单个被禁用账号：额度判定 → 最小请求验证 → CAS 恢复。
 // CAS 失败（影响行数 0）视为并发改写：重排下一轮且不消耗退避预算。
 func (s *AccountErrorRecoveryService) recoverOne(ctx context.Context, account *Account, now time.Time, stats *cnRecoveryRoundStats) {
 	if !s.due(account.ID, now) {
@@ -255,8 +256,8 @@ func (s *AccountErrorRecoveryService) recoverOne(ctx context.Context, account *A
 		return
 	}
 
-	// CAS 必须用「探测 + 验证」之后重读的 updated_at：额度探测落快照走 UpdateExtra，
-	// 会把 accounts.updated_at 推进到探测时刻，用旧值比对影响行数恒为 0。
+	// CAS 必须用「探测 + 验证」之后重读的 recovery_version：专用于恢复的乐观锁字段，
+	// 避免无关账号更新（余额探测、标签改名）导致假冲突。
 	fresh, err := s.accountRepo.GetByID(ctx, account.ID)
 	if err != nil || fresh == nil {
 		log.Printf("[CNRecovery] reload account %d failed: %v", account.ID, err)
@@ -264,7 +265,7 @@ func (s *AccountErrorRecoveryService) recoverOne(ctx context.Context, account *A
 		stats.deferred++
 		return
 	}
-	restored, err := s.accountRepo.RestoreRecoveredAccount(ctx, account.ID, fresh.UpdatedAt)
+	restored, err := s.accountRepo.RestoreRecoveredAccount(ctx, account.ID, fresh.RecoveryVersion)
 	if err != nil {
 		log.Printf("[CNRecovery] restore account %d failed: %v", account.ID, err)
 		s.scheduleNextAttempt(account.ID, now, cnRecoveryBackoffReasonRestoreFailed)

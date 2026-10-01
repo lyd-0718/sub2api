@@ -1891,14 +1891,13 @@ func (r *accountRepository) ClearError(ctx context.Context, id int64) error {
 }
 
 // RestoreRecoveredAccount 单语句（单事务）CAS 恢复一个因额度耗尽被禁用的账号：
-// 仅当账号仍处于 status='error' 且 updated_at 与调用方重读到的快照一致时，才置回
+// 仅当账号仍处于 status='error' 且 recovery_version 与调用方重读到的快照一致时，才置回
 // active + schedulable，并一次性清掉 error / 临时停调 / 限流 / 过载四类标记。
 // 影响行数 0 → (false, nil)（并发改写：探测落快照、人工操作或其它实例更新了该行）。
 //
-// 调用方必须在「额度探测 + 最小请求验证」之后【重新读取】updated_at 再调用：额度
-// 探测写快照走 UpdateExtra，会把 accounts.updated_at 推进到探测时刻，用探测前的
-// 旧值比对影响行数恒为 0。updated_at 为微秒精度，从库中读出再写回是无损的。
-func (r *accountRepository) RestoreRecoveredAccount(ctx context.Context, accountID int64, expectedUpdatedAt time.Time) (bool, error) {
+// 调用方必须在「额度探测 + 最小请求验证」之后【重新读取】recovery_version 再调用。
+// recovery_version 是 int 类型专用于恢复 CAS，避免无关账号更新（余额、标签、名称）导致假冲突。
+func (r *accountRepository) RestoreRecoveredAccount(ctx context.Context, accountID int64, expectedRecoveryVersion int) (bool, error) {
 	if r == nil || r.sql == nil {
 		return false, errors.New("account repository SQL executor is not configured")
 	}
@@ -1913,11 +1912,12 @@ func (r *accountRepository) RestoreRecoveredAccount(ctx context.Context, account
 			rate_limited_at = NULL,
 			rate_limit_reset_at = NULL,
 			overload_until = NULL,
+			recovery_version = recovery_version + 1,
 			updated_at = NOW()
 		WHERE a.id = $2
 			AND a.deleted_at IS NULL
 			AND a.status = $3
-			AND a.updated_at = $4
+			AND a.recovery_version = $4
 		RETURNING a.id
 		)
 		INSERT INTO scheduler_outbox (event_type, account_id, group_id, payload)
@@ -1926,7 +1926,7 @@ func (r *accountRepository) RestoreRecoveredAccount(ctx context.Context, account
 		service.StatusActive,
 		accountID,
 		service.StatusError,
-		expectedUpdatedAt,
+		expectedRecoveryVersion,
 		service.SchedulerOutboxEventAccountChanged,
 	)
 	if err != nil {

@@ -162,6 +162,12 @@ func (Account) Fields() []ent.Field {
 			Nillable().
 			SchemaType(map[string]string{dialect.Postgres: "timestamptz"}),
 
+		// recovery_version: 专用于账号恢复的乐观锁版本号
+		// 用于 CAS（Compare-And-Swap）操作，避免 updated_at 导致的假冲突
+		field.Int("recovery_version").
+			Default(0).
+			Comment("Optimistic lock version for account error recovery CAS operations"),
+
 		// overload_until: 过载状态解除时间
 		// 当收到 529 错误（API 过载）时设置
 		field.Time("overload_until").
