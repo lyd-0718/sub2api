@@ -138,6 +138,7 @@ git push origin trace   # 若上游改了 .github/workflows，gh 的 OAuth token
 
 11. **自定义模型**：独立于 composite 的 CRUD、模型发现与单跳请求解析。核心文件 `service/custom_model*.go`、`repository/custom_model_repo.go`、`routes/custom_models.go`、`handler/custom_model*.go`，界面 `CustomModelsView.vue`。迁移 `242_create_custom_models.sql` 新增两张表、`244_custom_model_injection_mode.sql` 新增 `injection_mode` 列（prepend/append/replace，默认 prepend；相对客户端系统提示词：chat 并入第一条 system 消息、messages/gemini 对 block 数组生效、replace 覆盖客户端提示词）。Trace 中间件记录的是注入之后的最终请求体；保留原生模型目录、composite 路由和下游计费身份。配置可保存自定义模型引用，但运行时遇到第二个自定义模型即拒绝，不做递归解析。
     - **本地验收**：隔离 PostgreSQL / Redis、实际嵌入式服务和本地受控上游；Chat、Messages、Responses、Gemini、token 计数及 SSE 转发，WebSocket 连续两轮与停用后拒绝。用量表核对下游分组 / Key 与上游账号分离。真实浏览器完成中英文页面、创建、多组选择、编辑清空、启停和删除。此记录不表示已部署生产环境。
+    - **生产落地（2026-10-02）**：三个 jailbreak 模型上线——`jailbreak/glm`（→ `z-ai/glm-5.3`）、`jailbreak/k3`（→ `k3`）、`jailbreak/glm-5.3-flash`（→ `z-ai/glm-5.3-flash`），均 prepend、下游绑定分组 12。分组 12 模型白名单追加通配 `jailbreak/*`（原值备份 `/opt/sub2api/backups/group12_model_allowlist_pre_20261002.tsv`）——白名单准入只看客户端模型名、且发生在自定义模型解析之前，不放行会直接 404；改动经 SQL + 清 `apikey:auth:*`（组 12 三把 Key）+ `group_changed` outbox 事件生效，已用 `GET /v1/models` 验证三个模型均出现在列表中。
 
 （kimi 缓存保活模块已于 2026-09-04 移除：实测有用但探测费相对省下的冷启动费性价比不高。历史见 git log。）
 （`x-session-id` 粘性路由曾作为第 4 条改动，v0.2.1 合并时确认为重复代码已删除——上游名单的 `openCodeSessionIDHeader` 常量值就是 `X-Session-Id`。）
