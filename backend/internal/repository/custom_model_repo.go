@@ -35,6 +35,7 @@ func (r *customModelRepository) Create(ctx context.Context, model *service.Custo
 		SetUpstreamGroupID(model.UpstreamGroupID).
 		SetUpstreamModel(model.UpstreamModel).
 		SetSystemPrompt(model.SystemPrompt).
+		SetInjectionMode(model.InjectionMode).
 		SetEnabled(model.Enabled).
 		SetDescription(model.Description).
 		Save(ctx)
@@ -97,6 +98,7 @@ func (r *customModelRepository) Update(ctx context.Context, model *service.Custo
 		SetUpstreamGroupID(model.UpstreamGroupID).
 		SetUpstreamModel(model.UpstreamModel).
 		SetSystemPrompt(model.SystemPrompt).
+		SetInjectionMode(model.InjectionMode).
 		SetEnabled(model.Enabled).
 		SetDescription(model.Description).
 		Save(ctx)
@@ -176,7 +178,7 @@ func customModelEntityToService(entity *dbent.CustomModel) *service.CustomModel 
 	model := &service.CustomModel{
 		ID: entity.ID, ModelID: entity.ModelID, UpstreamGroupID: entity.UpstreamGroupID,
 		UpstreamModel: entity.UpstreamModel, SystemPrompt: entity.SystemPrompt,
-		Enabled: entity.Enabled, Description: entity.Description,
+		InjectionMode: entity.InjectionMode, Enabled: entity.Enabled, Description: entity.Description,
 		CreatedAt: entity.CreatedAt, UpdatedAt: entity.UpdatedAt,
 		DownstreamGroups: make([]int64, len(entity.Edges.DownstreamGroups)),
 	}

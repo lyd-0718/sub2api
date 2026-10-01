@@ -29,6 +29,7 @@ type CustomModel struct {
 	UpstreamGroupID  int64
 	UpstreamModel    string
 	SystemPrompt     string
+	InjectionMode    string
 	Enabled          bool
 	Description      string
 	DownstreamGroups []int64
@@ -37,11 +38,19 @@ type CustomModel struct {
 }
 
 type CustomModelResolution struct {
-	ModelID         string
 	UpstreamGroupID int64
-	UpstreamGroup   *Group
 	UpstreamModel   string
 	SystemPrompt    string
+	InjectionMode   string
+}
+
+type CreateCustomModelInput struct {
+	ModelID         string
+	UpstreamGroupID int64
+	UpstreamModel   string
+	SystemPrompt    string
+	InjectionMode   string
+	Description     string
 }
 
 type CreateCustomModelInput struct {
@@ -58,7 +67,7 @@ type UpdateCustomModelInput struct {
 	ModelID          *string
 	UpstreamGroupID  *int64
 	UpstreamModel    *string
-	SystemPrompt     *string
+	InjectionMode    *string
 	Enabled          *bool
 	Description      *string
 	DownstreamGroups *[]int64
@@ -91,7 +100,8 @@ func (s *CustomModelService) Create(ctx context.Context, input *CreateCustomMode
 	model := &CustomModel{
 		ModelID: input.ModelID, UpstreamGroupID: input.UpstreamGroupID,
 		UpstreamModel: input.UpstreamModel, SystemPrompt: input.SystemPrompt,
-		Enabled: true, Description: input.Description, DownstreamGroups: input.DownstreamGroups,
+		InjectionMode: input.InjectionMode, Enabled: true, Description: input.Description,
+		DownstreamGroups: input.DownstreamGroups,
 	}
 	if input.Enabled != nil {
 		model.Enabled = *input.Enabled
@@ -134,6 +144,9 @@ func (s *CustomModelService) Update(ctx context.Context, id int64, input *Update
 	}
 	if input.SystemPrompt != nil {
 		model.SystemPrompt = *input.SystemPrompt
+	}
+	if input.InjectionMode != nil {
+		model.InjectionMode = *input.InjectionMode
 	}
 	if input.Enabled != nil {
 		model.Enabled = *input.Enabled
@@ -241,5 +254,6 @@ func (s *CustomModelService) ResolveCustomModel(ctx context.Context, modelID str
 	return &CustomModelResolution{
 		ModelID: model.ModelID, UpstreamGroupID: upstream.ID, UpstreamGroup: upstream,
 		UpstreamModel: model.UpstreamModel, SystemPrompt: model.SystemPrompt,
+		InjectionMode: model.InjectionMode,
 	}, nil
 }

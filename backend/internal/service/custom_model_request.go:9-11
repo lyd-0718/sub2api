@@ -1,0 +1,3 @@
+// ApplyCustomModelRequest expands exactly one custom model before provider
+// dispatch. Unknown fields and structured client prompts are preserved.
+// Custom model system prompts PREPEND to group-level system prompts.

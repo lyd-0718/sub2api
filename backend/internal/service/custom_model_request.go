@@ -8,6 +8,7 @@ import (
 
 // ApplyCustomModelRequest expands exactly one custom model before provider
 // dispatch. Unknown fields and structured client prompts are preserved.
+// System prompt injection mode: prepend (before), append (after), replace (override).
 func ApplyCustomModelRequest(body []byte, resolution *CustomModelResolution, protocol string) ([]byte, error) {
 	var request map[string]json.RawMessage
 	if err := json.Unmarshal(body, &request); err != nil || request == nil {
@@ -24,6 +25,10 @@ func ApplyCustomModelRequest(body []byte, resolution *CustomModelResolution, pro
 		request["model"], _ = json.Marshal(resolution.UpstreamModel)
 	}
 	prompt := resolution.SystemPrompt
+	mode := resolution.InjectionMode
+	if mode == "" {
+		mode = "prepend"
+	}
 	switch protocol {
 	case "messages":
 		if prompt != "" {
@@ -32,7 +37,7 @@ func ApplyCustomModelRequest(body []byte, resolution *CustomModelResolution, pro
 			if len(raw) == 0 || string(raw) == "null" {
 				request["system"], _ = json.Marshal(prompt)
 			} else if json.Unmarshal(raw, &text) == nil {
-				request["system"], _ = json.Marshal(prependCustomPrompt(prompt, text))
+				request["system"], _ = json.Marshal(applyCustomPrompt(prompt, text, mode))
 			} else {
 				var blocks []json.RawMessage
 				if err := json.Unmarshal(raw, &blocks); err != nil {
@@ -61,7 +66,7 @@ func ApplyCustomModelRequest(body []byte, resolution *CustomModelResolution, pro
 					return nil, fmt.Errorf("instructions must be a string")
 				}
 			}
-			request["instructions"], _ = json.Marshal(prependCustomPrompt(prompt, instructions))
+			request["instructions"], _ = json.Marshal(applyCustomPrompt(prompt, instructions, mode))
 		}
 	case "gemini":
 		if err := applyCustomGeminiRequest(request, resolution.UpstreamModel, prompt); err != nil {
@@ -73,11 +78,21 @@ func ApplyCustomModelRequest(body []byte, resolution *CustomModelResolution, pro
 	return json.Marshal(request)
 }
 
-func prependCustomPrompt(prompt, original string) string {
-	if original == "" {
+func applyCustomPrompt(prompt, original, mode string) string {
+	switch mode {
+	case "append":
+		if original == "" {
+			return prompt
+		}
+		return original + "\n\n" + prompt
+	case "replace":
 		return prompt
+	default: // "prepend"
+		if original == "" {
+			return prompt
+		}
+		return prompt + "\n\n" + original
 	}
-	return prompt + "\n\n" + original
 }
 
 func applyCustomGeminiRequest(request map[string]json.RawMessage, model, prompt string) error {

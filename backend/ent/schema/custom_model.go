@@ -45,6 +45,10 @@ func (CustomModel) Fields() []ent.Field {
 			Optional().
 			SchemaType(map[string]string{dialect.Postgres: "text"}).
 			Comment("System prompt to inject into requests."),
+		field.String("injection_mode").
+			MaxLen(20).
+			Default("prepend").
+			Comment("System prompt injection strategy: prepend, append, or replace"),
 		field.Bool("enabled").
 			Default(true).
 			Comment("Whether this custom model is active."),
