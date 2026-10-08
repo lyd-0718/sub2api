@@ -985,6 +985,7 @@ export default {
         minimax: 'MiniMax',
         opencode_go: 'OpenCode',
         openrouter: 'OpenRouter',
+        typesafe: 'TypeSafe / Jev',
         composite: 'Composite',
       },
       saving: '保存中...',
