@@ -2,7 +2,7 @@
 
 按会话留存完整对话链路（用户输入 / 模型输出 / 思考链 / 工具调用），用于后续蒸馏微调。
 
-> **这个 fork 是什么**：`Wei-Shaw/sub2api` 官方版（当前合并到 **v0.2.11**，2026-10-01）+ 五个自研/增强模块——
+> **这个 fork 是什么**：`Wei-Shaw/sub2api` 官方版（当前合并到 **v0.2.14**，2026-10-08）+ 五个自研/增强模块——
 > ① 本文档讲的 **Session Trace 录制**；② **CN（kimi 等国产 Coding Plan）账号并发受限治理**（403 三分类、额度耗尽停调自动恢复、历史 error 账号自动归队），设计文档见 **`PLAN-cn-cap-v6.md`**；③ **账号级 TLS 指纹出站**；④ **OpenRouter 平台 + 供应商路由**；⑤ **自定义模型**（独立模型定义、系统提示词及 prepend/append/replace 注入模式、上游号池和多下游分组绑定，使用说明见 [README_CN.md](README_CN.md#自定义模型)）。
 > 部署分支：fork 的 **`trace` 分支**（GitHub 默认分支已设为 trace）。
 > 当前生产镜像：`sub2api-trace:0.2.11-111379b8f`（2026-10-02 部署，含自定义模型调度修复；上一版 `0.2.11-80ab6d0`，回滚直接换镜像即可）。服务器现保留三个镜像（`0.2.11-111379b8f` / `0.2.11-80ab6d0` / `0.2.8-57932a0`；2026-10-02 已删最旧的 `0.2.8-9a945b1`）；要回滚到更早的版本（如下文的 `dc9713e`、`0.2.7-*`），先用部署流程第 1、2 步从 GitHub 按对应提交重新构建出同名镜像，再改 image。
@@ -84,7 +84,7 @@ python3 traceview.py <会话目录> [轮次N] [user|think|tool|text]
 
 ## 代码位置与更新流程
 
-- Fork：`github.com/lyd-0718/sub2api`，分支 `trace`（当前已合并官方 `v0.2.11`（2026-10-01）；历史合并点 `v0.2.8` / `v0.2.7` / `v0.2.5` / `v0.2.3`）
+- Fork：`github.com/lyd-0718/sub2api`，分支 `trace`（当前已合并官方 `v0.2.14`（2026-10-08）；历史合并点 `v0.2.11` / `v0.2.8` / `v0.2.7` / `v0.2.5` / `v0.2.3`）
 - 本地：`~/Desktop/sub2api`
 - 服务器构建目录：`/opt/sub2api-trace`
 - 部署配置：`/opt/sub2api/docker-compose.yml`（只改 image tag，其他不动）
@@ -113,6 +113,8 @@ git push origin trace   # 若上游改了 .github/workflows，gh 的 OAuth token
 （v0.2.8 合并实录 2026-09-24：237 个提交 6 个文件冲突。`wire_gen.go` 3 处均为双方往同一行加参数：`ProvideGrokQuotaService` 保留我方 TLS 指纹参数 + 上游新增 `openAIReferralClient`；`ProvideAdminHandlers` 用上游行（+`openCodeGoUsageService`）后接我方 trace/CN 手工接线；`provideCleanup` 用上游参数表末尾追加 `accountErrorRecoveryService`。Gemini 5 个文件与上游 #7432 撞车，取上游版本再叠我方三处语义（见第 9 项）。**非文本冲突**：上游把 `claude.DefaultHeaders` 从 map 变量改成函数，我方 `account_error_recovery_service.go` 的 range 编译失败，改为 `claude.DefaultHeaders()`——合并后先 `go build` 再看测试。）
 
 （v0.2.11 合并实录 2026-10-01：131 个提交 6 个文件冲突，无新增数据库迁移。`wire_gen.go` 2 处、`handler/wire.go` 1 处、`openai_gateway_handler.go` 1 处均为双方往同一位置加参数/逻辑，双边保留：`ProvideAdminHandlers` 末尾追加 `claudeResetCreditService`；`ProvideOpenAIGatewayHandler` 同时保留我方 `customModels` 与上游 `compositeResolver`；WebSocket 首轮路由合流为「自定义模型解析 → composite 路由决策（`wsRouteModel`）→ `ensureCompositeTargetPlatform(wsRouteModel)`」。`openai_gateway_scheduling.go` 1 处：上游 account_model 归属校验与我方 `openAIAccountPlatformMatches` 合流。`antigravity_gateway_compat_test.go` 2 处、`EditAccountModal.spec.ts` 1 处：双方各自新增不同测试，双边保留。教训：①编辑器把 `file.go:行范围` 形式的路径当新文件写出，曾产生 5 个冒号垃圾文件、真实文件冲突标记被误提交——合并后先 `grep -rn "^<<<<<<<\|^>>>>>>>"` 自查；②`go build ... | head` 的退出码是 head 的，验证退出码不要接管道。**2026-10-02 合并后修复**：上游 account_model 归属校验（composite 路由来源=账号映射时，账号须显式映射本次请求的模型）与自定义模型冲突——客户端书写的是自定义别名（`jailbreak/glm`，2026-10-02 改名 `jailbreak/glm-5.3`），账号映射里只有解析后的上游模型（`z-ai/glm-5.3`），全部候选账号被判 `account_model_not_owned` → pool=0 → 503；Anthropic 侧 `gateway_scheduling.go` 在自定义模型特性里已有兼容，本次按同法补齐 OpenAI 侧两处（`openai_account_scheduler.go` / `openai_gateway_scheduling.go`），并加回归测试 `TestCustomModelOwnershipCheckUsesResolvedUpstreamModel`。）
+
+（v0.2.14 合并实录 2026-10-08：43 个提交（v0.2.12–v0.2.14）24 个文件 36 处冲突，全部是上游新平台 `typesafe`（TypeSafe / Jev System One）与我方 `openrouter` 在同一批平台列表里各加一项——后端 `group_handler.go` oneof ×3、`channel_handler.go`、`channel_service.go`、`composite_platform.go`、`scheduler_snapshot_service.go`（`schedulerSnapshotPlatforms()` 数组长度 11 → 12）、`admin_group.go`、`gateway_handler.go`，前端平台常量/类型/颜色/i18n/账号弹窗等。一律双边保留；沿用上游设计：TypeSafe 不进 composite 静态候选（`jev-latest` 只走 `/v1/systemone`），`compositeAvailableModels` 里仍受 `includeSystemOne` 控制。`router.go` 合流：网关路由保留我方 `customModels` 参数 + 上游支付路由新增 `redisClient`。`wire_gen.go` 无冲突，合并后用 `go run -mod=mod github.com/google/wire/cmd/wire` 重新生成，与自动合并结果逐字一致（跑完还原 go.mod/go.sum）。**迁移**：上游 `241_add_typesafe_platform.sql` 用 DROP + ADD 重建 `user_platform_quotas` / `composite_model_routes` 平台 CHECK，列表无 openrouter——按第 10 项「合并上游必查」在两处列表补 `'openrouter'`，并同步改上游测试 `migrations/typesafe_platform_migration_test.go` 的期望串（两处）。另一个迁移 `241_add_payment_order_bonus_amount.sql` 纯追加列。**顺带修复**：`repository/account_repo_upstream_billing_probe_update_test.go` 的 `updatedAccountRows` 漏了迁移 243 的 `recovery_version` 列（32 值对 33 列，sqlmock panic），合并前的 trace 上就挂，v0.2.11 那轮没跑 repository 包——已补 0。**上游自带坏测试（不修）**：前端 `settings.authSourceDefaults.spec.ts` 3 个（平台配额仍按 5 个平台断言，上游已加 typesafe）、`UseKeyModal.spec.ts` 3 个（Codex 配置 `[features]` 断言），干净 upstream/main 上同样失败。）
 
 **merge 冲突面（trace 分支对上游的全部改动）：**
 
