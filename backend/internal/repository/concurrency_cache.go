@@ -1169,8 +1169,8 @@ func (c *concurrencyCache) reconcileExpiredIndexCandidates(ctx context.Context, 
 // CleanupStaleProcessSlots 启动时清理非当前进程前缀的槽位。
 // 清理范围来自活跃索引（含 score 已过期的成员——它们往往正是崩溃进程留下的残留），
 // 避免在 Redis 上 SCAN 全部 concurrency:* 键；另有一次性迁移清扫兜底索引机制上线前的遗留等待计数。
-// API Key 槽位（concurrency:api_key:*）是 stats-only 数据：每次 Track/读取都会按分数
-// 裁剪过期成员，key 自带 TTL，可在一个 slot TTL 内自愈，因此不参与启动清理。
+// API Key 槽位（concurrency:api_key:*）由统计和限流共用；准入/读取裁剪过期成员。
+// 正数限制的活跃请求续租，遗留槽位由 TTL 回收，因此不参与启动清理。
 func (c *concurrencyCache) CleanupStaleProcessSlots(ctx context.Context, activeRequestPrefix string) error {
 	if activeRequestPrefix == "" {
 		return nil
