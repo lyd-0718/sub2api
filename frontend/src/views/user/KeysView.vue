@@ -196,16 +196,29 @@
           </template>
 
           <template #cell-current_concurrency="{ value, row }">
-            <span
-              :class="[
-                'inline-flex min-w-8 items-center justify-center rounded px-2 py-1 text-sm font-semibold tabular-nums',
-                (value ?? 0) > 0
-                  ? 'bg-emerald-50 text-emerald-700 ring-1 ring-emerald-200 dark:bg-emerald-900/25 dark:text-emerald-300 dark:ring-emerald-800'
-                  : 'bg-gray-100 text-gray-500 dark:bg-dark-700 dark:text-dark-400'
-              ]"
-            >
-              {{ value ?? 0 }} / {{ row.concurrency > 0 ? row.concurrency : t('keys.unlimited') }}
-            </span>
+            <div class="flex items-center gap-2">
+              <span
+                :class="[
+                  'inline-flex min-w-8 items-center justify-center rounded px-2 py-1 text-sm font-semibold tabular-nums',
+                  (value ?? 0) > 0
+                    ? 'bg-emerald-50 text-emerald-700 ring-1 ring-emerald-200 dark:bg-emerald-900/25 dark:text-emerald-300 dark:ring-emerald-800'
+                    : 'bg-gray-100 text-gray-500 dark:bg-dark-700 dark:text-dark-400'
+                ]"
+              >
+                {{ value ?? 0 }} / {{ row.concurrency > 0 ? row.concurrency : t('keys.unlimited') }}
+              </span>
+              <button
+                v-if="authStore.isAdmin"
+                type="button"
+                class="rounded p-1 text-gray-500 hover:bg-gray-100 hover:text-primary-600 disabled:opacity-50 dark:hover:bg-dark-700"
+                :aria-label="`${t('admin.users.apiKeyConcurrency')}: ${row.name}`"
+                :title="t('admin.users.apiKeyConcurrency')"
+                :disabled="savingConcurrency"
+                @click="openConcurrencyEditor(row)"
+              >
+                <Icon name="edit" size="sm" />
+              </button>
+            </div>
           </template>
 
           <template #cell-usage="{ row }">
@@ -464,6 +477,56 @@
         />
       </template>
     </TablePageLayout>
+
+    <BaseDialog
+      :show="authStore.isAdmin && concurrencyKey !== null"
+      :title="t('admin.users.apiKeyConcurrency')"
+      width="normal"
+      :show-close-button="!savingConcurrency"
+      :close-on-escape="!savingConcurrency"
+      @close="closeConcurrencyEditor"
+    >
+      <form class="space-y-4" @submit.prevent="saveConcurrency">
+        <p class="font-medium text-gray-900 dark:text-white">{{ concurrencyKey?.name }}</p>
+        <div>
+          <label for="api-key-concurrency-cap" class="input-label">
+            {{ t('admin.users.apiKeyConcurrency') }}
+            <span class="font-normal text-gray-500">
+              {{ t('admin.users.apiKeyConcurrencyCurrent', { limit: concurrencyKey?.concurrency ? concurrencyKey.concurrency : t('keys.unlimited') }) }}
+            </span>
+          </label>
+          <input
+            id="api-key-concurrency-cap"
+            v-model="concurrencyDraft"
+            type="number"
+            min="0"
+            max="2147483647"
+            step="1"
+            required
+            class="input"
+            :disabled="savingConcurrency"
+            :aria-invalid="!validConcurrency"
+            :aria-describedby="`api-key-concurrency-help${validConcurrency ? '' : ' api-key-concurrency-error'}`"
+          />
+          <p id="api-key-concurrency-help" class="input-hint">{{ t('admin.users.apiKeyConcurrencyHelp') }}</p>
+          <p v-if="!validConcurrency" id="api-key-concurrency-error" class="text-sm text-red-500" role="alert">
+            {{ t('admin.users.apiKeyConcurrencyInvalid') }}
+          </p>
+        </div>
+        <div class="flex justify-end gap-3">
+          <button type="button" class="btn btn-secondary" :disabled="savingConcurrency" @click="closeConcurrencyEditor">
+            {{ t('common.cancel') }}
+          </button>
+          <button
+            type="submit"
+            class="btn btn-primary"
+            :disabled="savingConcurrency || !validConcurrency || Number(concurrencyDraft) === concurrencyKey?.concurrency"
+          >
+            {{ savingConcurrency ? t('common.saving') : t('common.save') }}
+          </button>
+        </div>
+      </form>
+    </BaseDialog>
 
     <!-- Create/Edit Modal -->
     <BaseDialog
@@ -1202,12 +1265,14 @@
 	import { ref, reactive, computed, watch, onMounted, onUnmounted, type ComponentPublicInstance } from 'vue'
 	import { useI18n } from 'vue-i18n'
 	import { useAppStore } from '@/stores/app'
+import { useAuthStore } from '@/stores/auth'
 	import { useOnboardingStore } from '@/stores/onboarding'
 	import { useClipboard } from '@/composables/useClipboard'
 import { getPersistedPageSize } from '@/composables/usePersistedPageSize'
 
 const { t } = useI18n()
 import { keysAPI, authAPI, usageAPI, userGroupsAPI } from '@/api'
+import { updateApiKey as updateAdminApiKey } from '@/api/admin/apiKeys'
 import AppLayout from '@/components/layout/AppLayout.vue'
 import TablePageLayout from '@/components/layout/TablePageLayout.vue'
 import BulkEditKeysModal from '@/components/keys/BulkEditKeysModal.vue'
@@ -1259,6 +1324,7 @@ interface GroupOption {
 }
 
 const appStore = useAppStore()
+const authStore = useAuthStore()
 const onboardingStore = useOnboardingStore()
 const { copyToClipboard: clipboardCopy } = useClipboard()
 
@@ -1414,6 +1480,42 @@ const columnDropdownRef = ref<HTMLElement | null>(null)
 const dropdownPosition = ref<{ top?: number; bottom?: number; left: number } | null>(null)
 const groupButtonRefs = ref<Map<number, HTMLElement>>(new Map())
 let abortController: AbortController | null = null
+
+const concurrencyKey = ref<ApiKey | null>(null)
+const concurrencyDraft = ref<string | number>('0')
+const savingConcurrency = ref(false)
+const validConcurrency = computed(() =>
+  /^\d+$/.test(String(concurrencyDraft.value)) && Number(concurrencyDraft.value) <= 2147483647
+)
+
+const openConcurrencyEditor = (key: ApiKey) => {
+  if (!authStore.isAdmin || savingConcurrency.value) return
+  concurrencyKey.value = key
+  concurrencyDraft.value = key.concurrency
+}
+
+const closeConcurrencyEditor = () => {
+  if (!savingConcurrency.value) concurrencyKey.value = null
+}
+
+const saveConcurrency = async () => {
+  const key = concurrencyKey.value
+  if (!authStore.isAdmin || !key || savingConcurrency.value || !validConcurrency.value) return
+  const concurrency = Number(concurrencyDraft.value)
+  if (concurrency === key.concurrency) return
+  savingConcurrency.value = true
+  try {
+    const result = await updateAdminApiKey(key.id, { concurrency })
+    const row = apiKeys.value.find((item) => item.id === key.id)
+    if (row) row.concurrency = result.api_key.concurrency
+    appStore.showSuccess(t('admin.users.apiKeyConcurrencySaved'))
+    concurrencyKey.value = null
+  } catch (error: any) {
+    appStore.showError(error?.message || t('admin.users.apiKeyConcurrencyFailed'))
+  } finally {
+    savingConcurrency.value = false
+  }
+}
 
 // Get the currently selected key for group change
 const selectedKeyForGroup = computed(() => {

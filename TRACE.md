@@ -177,6 +177,7 @@ cd /opt/sub2api && docker compose up -d sub2api
 - 迁移 `245_add_api_key_concurrency.sql` 于 `2026-10-08 13:06:16 +08` 自动应用。验收时原有 22 个 Key 全部 `concurrency=0`，`qqqcumber`（ID 16）仍为 `0`，未自动启用限流。
 - 本机及公网 Nginx `/health` 均返回 200 / `{"status":"ok"}`。用 5 分钟有效期的临时 Key、只属于该 Key 的 Redis 满槽状态，通过公网 Chat 路由验证 `429` / `gateway_concurrency_limit`，消息明确为 `api_key` 并发超限；未进入模型上游。临时 Key 和槽位已删除。
 - 回滚只需将 Compose 的镜像行恢复为 `sub2api-trace:0.2.14-ef40f1c`，再从 `/opt/sub2api` 以原 `.env` 执行 `up -d --no-deps --wait sub2api`。迁移 245 的新增列及触发器兼容旧代码，不必删除新增列或恢复整库；旧镜像不会执行 Key 上限。
+- **API 密钥页入口改进**：管理员在并发列旁直接点击编辑图标，独立修改和保存上限，不必进入用户管理。普通用户仍只读，保存仍调用管理员接口。隔离真实界面/API 验证了保存后刷新保持、设为 0 清除、负数禁用保存、后端 404 时保留输入，以及普通用户无编辑入口 / 管理接口 403 / 普通修改接口不能清除上限。
 
 
 回滚 `9a945b1`（OpenRouter 平台）：**先改账号、再换镜像**——旧代码不认识 `openrouter` 平台，直接换镜像会让 OpenRouter 账号无法调度。① SQL：`update accounts set platform='deepseek', updated_at=now() where id in (22,38)`，并给这两个账号各插一条 `scheduler_outbox` 的 `account_changed`、给分组 7/9/12 各插一条 `group_changed`；② image 改回 `sub2api-trace:0.2.8-dc9713e`（该镜像已清理，需先按提交 `dc9713e` 重新构建）后 `up -d`。迁移 `240z` 只是扩大 CHECK 取值，旧代码无感，不用回退；`extra.openrouter_provider_routing` 对旧代码无影响。迁移前账号快照：`/opt/sub2api/backups/openrouter_accounts_pre_migration_20260924-124745.tsv`；部署前库备份：`/opt/sub2api/backup-pre-0.2.8-9a945b1-20260924-1246.sql.gz`。
