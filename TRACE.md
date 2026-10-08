@@ -5,7 +5,7 @@
 > **这个 fork 是什么**：`Wei-Shaw/sub2api` 官方版（当前合并到 **v0.2.14**，2026-10-08）+ 五个自研/增强模块——
 > ① 本文档讲的 **Session Trace 录制**；② **CN（kimi 等国产 Coding Plan）账号并发受限治理**（403 三分类、额度耗尽停调自动恢复、历史 error 账号自动归队），设计文档见 **`PLAN-cn-cap-v6.md`**；③ **账号级 TLS 指纹出站**；④ **OpenRouter 平台 + 供应商路由**；⑤ **自定义模型**（独立模型定义、系统提示词及 prepend/append/replace 注入模式、上游号池和多下游分组绑定，使用说明见 [README_CN.md](README_CN.md#自定义模型)）。
 > 部署分支：fork 的 **`trace` 分支**（GitHub 默认分支已设为 trace）。
-> 当前生产镜像：`sub2api-trace:0.2.11-111379b8f`（2026-10-02 部署，含自定义模型调度修复；上一版 `0.2.11-80ab6d0`，回滚直接换镜像即可）。服务器现保留三个镜像（`0.2.11-111379b8f` / `0.2.11-80ab6d0` / `0.2.8-57932a0`；2026-10-02 已删最旧的 `0.2.8-9a945b1`）；要回滚到更早的版本（如下文的 `dc9713e`、`0.2.7-*`），先用部署流程第 1、2 步从 GitHub 按对应提交重新构建出同名镜像，再改 image。
+> 当前生产镜像：`sub2api-trace:0.2.14-ef40f1c`（2026-10-08 部署，健康运行中；上一版 `0.2.11-111379b8f`，回滚直接换镜像即可）。服务器现保留三个镜像（`0.2.14-ef40f1c` / `0.2.11-111379b8f` / `0.2.11-80ab6d0`；2026-10-08 已删最旧的 `0.2.8-57932a0`）；要回滚到更早的版本（如下文的 `dc9713e`、`0.2.7-*`），先用部署流程第 1、2 步从 GitHub 按对应提交重新构建出同名镜像，再改 image。
 
 ## 这套东西是什么
 
@@ -145,7 +145,7 @@ git push origin trace   # 若上游改了 .github/workflows，gh 的 OAuth token
 （kimi 缓存保活模块已于 2026-09-04 移除：实测有用但探测费相对省下的冷启动费性价比不高。历史见 git log。）
 （`x-session-id` 粘性路由曾作为第 4 条改动，v0.2.1 合并时确认为重复代码已删除——上游名单的 `openCodeSessionIDHeader` 常量值就是 `X-Session-Id`。）
 
-**服务器部署（标准流程，2026-09-24 按 v0.2.8 实际部署更新）：**
+**服务器部署（标准流程，2026-10-08 按 v0.2.14 实际部署复核）：**
 
 ```bash
 ssh relay
@@ -170,6 +170,8 @@ cd /opt/sub2api && docker compose up -d sub2api
 ```
 
 回滚 `9a945b1`（OpenRouter 平台）：**先改账号、再换镜像**——旧代码不认识 `openrouter` 平台，直接换镜像会让 OpenRouter 账号无法调度。① SQL：`update accounts set platform='deepseek', updated_at=now() where id in (22,38)`，并给这两个账号各插一条 `scheduler_outbox` 的 `account_changed`、给分组 7/9/12 各插一条 `group_changed`；② image 改回 `sub2api-trace:0.2.8-dc9713e`（该镜像已清理，需先按提交 `dc9713e` 重新构建）后 `up -d`。迁移 `240z` 只是扩大 CHECK 取值，旧代码无感，不用回退；`extra.openrouter_provider_routing` 对旧代码无影响。迁移前账号快照：`/opt/sub2api/backups/openrouter_accounts_pre_migration_20260924-124745.tsv`；部署前库备份：`/opt/sub2api/backup-pre-0.2.8-9a945b1-20260924-1246.sql.gz`。
+
+回滚 `0.2.14-ef40f1c`（2026-10-08 部署）：两个迁移都对旧代码无害——`241_add_payment_order_bonus_amount.sql` 纯追加 `payment_orders.bonus_amount` 列；`241_add_typesafe_platform.sql` 只把平台 CHECK 扩成含 typesafe + openrouter 的超集（已核对两个约束都同时含二者）——直接改回 `sub2api-trace:0.2.11-111379b8f` 后 `up -d` 即可，无需恢复数据库。部署前库备份：`/opt/sub2api/backup-pre-0.2.14-ef40f1c-20261008-1101.sql.gz`；compose 备份：`docker-compose.yml.bak-20261008-1101`。部署验收：health 200、两个 241 迁移 applied、`[CNRecovery] started`、三组 `/v1/models` 与部署前一致（组 12 含 3 个 jailbreak 自定义模型）；实测 `gemini-3.8-flash` + low → `gemini-3.8-flash-low`、`k3`、`z-ai/glm-5.3-flash`（OpenRouter 账号 38）、`jailbreak/k3`（→ k3）均 200；部署后无错误日志、trace 正常落盘。上游 v0.2.12 起重置密码 token 改为哈希存储：升级前已发出、尚未使用的重置密码链接失效，用户需重新申请。
 
 回滚 `0.2.11-111379b8f`（2026-10-02 修复版）：纯代码修复（自定义模型在 OpenAI 网关调度被 account_model 归属校验误杀 → 503），**无数据库迁移** → 直接换回 `sub2api-trace:0.2.11-80ab6d0`（或 `0.2.8-57932a0`）后 `up -d` 即可。compose 备份：`docker-compose.yml.bak-20261002-fix1`。验收：`jailbreak/glm-5.3`（→ z-ai/glm-5.3 @ Friendli；当时名 `jailbreak/glm`，同日改名）、`jailbreak/k3`（→ k3，prompt_tokens≈8365）、`jailbreak/glm-5.3-flash`（→ z-ai/glm-5.3-flash @ Wafer，返回 OK）三发均 200。
 
