@@ -5,7 +5,7 @@
 > **这个 fork 是什么**：`Wei-Shaw/sub2api` 官方版（当前合并到 **v0.2.14**，2026-10-08）+ 六个自研/增强模块——
 > ① 本文档讲的 **Session Trace 录制**；② **CN（kimi 等国产 Coding Plan）账号并发受限治理**（403 三分类、额度耗尽停调自动恢复、历史 error 账号自动归队），设计文档见 **`PLAN-cn-cap-v6.md`**；③ **账号级 TLS 指纹出站**；④ **OpenRouter 平台 + 供应商路由**；⑤ **自定义模型**（独立模型定义、系统提示词及 prepend/append/replace 注入模式、上游号池和多下游分组绑定，使用说明见 [README_CN.md](README_CN.md#自定义模型)）；⑥ **API Key 独立并发上限**（管理员设置，HTTP/SSE、Responses WebSocket 轮次及 Live 共享上限，使用及升级说明见 [README_CN.md](README_CN.md#api-key-并发限制)；2026-10-08 已部署到生产）。
 > 部署分支：fork 的 **`trace` 分支**（GitHub 默认分支已设为 trace）。
-> 当前生产镜像：`sub2api-trace:0.2.14-d627bbf56`（2026-10-08 部署，含 Key 独立并发限制；源码提交 `d627bbf56dd4f34b27d1286fda251ee7da17457f`，在功能提交 `8491f8e08` 后合入原生产基准 `ef40f1c`）。回滚镜像 `sub2api-trace:0.2.14-ef40f1c` 已保留。入口为 Nginx 容器 `mc-blizo-proxy-1`，通过共享 Docker 网络反代至 `sub2api:8080`；本机维护映射仍为 `127.0.0.1:8081 → 8080`。本次仅更新网关镜像，未改 `.env`、端口、网络、Nginx 或证书配置，未重建代理。
+> 当前生产镜像：`sub2api-trace:0.2.14-1ed1267fb`（2026-10-08 部署，含 Key 独立并发限制及管理员 API 密钥页直接编辑入口；源码提交 `1ed1267fbb2e04b9d6aab8d09b80a00119c06b25`）。回滚镜像 `sub2api-trace:0.2.14-d627bbf56` 已保留，回滚后后端并发限制仍有效，只恢复旧界面入口。入口为 Nginx 容器 `mc-blizo-proxy-1`，通过共享 Docker 网络反代至 `sub2api:8080`；本机维护映射仍为 `127.0.0.1:8081 → 8080`。本次仅更新网关镜像，未改 `.env`、端口、网络、Nginx 或证书配置，未重建代理。
 
 ## 这套东西是什么
 
@@ -178,6 +178,7 @@ cd /opt/sub2api && docker compose up -d sub2api
 - 本机及公网 Nginx `/health` 均返回 200 / `{"status":"ok"}`。用 5 分钟有效期的临时 Key、只属于该 Key 的 Redis 满槽状态，通过公网 Chat 路由验证 `429` / `gateway_concurrency_limit`，消息明确为 `api_key` 并发超限；未进入模型上游。临时 Key 和槽位已删除。
 - 回滚只需将 Compose 的镜像行恢复为 `sub2api-trace:0.2.14-ef40f1c`，再从 `/opt/sub2api` 以原 `.env` 执行 `up -d --no-deps --wait sub2api`。迁移 245 的新增列及触发器兼容旧代码，不必删除新增列或恢复整库；旧镜像不会执行 Key 上限。
 - **API 密钥页入口改进**：管理员在并发列旁直接点击编辑图标，独立修改和保存上限，不必进入用户管理。普通用户仍只读，保存仍调用管理员接口。隔离真实界面/API 验证了保存后刷新保持、设为 0 清除、负数禁用保存、后端 404 时保留输入，以及普通用户无编辑入口 / 管理接口 403 / 普通修改接口不能清除上限。
+- **直接编辑入口生产发布**：镜像 `sub2api-trace:0.2.14-1ed1267fb`，ID `sha256:3be7a00dd789e7fbbee4e897aef9e03f59b1d6186366d42a7a84065e05a28693`，源码目录 `/opt/sub2api-build-1ed1267fb`。发布前备份 `/opt/sub2api-backups/keyui-1ed1267fb/`，数据库压缩备份 93,352,251 字节并通过完整性检查。无新数据库迁移；仅更换镜像并重建网关，`.env`、Nginx 配置校验和、端口/网络及本次发布前后的代理容器 ID 均保持不变。所有 Key 的上限与发布前快照一致，`qqqcumber` 仍为 `0`。本机和公网健康正常，新 `KeysView-BjMGZRIL.js` 资源经 Nginx 返回 200。前端类型检查、locale 完整性和生产构建通过。回滚到 `0.2.14-d627bbf56` 不需恢复数据库。
 
 
 回滚 `9a945b1`（OpenRouter 平台）：**先改账号、再换镜像**——旧代码不认识 `openrouter` 平台，直接换镜像会让 OpenRouter 账号无法调度。① SQL：`update accounts set platform='deepseek', updated_at=now() where id in (22,38)`，并给这两个账号各插一条 `scheduler_outbox` 的 `account_changed`、给分组 7/9/12 各插一条 `group_changed`；② image 改回 `sub2api-trace:0.2.8-dc9713e`（该镜像已清理，需先按提交 `dc9713e` 重新构建）后 `up -d`。迁移 `240z` 只是扩大 CHECK 取值，旧代码无感，不用回退；`extra.openrouter_provider_routing` 对旧代码无影响。迁移前账号快照：`/opt/sub2api/backups/openrouter_accounts_pre_migration_20260924-124745.tsv`；部署前库备份：`/opt/sub2api/backup-pre-0.2.8-9a945b1-20260924-1246.sql.gz`。
