@@ -47,6 +47,12 @@ func (APIKey) Fields() []ent.Field {
 		field.String("status").
 			MaxLen(20).
 			Default(domain.StatusActive),
+		field.Int("concurrency").
+			SchemaType(map[string]string{dialect.Postgres: "integer"}).
+			Default(0).
+			Min(0).
+			Max(2147483647).
+			Comment("Administrator-managed active request limit (0 = unlimited)"),
 		field.Time("last_used_at").
 			Optional().
 			Nillable().

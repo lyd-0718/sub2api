@@ -310,6 +310,8 @@ func (s *ConcurrencyService) SetAccountLoadBatchCacheTTL(ttl time.Duration) {
 type AcquireResult struct {
 	Acquired    bool
 	ReleaseFunc func() // Must be called when done (typically via defer)
+	// Context is set for a renewable API-key slot; forwarding must observe it.
+	Context context.Context
 }
 
 type AccountWithConcurrency struct {

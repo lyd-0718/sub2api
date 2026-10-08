@@ -142,6 +142,44 @@ func TestCreateUpstreamLiveCallPreservesSession(t *testing.T) {
 	require.True(t, HTTPUpstreamRedirectsDisabled(upstream.request.Context()))
 }
 
+func TestCreateLiveCallConcurrencyFullDoesNotContactUpstream(t *testing.T) {
+	resetOpenAIAdvancedSchedulerSettingCacheForTest()
+
+	upstream := &liveHTTPUpstreamStub{}
+	var releasedAccountIDs []int64
+	concurrencyCache := &liveTestConcurrencyCache{
+		ConcurrencyCache: schedulerTestConcurrencyCache{releasedIDs: &releasedAccountIDs},
+		full:             true,
+	}
+	cfg := &config.Config{JWT: config.JWTConfig{Secret: "live-concurrency-test-secret"}}
+	svc := &OpenAIGatewayService{
+		accountRepo: schedulerTestOpenAIAccountRepo{accounts: []Account{{
+			ID:          10,
+			Platform:    PlatformOpenAI,
+			Type:        AccountTypeOAuth,
+			Status:      StatusActive,
+			Schedulable: true,
+			Concurrency: 1,
+			Credentials: map[string]any{"access_token": "test-access-token"},
+		}}},
+		cache:                 &liveTestStore{GatewayCache: &schedulerTestGatewayCache{}},
+		cfg:                   cfg,
+		concurrencyService:    NewConcurrencyService(concurrencyCache),
+		httpUpstream:          upstream,
+		liveAttestation:       liveAttestationStub{header: `{"v":1,"s":0,"t":"v1.test"}`},
+		liveAttestationCipher: newLiveAttestationCipher(cfg),
+	}
+	created, err := svc.CreateLiveCall(context.Background(), &LiveCallRequest{
+		SDP:     "v=offer\r\n",
+		Session: json.RawMessage(`{"model":"gpt-live-test"}`),
+	}, LiveCallIdentity{UserID: 20, APIKeyID: 30}, 1, 1)
+
+	require.ErrorIs(t, err, ErrLiveConcurrencyFull)
+	require.Nil(t, created)
+	require.Nil(t, upstream.request)
+	require.Equal(t, []int64{10}, releasedAccountIDs)
+}
+
 func TestLiveAttestationCipherRoundTripAndRejectsOtherInstanceKey(t *testing.T) {
 	first := newLiveAttestationCipher(&config.Config{
 		JWT: config.JWTConfig{Secret: "first-live-secret"},

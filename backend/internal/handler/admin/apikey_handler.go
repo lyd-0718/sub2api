@@ -22,43 +22,36 @@ func NewAdminAPIKeyHandler(adminService service.AdminService) *AdminAPIKeyHandle
 	}
 }
 
-// AdminUpdateAPIKeyGroupRequest represents the request to update an API key.
-type AdminUpdateAPIKeyGroupRequest struct {
-	GroupID             *int64 `json:"group_id"`               // nil=不修改, 0=解绑, >0=绑定到目标分组
-	ResetRateLimitUsage *bool  `json:"reset_rate_limit_usage"` // true=重置 5h/1d/7d 限速用量
+// AdminUpdateAPIKeyRequest represents a partial administrator-managed update.
+type AdminUpdateAPIKeyRequest struct {
+	GroupID             *int64 `json:"group_id"` // nil=unchanged, 0=unbind
+	Concurrency         *int   `json:"concurrency" binding:"omitempty,gte=0,lte=2147483647"`
+	ResetRateLimitUsage *bool  `json:"reset_rate_limit_usage"`
 }
 
-// UpdateGroup handles updating an API key's admin-managed fields.
+// Update handles updating an API key's admin-managed fields.
 // PUT /api/v1/admin/api-keys/:id
-func (h *AdminAPIKeyHandler) UpdateGroup(c *gin.Context) {
+func (h *AdminAPIKeyHandler) Update(c *gin.Context) {
 	keyID, err := strconv.ParseInt(c.Param("id"), 10, 64)
 	if err != nil {
 		response.BadRequest(c, "Invalid API key ID")
 		return
 	}
 
-	var req AdminUpdateAPIKeyGroupRequest
+	var req AdminUpdateAPIKeyRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		response.BadRequest(c, "Invalid request: "+err.Error())
 		return
 	}
 
-	var resetKey *service.APIKey
-	if req.ResetRateLimitUsage != nil && *req.ResetRateLimitUsage {
-		resetKey, err = h.adminService.AdminResetAPIKeyRateLimitUsage(c.Request.Context(), keyID)
-		if err != nil {
-			response.ErrorFrom(c, err)
-			return
-		}
-	}
-
-	result, err := h.adminService.AdminUpdateAPIKeyGroupID(c.Request.Context(), keyID, req.GroupID)
+	result, err := h.adminService.AdminUpdateAPIKey(c.Request.Context(), keyID, service.AdminUpdateAPIKeyInput{
+		GroupID:             req.GroupID,
+		Concurrency:         req.Concurrency,
+		ResetRateLimitUsage: req.ResetRateLimitUsage != nil && *req.ResetRateLimitUsage,
+	})
 	if err != nil {
 		response.ErrorFrom(c, err)
 		return
-	}
-	if resetKey != nil && req.GroupID == nil {
-		result.APIKey = resetKey
 	}
 
 	resp := struct {

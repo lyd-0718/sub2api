@@ -1930,6 +1930,12 @@ func newOpenAIWSHandlerTestServer(t *testing.T, h *OpenAIGatewayHandler, subject
 }
 
 type openAIResponsesWSUsageLogCase struct {
+	apiKeyConcurrency      int
+	userConcurrency        *int
+	concurrencyCache       service.ConcurrencyCache
+	authLookup             func(*service.APIKey) (*service.APIKey, error)
+	beforeSecondTurn       func()
+	firstTurnCloseExpected bool
 	simpleModeRejectAtRead int64
 	compositeResolver      *service.CompositeRouteResolver
 	accountPlatform        string
@@ -2892,6 +2898,19 @@ func runOpenAIResponsesWebSocketUsageLogCase(t *testing.T, tc openAIResponsesWSU
 					return
 				}
 			}
+			if tc.firstTurnCloseExpected {
+				readCtx, cancelRead := context.WithTimeout(r.Context(), 3*time.Second)
+				_, _, readErr := conn.Read(readCtx)
+				cancelRead()
+				if readErr == nil {
+					upstreamErrCh <- errors.New("unexpected frame while first turn is stalled")
+				} else if errors.Is(readErr, context.DeadlineExceeded) {
+					upstreamErrCh <- readErr
+				} else {
+					upstreamErrCh <- nil
+				}
+				return
+			}
 
 			response := fmt.Sprintf(
 				`{"type":"response.completed","response":{"id":"resp_usage_e2e_%d","model":%q,"usage":{"input_tokens":2,"output_tokens":1}}}`,
@@ -2973,6 +2992,19 @@ func runOpenAIResponsesWebSocketUsageLogCase(t *testing.T, tc openAIResponsesWSU
 	}
 	billingCacheSvc := service.NewBillingCacheService(nil, nil, nil, keyRepo, nil, nil, cfg, nil)
 	t.Cleanup(billingCacheSvc.Stop)
+	cache := &concurrencyCacheMock{
+		acquireUserSlotFn: func(ctx context.Context, userID int64, maxConcurrency int, requestID string) (bool, error) {
+			return true, nil
+		},
+		acquireAccountSlotFn: func(ctx context.Context, accountID int64, maxConcurrency int, requestID string) (bool, error) {
+			return true, nil
+		},
+	}
+	var slotCache service.ConcurrencyCache = cache
+	if tc.concurrencyCache != nil {
+		slotCache = tc.concurrencyCache
+	}
+	concurrencyService := service.NewConcurrencyService(slotCache)
 	gatewaySvc := service.NewOpenAIGatewayService(
 		accountRepo,
 		usageRepo,
@@ -2983,7 +3015,7 @@ func runOpenAIResponsesWebSocketUsageLogCase(t *testing.T, tc openAIResponsesWSU
 		nil,
 		cfg,
 		nil,
-		nil,
+		concurrencyService,
 		service.NewBillingService(cfg, nil),
 		nil,
 		billingCacheSvc,
@@ -2998,27 +3030,25 @@ func runOpenAIResponsesWebSocketUsageLogCase(t *testing.T, tc openAIResponsesWSU
 		nil, // userPlatformQuotaRepo
 	)
 
-	cache := &concurrencyCacheMock{
-		acquireUserSlotFn: func(ctx context.Context, userID int64, maxConcurrency int, requestID string) (bool, error) {
-			return true, nil
-		},
-		acquireAccountSlotFn: func(ctx context.Context, accountID int64, maxConcurrency int, requestID string) (bool, error) {
-			return true, nil
-		},
-	}
 	h := &OpenAIGatewayHandler{
 		cfg:                 cfg,
 		compositeResolver:   tc.compositeResolver,
 		gatewayService:      gatewaySvc,
 		billingCacheService: billingCacheSvc,
-		apiKeyService:       &service.APIKeyService{},
-		concurrencyHelper:   NewConcurrencyHelper(service.NewConcurrencyService(cache), SSEPingFormatNone, time.Second),
+		concurrencyHelper:   NewConcurrencyHelper(concurrencyService, SSEPingFormatNone, time.Second),
 	}
 
+	userConcurrency := 1
+	if tc.userConcurrency != nil {
+		userConcurrency = *tc.userConcurrency
+	}
 	apiKey := &service.APIKey{
-		ID:      1801,
-		GroupID: &groupID,
-		User:    &service.User{ID: 1701, Status: service.StatusActive},
+		ID:          1801,
+		UserID:      1701,
+		Key:         "sk-ws-usage-test",
+		Concurrency: tc.apiKeyConcurrency,
+		GroupID:     &groupID,
+		User:        &service.User{ID: 1701, Status: service.StatusActive, Concurrency: userConcurrency},
 	}
 	if tc.simpleModeRejectAtRead > 0 {
 		apiKey.RateLimit5h = 1
@@ -3026,10 +3056,11 @@ func runOpenAIResponsesWebSocketUsageLogCase(t *testing.T, tc openAIResponsesWSU
 	if tc.group != nil {
 		apiKey.Group = tc.group
 	}
+	h.apiKeyService = newOpenAIWSAuthService(apiKey, tc.authLookup)
 	router := gin.New()
 	router.Use(func(c *gin.Context) {
 		c.Set(string(middleware.ContextKeyAPIKey), apiKey)
-		c.Set(string(middleware.ContextKeyUser), middleware.AuthSubject{UserID: apiKey.User.ID, Concurrency: 1})
+		c.Set(string(middleware.ContextKeyUser), middleware.AuthSubject{UserID: apiKey.User.ID, Concurrency: userConcurrency})
 		c.Next()
 	})
 	router.GET("/openai/v1/responses", h.ResponsesWebSocket)
@@ -3084,6 +3115,21 @@ func runOpenAIResponsesWebSocketUsageLogCase(t *testing.T, tc openAIResponsesWSU
 		_ = clientConn.CloseNow()
 		return openAIResponsesWSUsageLogResult{}
 	}
+	if tc.firstTurnCloseExpected {
+		readCtx, cancelRead := context.WithTimeout(context.Background(), 3*time.Second)
+		_, _, readErr := clientConn.Read(readCtx)
+		cancelRead()
+		require.Error(t, readErr, "lease loss must abort the active turn")
+		require.NotErrorIs(t, readErr, context.DeadlineExceeded)
+		select {
+		case upstreamErr := <-upstreamErrCh:
+			require.NoError(t, upstreamErr, "lease loss must close active upstream forwarding")
+		case <-time.After(3 * time.Second):
+			t.Fatal("upstream forwarding did not stop after lease loss")
+		}
+		require.Len(t, upstreamPayloadCh, 1)
+		return openAIResponsesWSUsageLogResult{}
+	}
 
 	clientEvents := make([][]byte, 0, turnCount)
 	readCompleted := func() {
@@ -3103,6 +3149,9 @@ func runOpenAIResponsesWebSocketUsageLogCase(t *testing.T, tc openAIResponsesWSU
 		readCompleted()
 	}
 	if strings.TrimSpace(tc.secondPayload) != "" && (turnCount >= 2) {
+		if tc.beforeSecondTurn != nil {
+			tc.beforeSecondTurn()
+		}
 		writeCtx, cancelWrite = context.WithTimeout(context.Background(), 3*time.Second)
 		err = clientConn.Write(writeCtx, coderws.MessageText, []byte(tc.secondPayload))
 		cancelWrite()

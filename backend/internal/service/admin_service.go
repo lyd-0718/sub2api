@@ -64,8 +64,7 @@ type AdminService interface {
 	UpdateGroupSortOrders(ctx context.Context, updates []GroupSortOrderUpdate) error
 
 	// API Key management (admin)
-	AdminUpdateAPIKeyGroupID(ctx context.Context, keyID int64, groupID *int64) (*AdminUpdateAPIKeyGroupIDResult, error)
-	AdminResetAPIKeyRateLimitUsage(ctx context.Context, keyID int64) (*APIKey, error)
+	AdminUpdateAPIKey(ctx context.Context, keyID int64, input AdminUpdateAPIKeyInput) (*AdminUpdateAPIKeyResult, error)
 
 	// ReplaceUserGroup 替换用户的专属分组：授予新分组权限、迁移 Key、移除旧分组权限
 	ReplaceUserGroup(ctx context.Context, userID, oldGroupID, newGroupID int64) (*ReplaceUserGroupResult, error)
@@ -482,8 +481,16 @@ type BulkUpdateAccountResult struct {
 	Error     string `json:"error,omitempty"`
 }
 
-// AdminUpdateAPIKeyGroupIDResult is the result of AdminUpdateAPIKeyGroupID.
-type AdminUpdateAPIKeyGroupIDResult struct {
+// AdminUpdateAPIKeyInput contains only administrator-managed key settings.
+// Nil means unchanged; group_id 0 unbinds, concurrency 0 removes the cap.
+type AdminUpdateAPIKeyInput struct {
+	GroupID             *int64
+	Concurrency         *int
+	ResetRateLimitUsage bool
+}
+
+// AdminUpdateAPIKeyResult preserves group-access grant information.
+type AdminUpdateAPIKeyResult struct {
 	APIKey                 *APIKey
 	AutoGrantedGroupAccess bool   // true if a new exclusive group permission was auto-added
 	GrantedGroupID         *int64 // the group ID that was auto-granted

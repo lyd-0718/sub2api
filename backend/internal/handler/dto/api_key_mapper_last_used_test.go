@@ -20,6 +20,7 @@ func TestAPIKeyFromService_MapsLastUsedAt(t *testing.T) {
 		LastUsedAt:         &lastUsed,
 		LastUsedIP:         &lastUsedIP,
 		CurrentConcurrency: 3,
+		Concurrency:        5,
 	}
 
 	out := APIKeyFromService(src)
@@ -29,6 +30,7 @@ func TestAPIKeyFromService_MapsLastUsedAt(t *testing.T) {
 	require.NotNil(t, out.LastUsedIP)
 	require.Equal(t, lastUsedIP, *out.LastUsedIP)
 	require.Equal(t, 3, out.CurrentConcurrency)
+	require.Equal(t, 5, out.Concurrency)
 }
 
 func TestAPIKeyFromService_MapsNilLastUsedAt(t *testing.T) {
@@ -44,4 +46,5 @@ func TestAPIKeyFromService_MapsNilLastUsedAt(t *testing.T) {
 	require.NotNil(t, out)
 	require.Nil(t, out.LastUsedAt)
 	require.Nil(t, out.LastUsedIP)
+	require.Zero(t, out.Concurrency)
 }

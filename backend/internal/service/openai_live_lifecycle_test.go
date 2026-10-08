@@ -196,6 +196,7 @@ type liveTestConcurrencyCache struct {
 	ConcurrencyCache
 	mu       sync.Mutex
 	releases int
+	full     bool
 }
 
 func (c *liveTestConcurrencyCache) AcquireLiveLease(
@@ -205,10 +206,11 @@ func (c *liveTestConcurrencyCache) AcquireLiveLease(
 	int64,
 	int,
 	int64,
+	int,
 	string,
 	bool,
 ) (bool, error) {
-	return true, nil
+	return !c.full, nil
 }
 
 func (c *liveTestConcurrencyCache) RefreshLiveLease(

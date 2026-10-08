@@ -604,3 +604,22 @@ func (s *APIKeyRepoSuite) TestDeleteWithAudit_NotFound() {
 	err := s.repo.DeleteWithAudit(s.ctx, 999999)
 	s.Require().ErrorIs(err, service.ErrAPIKeyNotFound)
 }
+
+func (s *APIKeyRepoSuite) TestConcurrencyProjectedOnAllReadPaths() {
+	user := s.mustCreateUser("apikey-concurrency-reads@example.com")
+	key := &service.APIKey{UserID: user.ID, Key: "sk-concurrency-reads", Name: "key", Status: service.StatusActive, Concurrency: 3}
+	s.Require().NoError(s.repo.Create(s.ctx, key))
+	for _, get := range []func() (*service.APIKey, error){
+		func() (*service.APIKey, error) { return s.repo.GetByID(s.ctx, key.ID) },
+		func() (*service.APIKey, error) { return s.repo.GetByKey(s.ctx, key.Key) },
+		func() (*service.APIKey, error) { return s.repo.GetByKeyForAuth(s.ctx, key.Key) },
+	} {
+		got, err := get()
+		s.Require().NoError(err)
+		s.Require().Equal(3, got.Concurrency)
+	}
+	keys, _, err := s.repo.ListByUserID(s.ctx, user.ID, pagination.PaginationParams{Page: 1, PageSize: 10}, service.APIKeyListFilters{})
+	s.Require().NoError(err)
+	s.Require().Len(keys, 1)
+	s.Require().Equal(3, keys[0].Concurrency)
+}

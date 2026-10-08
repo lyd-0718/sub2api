@@ -126,6 +126,7 @@ func (s *OpenAIGatewayService) CreateLiveCall(
 	request *LiveCallRequest,
 	identity LiveCallIdentity,
 	userMaxConcurrency int,
+	apiKeyMaxConcurrency int,
 ) (*LiveCallCreated, error) {
 	if err := ValidateLiveCallRequest(request); err != nil {
 		return nil, err
@@ -184,6 +185,7 @@ func (s *OpenAIGatewayService) CreateLiveCall(
 			identity.UserID,
 			userMaxConcurrency,
 			identity.APIKeyID,
+			apiKeyMaxConcurrency,
 			leaseID,
 			true,
 		)

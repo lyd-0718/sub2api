@@ -44,6 +44,34 @@
             </div>
             <div class="flex items-center gap-1"><span>{{ t('admin.users.columns.created') }}: {{ formatDateTime(key.created_at) }}</span></div>
           </div>
+          <form class="mt-3 space-y-2 border-t border-gray-100 pt-3 dark:border-dark-700" @submit.prevent="saveConcurrency(key)">
+            <label :for="`key-concurrency-${key.id}`" class="input-label">
+              {{ t('admin.users.apiKeyConcurrency') }}
+              <span class="font-normal text-gray-500">{{ t('admin.users.apiKeyConcurrencyCurrent', { limit: key.concurrency > 0 ? key.concurrency : t('keys.unlimited') }) }}</span>
+            </label>
+            <div class="flex items-center gap-2">
+              <input
+                :id="`key-concurrency-${key.id}`"
+                v-model="concurrencyDrafts[key.id]"
+                type="number"
+                min="0"
+                max="2147483647"
+                step="1"
+                required
+                class="input min-w-0 flex-1"
+                :disabled="updatingKeyIds.has(key.id)"
+                :aria-invalid="!isValidConcurrency(concurrencyDrafts[key.id])"
+                :aria-describedby="`key-concurrency-help-${key.id}${!isValidConcurrency(concurrencyDrafts[key.id]) ? ` key-concurrency-error-${key.id}` : ''}`"
+              />
+              <button
+                type="submit"
+                class="btn btn-primary shrink-0"
+                :disabled="updatingKeyIds.has(key.id) || !isValidConcurrency(concurrencyDrafts[key.id]) || Number(concurrencyDrafts[key.id]) === key.concurrency"
+              >{{ updatingKeyIds.has(key.id) ? t('common.saving') : t('common.save') }}</button>
+            </div>
+            <p :id="`key-concurrency-help-${key.id}`" class="input-hint">{{ t('admin.users.apiKeyConcurrencyHelp') }}</p>
+            <p v-if="!isValidConcurrency(concurrencyDrafts[key.id])" :id="`key-concurrency-error-${key.id}`" class="text-sm text-red-500" role="alert">{{ t('admin.users.apiKeyConcurrencyInvalid') }}</p>
+          </form>
         </div>
       </div>
     </div>
@@ -126,6 +154,13 @@ const allGroups = ref<AdminGroup[]>([])
 const loading = ref(false)
 let requestVersion = 0
 const updatingKeyIds = ref(new Set<number>())
+const concurrencyDrafts = ref<Record<number, string | number>>({})
+
+const isValidConcurrency = (value: string | number | undefined): boolean => {
+  if (value === undefined || !/^\d+$/.test(String(value))) return false
+  const limit = Number(value)
+  return Number.isInteger(limit) && limit >= 0 && limit <= 2147483647
+}
 const groupSelectorKeyId = ref<number | null>(null)
 const dropdownPosition = ref<{ top: number; left: number } | null>(null)
 const dropdownRef = ref<HTMLElement | null>(null)
@@ -148,6 +183,8 @@ const setGroupButtonRef = (keyId: number, el: Element | ComponentPublicInstance 
 watch(() => [props.show, props.user?.id] as const, ([show], _, onCleanup) => {
   onCleanup(() => { requestVersion++ })
   closeGroupSelector()
+  updatingKeyIds.value.clear()
+  concurrencyDrafts.value = {}
   if (show && props.user) {
     load()
     loadGroups()
@@ -162,7 +199,10 @@ const load = async () => {
   groupButtonRefs.value.clear()
   try {
     const res = await adminAPI.users.getUserApiKeys(props.user.id)
-    if (version === requestVersion) apiKeys.value = res.items || []
+    if (version === requestVersion) {
+      apiKeys.value = res.items || []
+      concurrencyDrafts.value = Object.fromEntries(apiKeys.value.map((key) => [key.id, String(key.concurrency)]))
+    }
   } catch (error) {
     if (version !== requestVersion) return
     console.error('Failed to load API keys:', error)
@@ -184,6 +224,7 @@ const DROPDOWN_HEIGHT = 272 // max-h-64 = 16rem = 256px + padding
 const DROPDOWN_GAP = 4
 
 const openGroupSelector = (key: ApiKey) => {
+  if (updatingKeyIds.value.has(key.id)) return
   if (groupSelectorKeyId.value === key.id) {
     closeGroupSelector()
   } else {
@@ -208,11 +249,13 @@ const closeGroupSelector = () => {
 
 const changeGroup = async (key: ApiKey, newGroupId: number | null) => {
   closeGroupSelector()
-  if (key.group_id === newGroupId || (!key.group_id && newGroupId === null)) return
+  if (updatingKeyIds.value.has(key.id) || key.group_id === newGroupId || (!key.group_id && newGroupId === null)) return
+  const version = requestVersion
 
   updatingKeyIds.value.add(key.id)
   try {
-    const result = await adminAPI.apiKeys.updateApiKeyGroup(key.id, newGroupId)
+    const result = await adminAPI.apiKeys.updateApiKey(key.id, { group_id: newGroupId ?? 0 })
+    if (version !== requestVersion) return
     // Update local data
     const idx = apiKeys.value.findIndex((k) => k.id === key.id)
     if (idx !== -1) {
@@ -224,9 +267,36 @@ const changeGroup = async (key: ApiKey, newGroupId: number | null) => {
       appStore.showSuccess(t('admin.users.groupChangedSuccess'))
     }
   } catch (error: any) {
+    if (version !== requestVersion) return
     appStore.showError(error?.message || t('admin.users.groupChangeFailed'))
   } finally {
-    updatingKeyIds.value.delete(key.id)
+    if (version === requestVersion) updatingKeyIds.value.delete(key.id)
+  }
+}
+
+const saveConcurrency = async (key: ApiKey) => {
+  if (updatingKeyIds.value.has(key.id)) return
+  const draft = concurrencyDrafts.value[key.id]
+  if (!isValidConcurrency(draft)) {
+    appStore.showError(t('admin.users.apiKeyConcurrencyInvalid'))
+    return
+  }
+  const concurrency = Number(draft)
+  if (concurrency === key.concurrency) return
+  const version = requestVersion
+  updatingKeyIds.value.add(key.id)
+  try {
+    const result = await adminAPI.apiKeys.updateApiKey(key.id, { concurrency })
+    if (version !== requestVersion) return
+    const idx = apiKeys.value.findIndex((item) => item.id === key.id)
+    if (idx !== -1) apiKeys.value[idx] = result.api_key
+    concurrencyDrafts.value[key.id] = String(result.api_key.concurrency)
+    appStore.showSuccess(t('admin.users.apiKeyConcurrencySaved'))
+  } catch (error: any) {
+    if (version !== requestVersion) return
+    appStore.showError(error?.message || t('admin.users.apiKeyConcurrencyFailed'))
+  } finally {
+    if (version === requestVersion) updatingKeyIds.value.delete(key.id)
   }
 }
 
@@ -249,6 +319,7 @@ const handleClickOutside = (event: MouseEvent) => {
 }
 
 const handleClose = () => {
+  requestVersion++
   closeGroupSelector()
   emit('close')
 }
@@ -259,6 +330,7 @@ onMounted(() => {
 })
 
 onUnmounted(() => {
+  requestVersion++
   document.removeEventListener('click', handleClickOutside)
   document.removeEventListener('keydown', handleKeyDown, true)
 })

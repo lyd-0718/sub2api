@@ -47,6 +47,7 @@ const messages: Record<string, string> = {
   'keys.group': 'Group',
   'keys.id': 'ID',
   'keys.currentConcurrency': 'Current Concurrency',
+  'keys.unlimited': 'Unlimited',
   'keys.lastUsedAt': 'Last Used',
   'keys.lastUsedIP': 'Last Used IP',
   'keys.rateLimitColumn': 'Rate Limit',
@@ -124,6 +125,7 @@ const createApiKey = (): ApiKey => ({
   expires_at: null,
   created_at: '2026-06-27T00:00:00Z',
   updated_at: '2026-06-27T00:00:00Z',
+  concurrency: 5,
   current_concurrency: 3,
   rate_limit_5h: 0,
   rate_limit_1d: 0,
@@ -496,10 +498,19 @@ describe('user KeysView column settings', () => {
     expect(columnMenuText).not.toContain('Actions')
   })
 
-  it('renders the current concurrency value', async () => {
+  it('renders active concurrency and the administrator cap without an owner control', async () => {
     const wrapper = await mountView()
 
-    expect(wrapper.get('[data-test="current-concurrency"]').text()).toBe('3')
+    const cell = wrapper.get('[data-test="current-concurrency"]')
+    expect(cell.text()).toBe('3 / 5')
+    expect(cell.find('input, button').exists()).toBe(false)
+  })
+
+  it('shows unlimited when the administrator cap is zero', async () => {
+    listKeys.mockResolvedValue({ items: [{ ...createApiKey(), concurrency: 0 }], total: 1, page: 1, page_size: 10, pages: 1 })
+    const wrapper = await mountView()
+    expect(wrapper.get('[data-test="current-concurrency"]').text()).toBe('3 / Unlimited')
+    wrapper.unmount()
   })
 
   it('marks current concurrency as sortable', async () => {

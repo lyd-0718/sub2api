@@ -14,7 +14,7 @@ import (
 	"github.com/dgraph-io/ristretto"
 )
 
-const apiKeyAuthSnapshotVersion = 24 // v24: group model_allowlist field (renamed from models_list_config, enforcing semantics)
+const apiKeyAuthSnapshotVersion = 25 // v25: administrator-managed API key concurrency limit
 
 type apiKeyAuthCacheConfig struct {
 	l1Size        int
@@ -342,6 +342,7 @@ func (s *APIKeyService) snapshotFromAPIKey(ctx context.Context, apiKey *APIKey) 
 		GroupID:     apiKey.GroupID,
 		Name:        apiKey.Name,
 		Status:      apiKey.Status,
+		Concurrency: apiKey.Concurrency,
 		IPWhitelist: apiKey.IPWhitelist,
 		IPBlacklist: apiKey.IPBlacklist,
 		Quota:       apiKey.Quota,
@@ -451,6 +452,7 @@ func (s *APIKeyService) snapshotToAPIKey(key string, snapshot *APIKeyAuthSnapsho
 		Key:         key,
 		Name:        snapshot.Name,
 		Status:      snapshot.Status,
+		Concurrency: snapshot.Concurrency,
 		IPWhitelist: snapshot.IPWhitelist,
 		IPBlacklist: snapshot.IPBlacklist,
 		Quota:       snapshot.Quota,

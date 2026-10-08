@@ -9,7 +9,6 @@ import (
 	"testing"
 	"time"
 
-	middleware2 "github.com/Wei-Shaw/sub2api/internal/server/middleware"
 	"github.com/Wei-Shaw/sub2api/internal/service"
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/require"
@@ -295,48 +294,6 @@ func TestAcquireUserSlotWithWait_ImmediateAcquireSkipsWaitQueue(t *testing.T) {
 	require.Equal(t, 0, cache.waitIncrementCalls)
 	require.Equal(t, 0, cache.waitDecrementCalls)
 	require.Equal(t, 1, cache.userReleaseCalls)
-}
-
-func TestAcquireUserSlotWithWait_TracksAPIKeySlot(t *testing.T) {
-	cache := &helperConcurrencyCacheStub{
-		userSeq: []bool{true},
-	}
-	concurrency := service.NewConcurrencyService(cache)
-	helper := NewConcurrencyHelper(concurrency, SSEPingFormatNone, 5*time.Millisecond)
-	c, _ := newHelperTestContext(http.MethodPost, "/v1/messages")
-	c.Set(string(middleware2.ContextKeyAPIKey), &service.APIKey{ID: 77})
-	streamStarted := false
-
-	release, err := helper.acquireUserSlotWithWaitTimeout(c, 202, 3, time.Second, false, &streamStarted)
-	require.NoError(t, err)
-	require.NotNil(t, release)
-	require.Equal(t, 1, cache.apiKeyTrackCalls)
-	require.Equal(t, []int64{77}, cache.apiKeyTrackIDs)
-
-	release()
-
-	require.Equal(t, 1, cache.userReleaseCalls)
-	require.Equal(t, 1, cache.apiKeyReleaseCalls)
-}
-
-func TestTryAcquireUserSlotForAPIKey_TracksAPIKeySlot(t *testing.T) {
-	cache := &helperConcurrencyCacheStub{
-		userSeq: []bool{true},
-	}
-	concurrency := service.NewConcurrencyService(cache)
-	helper := NewConcurrencyHelper(concurrency, SSEPingFormatNone, 5*time.Millisecond)
-
-	release, acquired, err := helper.TryAcquireUserSlotForAPIKey(context.Background(), 202, 3, 77)
-	require.NoError(t, err)
-	require.True(t, acquired)
-	require.NotNil(t, release)
-	require.Equal(t, 1, cache.apiKeyTrackCalls)
-	require.Equal(t, []int64{77}, cache.apiKeyTrackIDs)
-
-	release()
-
-	require.Equal(t, 1, cache.userReleaseCalls)
-	require.Equal(t, 1, cache.apiKeyReleaseCalls)
 }
 
 func TestAcquireUserSlotWithWait_WaitSuccessDecrementsBeforeReturn(t *testing.T) {

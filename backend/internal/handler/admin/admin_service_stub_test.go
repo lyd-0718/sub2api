@@ -749,7 +749,8 @@ func (s *stubAdminService) UpdateGroupSortOrders(ctx context.Context, updates []
 	return nil
 }
 
-func (s *stubAdminService) AdminUpdateAPIKeyGroupID(ctx context.Context, keyID int64, groupID *int64) (*service.AdminUpdateAPIKeyGroupIDResult, error) {
+func (s *stubAdminService) AdminUpdateAPIKey(ctx context.Context, keyID int64, input service.AdminUpdateAPIKeyInput) (*service.AdminUpdateAPIKeyResult, error) {
+	groupID := input.GroupID
 	for i := range s.apiKeys {
 		if s.apiKeys[i].ID == keyID {
 			k := s.apiKeys[i]
@@ -761,23 +762,19 @@ func (s *stubAdminService) AdminUpdateAPIKeyGroupID(ctx context.Context, keyID i
 					k.GroupID = &gid
 				}
 			}
-			return &service.AdminUpdateAPIKeyGroupIDResult{APIKey: &k}, nil
-		}
-	}
-	return nil, service.ErrAPIKeyNotFound
-}
-
-func (s *stubAdminService) AdminResetAPIKeyRateLimitUsage(ctx context.Context, keyID int64) (*service.APIKey, error) {
-	for i := range s.apiKeys {
-		if s.apiKeys[i].ID == keyID {
-			s.apiKeys[i].Usage5h = 0
-			s.apiKeys[i].Usage1d = 0
-			s.apiKeys[i].Usage7d = 0
-			s.apiKeys[i].Window5hStart = nil
-			s.apiKeys[i].Window1dStart = nil
-			s.apiKeys[i].Window7dStart = nil
-			k := s.apiKeys[i]
-			return &k, nil
+			if input.Concurrency != nil {
+				k.Concurrency = *input.Concurrency
+			}
+			if input.ResetRateLimitUsage {
+				k.Usage5h = 0
+				k.Usage1d = 0
+				k.Usage7d = 0
+				k.Window5hStart = nil
+				k.Window1dStart = nil
+				k.Window7dStart = nil
+			}
+			s.apiKeys[i] = k
+			return &service.AdminUpdateAPIKeyResult{APIKey: &k}, nil
 		}
 	}
 	return nil, service.ErrAPIKeyNotFound

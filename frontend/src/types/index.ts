@@ -742,6 +742,7 @@ export interface ApiKey {
   expires_at: string | null // Expiration time (null = never expires)
   created_at: string
   updated_at: string
+  concurrency: number // Administrator-set active request cap (0 = unlimited)
   current_concurrency: number
   group?: Group
   rate_limit_5h: number

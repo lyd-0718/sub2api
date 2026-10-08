@@ -234,12 +234,30 @@ func (h *ConcurrencyHelper) TryAcquireUserSlot(ctx context.Context, userID int64
 	return result.ReleaseFunc, true, nil
 }
 
-func (h *ConcurrencyHelper) TryAcquireUserSlotForAPIKey(ctx context.Context, userID int64, maxConcurrency int, apiKeyID int64) (func(), bool, error) {
-	releaseFunc, acquired, err := h.TryAcquireUserSlot(ctx, userID, maxConcurrency)
-	if err != nil || !acquired {
-		return releaseFunc, acquired, err
+func (h *ConcurrencyHelper) TryAcquireUserSlotForAPIKey(ctx context.Context, userID int64, maxConcurrency int, apiKeyID int64, apiKeyMax int) (*service.AcquireResult, error) {
+	var keySlot *service.AcquireResult
+	if apiKeyMax > 0 {
+		var err error
+		keySlot, err = h.concurrencyService.AcquireAPIKeySlot(ctx, apiKeyID, apiKeyMax)
+		if err != nil || !keySlot.Acquired {
+			return keySlot, err
+		}
+		ctx = keySlot.Context
 	}
-	return h.withAPIKeySlot(ctx, apiKeyID, releaseFunc), true, nil
+	userSlot, err := h.concurrencyService.AcquireUserSlot(ctx, userID, maxConcurrency)
+	if err != nil || !userSlot.Acquired {
+		if keySlot != nil {
+			keySlot.ReleaseFunc()
+		}
+		return userSlot, err
+	}
+	if keySlot == nil {
+		userSlot.ReleaseFunc = h.withAPIKeySlot(ctx, apiKeyID, userSlot.ReleaseFunc)
+	} else {
+		userSlot.ReleaseFunc = joinRequestSlotReleases(userSlot.ReleaseFunc, keySlot.ReleaseFunc)
+		userSlot.Context = keySlot.Context
+	}
+	return userSlot, nil
 }
 
 // AcquireOpenAIWSIngressLease bounds the whole client WebSocket lifecycle,
@@ -273,6 +291,26 @@ func (h *ConcurrencyHelper) AcquireUserSlotWithWait(c *gin.Context, userID int64
 
 func (h *ConcurrencyHelper) acquireUserSlotWithWaitTimeout(c *gin.Context, userID int64, maxConcurrency int, timeout time.Duration, isStream bool, streamStarted *bool) (func(), error) {
 	ctx := c.Request.Context()
+	apiKey, _ := middleware2.GetAPIKeyFromContext(c)
+	var keySlot *service.AcquireResult
+	if apiKey != nil && apiKey.Concurrency > 0 {
+		var err error
+		keySlot, err = h.concurrencyService.AcquireAPIKeySlot(ctx, apiKey.ID, apiKey.Concurrency)
+		if err != nil {
+			return nil, err
+		}
+		if !keySlot.Acquired {
+			return nil, &ConcurrencyError{SlotType: "api_key"}
+		}
+		ctx = keySlot.Context
+		c.Request = c.Request.WithContext(ctx)
+	}
+	joined := false
+	defer func() {
+		if keySlot != nil && !joined {
+			keySlot.ReleaseFunc()
+		}
+	}()
 
 	// Try to acquire immediately
 	releaseFunc, acquired, err := h.TryAcquireUserSlot(ctx, userID, maxConcurrency)
@@ -281,7 +319,8 @@ func (h *ConcurrencyHelper) acquireUserSlotWithWaitTimeout(c *gin.Context, userI
 	}
 
 	if acquired {
-		return h.withAPIKeySlotFromGin(c, releaseFunc), nil
+		joined = true
+		return h.requestSlotRelease(ctx, apiKey, releaseFunc, keySlot), nil
 	}
 
 	queueLimit := service.CalculateMaxWait(maxConcurrency) - maxConcurrency
@@ -302,18 +341,18 @@ func (h *ConcurrencyHelper) acquireUserSlotWithWaitTimeout(c *gin.Context, userI
 	if err != nil {
 		return nil, err
 	}
-	return h.withAPIKeySlotFromGin(c, releaseFunc), nil
+	joined = true
+	return h.requestSlotRelease(ctx, apiKey, releaseFunc, keySlot), nil
 }
 
-func (h *ConcurrencyHelper) withAPIKeySlotFromGin(c *gin.Context, releaseFunc func()) func() {
-	if c == nil {
-		return releaseFunc
+func (h *ConcurrencyHelper) requestSlotRelease(ctx context.Context, apiKey *service.APIKey, userRelease func(), keySlot *service.AcquireResult) func() {
+	if keySlot != nil {
+		return joinRequestSlotReleases(userRelease, keySlot.ReleaseFunc)
 	}
-	apiKey, ok := middleware2.GetAPIKeyFromContext(c)
-	if !ok || apiKey == nil {
-		return releaseFunc
+	if apiKey != nil {
+		return h.withAPIKeySlot(ctx, apiKey.ID, userRelease)
 	}
-	return h.withAPIKeySlot(c.Request.Context(), apiKey.ID, releaseFunc)
+	return userRelease
 }
 
 func (h *ConcurrencyHelper) withAPIKeySlot(ctx context.Context, apiKeyID int64, releaseFunc func()) func() {
@@ -321,12 +360,16 @@ func (h *ConcurrencyHelper) withAPIKeySlot(ctx context.Context, apiKeyID int64, 
 		return releaseFunc
 	}
 	apiKeyReleaseFunc := h.concurrencyService.TrackAPIKeySlot(ctx, apiKeyID)
+	return joinRequestSlotReleases(releaseFunc, apiKeyReleaseFunc)
+}
+
+func joinRequestSlotReleases(userRelease, keyRelease func()) func() {
 	return func() {
-		if releaseFunc != nil {
-			releaseFunc()
+		if userRelease != nil {
+			userRelease()
 		}
-		if apiKeyReleaseFunc != nil {
-			apiKeyReleaseFunc()
+		if keyRelease != nil {
+			keyRelease()
 		}
 	}
 }

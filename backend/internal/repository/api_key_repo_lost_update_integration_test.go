@@ -109,3 +109,39 @@ func (s *APIKeyRepoSuite) TestUpdate_StillResetsUsageWhenDeclared() {
 	s.Require().Zero(got.Usage7d)
 	s.Require().Nil(got.Window5hStart)
 }
+
+func (s *APIKeyRepoSuite) TestConcurrencyUpdate_PreservesUsageAndOwnerEditsPreserveCap() {
+	user := s.mustCreateUser("apikey-concurrency-selective@example.com")
+	key := &service.APIKey{UserID: user.ID, Key: "sk-concurrency-selective", Name: "before", Status: service.StatusActive, Quota: 100, Concurrency: 2}
+	s.Require().NoError(s.repo.Create(s.ctx, key))
+	staleOwner, err := s.repo.GetByID(s.ctx, key.ID)
+	s.Require().NoError(err)
+	staleAdmin, err := s.repo.GetByID(s.ctx, key.ID)
+	s.Require().NoError(err)
+
+	_, err = s.repo.IncrementQuotaUsed(s.ctx, key.ID, 30)
+	s.Require().NoError(err)
+	s.Require().NoError(s.repo.IncrementRateLimitUsage(s.ctx, key.ID, 12))
+	staleAdmin.Concurrency = 4
+	s.Require().NoError(s.repo.Update(s.ctx, staleAdmin, service.APIKeyUpdateFields{Concurrency: true}))
+	staleOwner.Name = "after"
+	s.Require().NoError(s.repo.Update(s.ctx, staleOwner, service.APIKeyUpdateFields{Name: true}))
+
+	got, err := s.repo.GetByID(s.ctx, key.ID)
+	s.Require().NoError(err)
+	s.Require().Equal(4, got.Concurrency, "stale owner edits cannot revert an administrator cap")
+	s.Require().Equal("after", got.Name)
+	s.Require().Equal(30.0, got.QuotaUsed)
+	s.Require().Equal(12.0, got.Usage5h)
+	s.Require().Equal(12.0, got.Usage1d)
+	s.Require().Equal(12.0, got.Usage7d)
+	s.Require().NotNil(got.Window5hStart)
+	s.Require().NotNil(got.Window1dStart)
+	s.Require().NotNil(got.Window7dStart)
+
+	got.Concurrency = 0
+	s.Require().NoError(s.repo.Update(s.ctx, got, service.APIKeyUpdateFields{Concurrency: true}))
+	cleared, err := s.repo.GetByID(s.ctx, key.ID)
+	s.Require().NoError(err)
+	s.Require().Zero(cleared.Concurrency, "explicit zero clears the cap")
+}

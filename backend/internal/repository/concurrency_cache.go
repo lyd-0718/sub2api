@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"strconv"
+	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
 	"github.com/Wei-Shaw/sub2api/internal/service"
@@ -135,11 +136,14 @@ var (
 		local userRegular = KEYS[3]
 		local userLive = KEYS[4]
 		local apiLive = KEYS[5]
+		local apiRegular = KEYS[6]
 		local accountMax = tonumber(ARGV[1])
 		local userMax = tonumber(ARGV[2])
 		local ttl = tonumber(ARGV[3])
 		local leaseID = ARGV[4]
 		local replacing = tonumber(ARGV[5])
+		local apiMax = tonumber(ARGV[6])
+		local regularTTL = tonumber(ARGV[7])
 		local now = tonumber(redis.call('TIME')[1])
 		local liveExpireBefore = now - ttl
 		redis.call('ZREMRANGEBYSCORE', accountLive, '-inf', liveExpireBefore)
@@ -154,6 +158,11 @@ var (
 		if replacing == 1 then allowance = 1 end
 		if accountMax > 0 and accountCount >= accountMax + allowance then return 0 end
 		if userMax > 0 and userCount >= userMax + allowance then return 0 end
+		if apiMax > 0 then
+			redis.call('ZREMRANGEBYSCORE', apiRegular, '-inf', now - regularTTL)
+			local apiCount = redis.call('ZCARD', apiRegular) + redis.call('ZCARD', apiLive)
+			if apiCount >= apiMax then return 0 end
+		end
 		redis.call('ZADD', accountLive, now, leaseID)
 		redis.call('ZADD', userLive, now, leaseID)
 		redis.call('ZADD', apiLive, now, leaseID)
@@ -226,10 +235,9 @@ var (
 		return 0
 	`)
 
-	// refreshOpenAIWSIngressLeaseScript does not recreate a missing member: a
-	// process that lost its lease must terminate its local WebSocket instead of
-	// silently continuing beyond the distributed cap.
-	refreshOpenAIWSIngressLeaseScript = redis.NewScript(`
+	// refreshSlotLeaseScript never recreates a missing member: a process that
+	// lost ownership must stop forwarding rather than exceed its cap.
+	refreshSlotLeaseScript = redis.NewScript(`
 		redis.replicate_commands()
 		local key = KEYS[1]
 		local ttl = tonumber(ARGV[1])
@@ -745,6 +753,24 @@ func (c *concurrencyCache) TrackAPIKeySlot(ctx context.Context, apiKeyID int64, 
 	return err
 }
 
+func (c *concurrencyCache) AcquireAPIKeySlot(ctx context.Context, apiKeyID int64, maxConcurrency int, requestID string) (bool, error) {
+	acquired, _, err := runScriptInt64Pair(ctx, c.rdb, acquireScript,
+		[]string{apiKeySlotKey(apiKeyID), liveAPIKeySlotKey(apiKeyID)},
+		maxConcurrency, c.slotTTLSeconds, requestID)
+	return acquired == 1, err
+}
+
+func (c *concurrencyCache) RefreshAPIKeySlot(ctx context.Context, apiKeyID int64, requestID string) (bool, error) {
+	// The lease refresh script never resurrects an expired or released slot.
+	refreshed, err := refreshSlotLeaseScript.Run(ctx, c.rdb,
+		[]string{apiKeySlotKey(apiKeyID)}, c.slotTTLSeconds, requestID).Int()
+	return refreshed == 1, err
+}
+
+func (c *concurrencyCache) APIKeySlotTTL() time.Duration {
+	return time.Duration(c.slotTTLSeconds) * time.Second
+}
+
 func (c *concurrencyCache) ReleaseAPIKeySlot(ctx context.Context, apiKeyID int64, requestID string) error {
 	key := apiKeySlotKey(apiKeyID)
 	return c.rdb.ZRem(ctx, key, requestID).Err()
@@ -772,7 +798,7 @@ func (c *concurrencyCache) RefreshOpenAIWSIngressLease(ctx context.Context, apiK
 	if c == nil || c.rdb == nil || apiKeyID <= 0 || leaseID == "" {
 		return false, nil
 	}
-	result, err := refreshOpenAIWSIngressLeaseScript.Run(
+	result, err := refreshSlotLeaseScript.Run(
 		ctx,
 		c.rdb,
 		[]string{openAIWSIngressLeaseKey(apiKeyID)},
@@ -799,6 +825,7 @@ func (c *concurrencyCache) AcquireLiveLease(
 	userID int64,
 	userMax int,
 	apiKeyID int64,
+	apiKeyMax int,
 	leaseID string,
 	replacingRegularSlots bool,
 ) (bool, error) {
@@ -815,7 +842,8 @@ func (c *concurrencyCache) AcquireLiveLease(
 		userSlotKey(userID),
 		liveUserSlotKey(userID),
 		liveAPIKeySlotKey(apiKeyID),
-	}, accountMax, userMax, liveLeaseTTLSeconds, leaseID, replacing).Int()
+		apiKeySlotKey(apiKeyID),
+	}, accountMax, userMax, liveLeaseTTLSeconds, leaseID, replacing, apiKeyMax, c.slotTTLSeconds).Int()
 	return result == 1, err
 }
 

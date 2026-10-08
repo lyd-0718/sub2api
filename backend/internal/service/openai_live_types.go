@@ -95,6 +95,7 @@ type LiveConcurrencyCache interface {
 		userID int64,
 		userMax int,
 		apiKeyID int64,
+		apiKeyMax int,
 		leaseID string,
 		replacingRegularSlots bool,
 	) (bool, error)

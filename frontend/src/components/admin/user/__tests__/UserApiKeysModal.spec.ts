@@ -1,80 +1,153 @@
-import { enableAutoUnmount, flushPromises, mount } from '@vue/test-utils'
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { flushPromises, mount } from '@vue/test-utils'
+import type { AdminUser, ApiKey } from '@/types'
 import UserApiKeysModal from '../UserApiKeysModal.vue'
-import type { AdminUser } from '@/types'
 
-const { getKeys } = vi.hoisted(() => ({ getKeys: vi.fn() }))
-vi.mock('@/api/admin', () => ({ adminAPI: {
-  users: { getUserApiKeys: getKeys }, groups: { getAll: vi.fn().mockResolvedValue([]) },
-} }))
-vi.mock('@/stores/app', () => ({ useAppStore: () => ({ showError: vi.fn(), showSuccess: vi.fn() }) }))
-vi.mock('@/utils/format', () => ({ formatDateTime: (value: string) => value }))
-vi.mock('vue-i18n', () => ({ useI18n: () => ({ t: (key: string) => key }) }))
-enableAutoUnmount(afterEach)
-beforeEach(() => { getKeys.mockReset(); vi.spyOn(console, 'error').mockImplementation(() => {}) })
-afterEach(() => vi.restoreAllMocks())
-function deferred() {
-  let resolve!: (value: unknown) => void
-  let reject!: (error: Error) => void
-  const promise = new Promise((res, rej) => { resolve = res; reject = rej })
-  return { promise, resolve, reject }
-}
-const user = (id: number) => ({ id, email: `user${id}@example.com`, username: `user${id}` }) as AdminUser
-const keys = (id: number, name: string) => ({ items: [{ id, name, key: 'sk-example-key-value-for-tests', status: 'active', created_at: '2026-09-20', group_id: null }] })
-async function open() {
+const { getUserApiKeys, getAllGroups, updateApiKey, showError, showSuccess } = vi.hoisted(() => ({
+  getUserApiKeys: vi.fn(),
+  getAllGroups: vi.fn(),
+  updateApiKey: vi.fn(),
+  showError: vi.fn(),
+  showSuccess: vi.fn(),
+}))
+
+vi.mock('@/api/admin', () => ({
+  adminAPI: {
+    users: { getUserApiKeys },
+    groups: { getAll: getAllGroups },
+    apiKeys: { updateApiKey },
+  },
+}))
+vi.mock('@/stores/app', () => ({ useAppStore: () => ({ showError, showSuccess }) }))
+vi.mock('vue-i18n', () => ({
+  useI18n: () => ({
+    t: (key: string, params?: Record<string, unknown>) => params?.limit !== undefined ? `${key}: ${params.limit}` : key,
+  }),
+}))
+
+const createKey = (concurrency = 5): ApiKey => ({
+  id: 10, user_id: 1, name: 'Primary key', key: 'sk-test-primary-key',
+  group_id: null, status: 'active', ip_whitelist: [], ip_blacklist: [],
+  last_used_at: null, last_used_ip: null, quota: 0, quota_used: 0, expires_at: null,
+  created_at: '2026-10-08T00:00:00Z', updated_at: '2026-10-08T00:00:00Z',
+  concurrency, current_concurrency: 2, rate_limit_5h: 0, rate_limit_1d: 0, rate_limit_7d: 0,
+  usage_5h: 0, usage_1d: 0, usage_7d: 0,
+  window_5h_start: null, window_1d_start: null, window_7d_start: null,
+  reset_5h_at: null, reset_1d_at: null, reset_7d_at: null,
+})
+const user = { id: 1, email: 'owner@example.com', username: 'owner' } as AdminUser
+
+const mountModal = async () => {
   const wrapper = mount(UserApiKeysModal, {
-    props: { show: false, user: user(1) },
-    global: { stubs: {
-      BaseDialog: { props: ['show'], template: '<div v-if="show"><slot /></div>' },
-      GroupBadge: true, GroupOptionItem: true,
-    } },
+    props: { show: false, user },
+    global: {
+      stubs: {
+        BaseDialog: {
+          props: ['show'], emits: ['close'],
+          template: '<div v-if="show" role="dialog"><button data-test="close" @click="$emit(\'close\')">Close</button><slot /></div>',
+        },
+        GroupBadge: true,
+        GroupOptionItem: true,
+      },
+    },
   })
   await wrapper.setProps({ show: true })
+  await flushPromises()
   return wrapper
 }
-async function switchUser(wrapper: Awaited<ReturnType<typeof open>>) {
-  await wrapper.setProps({ show: false })
-  await wrapper.setProps({ show: true, user: user(2) })
-}
 
-describe('user API key loading', () => {
-  it('does not display the previous user keys when the next load fails', async () => {
-    getKeys.mockResolvedValueOnce(keys(1, 'first-user-key')).mockRejectedValueOnce(new Error('unavailable'))
-    const wrapper = await open(); await flushPromises()
-    expect(wrapper.text()).toContain('first-user-key')
-    await switchUser(wrapper); await flushPromises()
-    expect(wrapper.text()).toContain('user2@example.com')
-    expect(wrapper.text()).not.toContain('first-user-key')
+beforeEach(() => {
+  vi.clearAllMocks()
+  getUserApiKeys.mockResolvedValue({ items: [createKey()] })
+  getAllGroups.mockResolvedValue([])
+})
+
+describe('administrator API key concurrency editor', () => {
+  it.each(['-1', '1.5', '2147483648', ''])('rejects invalid cap %s before calling the API', async (value) => {
+    const wrapper = await mountModal()
+    await wrapper.get('input[type="number"]').setValue(value)
+    expect(wrapper.get('input').attributes('aria-invalid')).toBe('true')
+    expect(wrapper.get('button[type="submit"]').attributes('disabled')).toBeDefined()
+    await wrapper.get('form').trigger('submit')
+    expect(updateApiKey).not.toHaveBeenCalled()
+    wrapper.unmount()
   })
 
-  it('does not replace current keys with a late previous response', async () => {
-    const old = deferred()
-    getKeys.mockReturnValueOnce(old.promise).mockResolvedValueOnce(keys(2, 'current-user-key'))
-    const wrapper = await open()
-    await switchUser(wrapper); await flushPromises()
-    old.resolve(keys(1, 'old-user-key')); await flushPromises()
-    expect(wrapper.text()).toContain('current-user-key')
-    expect(wrapper.text()).not.toContain('old-user-key')
+  it.each([3, 0, 2147483647])('saves cap %s and uses the returned key as current state', async (cap) => {
+    const wrapper = await mountModal()
+    updateApiKey.mockResolvedValue({ api_key: createKey(cap), auto_granted_group_access: false })
+    await wrapper.get('input').setValue(String(cap))
+    await wrapper.get('form').trigger('submit')
+    await flushPromises()
+    expect(updateApiKey).toHaveBeenCalledWith(10, { concurrency: cap })
+    expect(wrapper.get('input').element.value).toBe(String(cap))
+    expect(wrapper.get('button[type="submit"]').attributes('disabled')).toBeDefined()
+    expect(wrapper.text()).toContain(`admin.users.apiKeyConcurrencyCurrent: ${cap > 0 ? cap : 'keys.unlimited'}`)
+    expect(showSuccess).toHaveBeenCalledWith('admin.users.apiKeyConcurrencySaved')
+    wrapper.unmount()
   })
 
-  it('keeps the current request loading when an obsolete request fails', async () => {
-    const old = deferred(); const current = deferred()
-    getKeys.mockReturnValueOnce(old.promise).mockReturnValueOnce(current.promise)
-    const wrapper = await open()
-    await switchUser(wrapper)
-    old.reject(new Error('obsolete')); await flushPromises()
-    expect(wrapper.find('.animate-spin').exists()).toBe(true)
-    current.resolve(keys(2, 'current-user-key')); await flushPromises()
-    expect(wrapper.text()).toContain('current-user-key')
-    expect(wrapper.find('.animate-spin').exists()).toBe(false)
+  it('retains the failed draft and persisted cap and permits a retry', async () => {
+    const wrapper = await mountModal()
+    updateApiKey.mockRejectedValueOnce(new Error('Server unavailable'))
+    await wrapper.get('input').setValue('7')
+    await wrapper.get('form').trigger('submit')
+    await flushPromises()
+    expect(wrapper.get('input').element.value).toBe('7')
+    expect(wrapper.text()).toContain('admin.users.apiKeyConcurrencyCurrent: 5')
+    expect(wrapper.get('button[type="submit"]').attributes('disabled')).toBeUndefined()
+    expect(showError).toHaveBeenCalledWith('Server unavailable')
+    updateApiKey.mockResolvedValueOnce({ api_key: createKey(7), auto_granted_group_access: false })
+    await wrapper.get('form').trigger('submit')
+    await flushPromises()
+    expect(wrapper.text()).toContain('admin.users.apiKeyConcurrencyCurrent: 7')
+    wrapper.unmount()
   })
 
-  it('loads keys when the selected user changes while the dialog is open', async () => {
-    getKeys.mockResolvedValueOnce(keys(1, 'first-user-key')).mockResolvedValueOnce(keys(2, 'second-user-key'))
-    const wrapper = await open(); await flushPromises()
-    await wrapper.setProps({ user: user(2) }); await flushPromises()
-    expect(getKeys).toHaveBeenLastCalledWith(2)
-    expect(wrapper.text()).toContain('second-user-key')
-    expect(wrapper.text()).not.toContain('first-user-key')
+  it('blocks duplicate saves and group changes until the save completes', async () => {
+    const { promise, resolve } = Promise.withResolvers<unknown>()
+    updateApiKey.mockReturnValue(promise)
+    const wrapper = await mountModal()
+    await wrapper.get('input').setValue('7')
+    await wrapper.get('form').trigger('submit')
+    await wrapper.get('form').trigger('submit')
+    expect(updateApiKey).toHaveBeenCalledTimes(1)
+    expect(wrapper.get('input').attributes('disabled')).toBeDefined()
+    expect(wrapper.get('button[type="submit"]').attributes('disabled')).toBeDefined()
+    expect(wrapper.findAll('button').find((button) => button.text().includes('admin.users.none'))?.attributes('disabled')).toBeDefined()
+    resolve({ api_key: createKey(7), auto_granted_group_access: false })
+    await flushPromises()
+    wrapper.unmount()
+  })
+
+  it('ignores an old save response after switching users', async () => {
+    const { promise, resolve } = Promise.withResolvers<unknown>()
+    updateApiKey.mockReturnValue(promise)
+    const wrapper = await mountModal()
+    await wrapper.get('input').setValue('7')
+    await wrapper.get('form').trigger('submit')
+    getUserApiKeys.mockResolvedValueOnce({ items: [{ ...createKey(9), user_id: 2 }] })
+    await wrapper.setProps({ user: { ...user, id: 2, email: 'other@example.com' } })
+    await flushPromises()
+    resolve({ api_key: createKey(7), auto_granted_group_access: false })
+    await flushPromises()
+    expect(wrapper.get('input').element.value).toBe('9')
+    expect(wrapper.text()).toContain('admin.users.apiKeyConcurrencyCurrent: 9')
+    expect(showSuccess).not.toHaveBeenCalled()
+    wrapper.unmount()
+  })
+
+  it('ignores errors from a save after the modal closes', async () => {
+    const { promise, reject } = Promise.withResolvers<unknown>()
+    updateApiKey.mockReturnValue(promise)
+    const wrapper = await mountModal()
+    await wrapper.get('input').setValue('7')
+    await wrapper.get('form').trigger('submit')
+    await wrapper.get('[data-test="close"]').trigger('click')
+    expect(wrapper.emitted('close')).toHaveLength(1)
+    reject(new Error('Stale error'))
+    await flushPromises()
+    expect(showError).not.toHaveBeenCalled()
+    wrapper.unmount()
   })
 })

@@ -20,7 +20,7 @@ func setupAPIKeyHandler(adminSvc service.AdminService) *gin.Engine {
 	gin.SetMode(gin.TestMode)
 	router := gin.New()
 	h := NewAdminAPIKeyHandler(adminSvc)
-	router.PUT("/api/v1/admin/api-keys/:id", h.UpdateGroup)
+	router.PUT("/api/v1/admin/api-keys/:id", h.Update)
 	return router
 }
 
@@ -231,12 +231,80 @@ func TestAdminAPIKeyHandler_UpdateGroup_NegativeGroupID(t *testing.T) {
 	require.Contains(t, rec.Body.String(), "INVALID_GROUP_ID")
 }
 
-// failingUpdateGroupService overrides AdminUpdateAPIKeyGroupID to return an error.
+// failingUpdateGroupService overrides AdminUpdateAPIKey to return an error.
 type failingUpdateGroupService struct {
 	*stubAdminService
 	err error
 }
 
-func (f *failingUpdateGroupService) AdminUpdateAPIKeyGroupID(_ context.Context, _ int64, _ *int64) (*service.AdminUpdateAPIKeyGroupIDResult, error) {
+func (f *failingUpdateGroupService) AdminUpdateAPIKey(_ context.Context, _ int64, _ service.AdminUpdateAPIKeyInput) (*service.AdminUpdateAPIKeyResult, error) {
 	return nil, f.err
+}
+
+type recordingAPIKeyUpdateService struct {
+	*stubAdminService
+	calls int
+}
+
+func (s *recordingAPIKeyUpdateService) AdminUpdateAPIKey(ctx context.Context, id int64, input service.AdminUpdateAPIKeyInput) (*service.AdminUpdateAPIKeyResult, error) {
+	s.calls++
+	return s.stubAdminService.AdminUpdateAPIKey(ctx, id, input)
+}
+
+func TestAdminAPIKeyHandler_UpdateConcurrencyValidation(t *testing.T) {
+	for _, body := range []string{
+		`{"concurrency":-1,"reset_rate_limit_usage":true}`,
+		`{"concurrency":2147483648,"reset_rate_limit_usage":true}`,
+		`{"concurrency":1.5,"reset_rate_limit_usage":true}`,
+		`{"concurrency":1.0}`,
+		`{"concurrency":"2"}`,
+		`{"concurrency":9223372036854775808}`,
+	} {
+		t.Run(body, func(t *testing.T) {
+			svc := &recordingAPIKeyUpdateService{stubAdminService: newStubAdminService()}
+			svc.apiKeys[0].Usage5h = 12
+			router := setupAPIKeyHandler(svc)
+			rec := httptest.NewRecorder()
+			req := httptest.NewRequest(http.MethodPut, "/api/v1/admin/api-keys/10", bytes.NewBufferString(body))
+			req.Header.Set("Content-Type", "application/json")
+			router.ServeHTTP(rec, req)
+			require.Equal(t, http.StatusBadRequest, rec.Code)
+			require.Zero(t, svc.calls)
+			require.Equal(t, 12.0, svc.apiKeys[0].Usage5h)
+		})
+	}
+}
+
+func TestAdminAPIKeyHandler_UpdateConcurrencyPartialFields(t *testing.T) {
+	for _, tc := range []struct {
+		body string
+		want int
+	}{
+		{`{"concurrency":3}`, 3},
+		{`{"concurrency":0}`, 0},
+		{`{"concurrency":2147483647}`, 2147483647},
+		{`{"group_id":0}`, 7},
+		{`{}`, 7},
+	} {
+		t.Run(tc.body, func(t *testing.T) {
+			svc := newStubAdminService()
+			svc.apiKeys[0].Concurrency = 7
+			router := setupAPIKeyHandler(svc)
+			rec := httptest.NewRecorder()
+			req := httptest.NewRequest(http.MethodPut, "/api/v1/admin/api-keys/10", bytes.NewBufferString(tc.body))
+			req.Header.Set("Content-Type", "application/json")
+			router.ServeHTTP(rec, req)
+			require.Equal(t, http.StatusOK, rec.Code)
+			var resp struct {
+				Data struct {
+					APIKey struct {
+						Concurrency int `json:"concurrency"`
+					} `json:"api_key"`
+					AutoGrantedGroupAccess bool `json:"auto_granted_group_access"`
+				} `json:"data"`
+			}
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			require.Equal(t, tc.want, resp.Data.APIKey.Concurrency)
+		})
+	}
 }

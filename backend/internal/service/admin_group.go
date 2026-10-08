@@ -1316,30 +1316,50 @@ func (s *adminServiceImpl) UpdateGroupSortOrders(ctx context.Context, updates []
 	return s.groupRepo.UpdateSortOrders(ctx, updates)
 }
 
-// AdminUpdateAPIKeyGroupID 管理员修改 API Key 分组绑定
-// groupID: nil=不修改, 指向0=解绑, 指向正整数=绑定到目标分组
-func (s *adminServiceImpl) AdminUpdateAPIKeyGroupID(ctx context.Context, keyID int64, groupID *int64) (*AdminUpdateAPIKeyGroupIDResult, error) {
+// AdminUpdateAPIKey updates only the supplied administrator-managed fields.
+func (s *adminServiceImpl) AdminUpdateAPIKey(ctx context.Context, keyID int64, input AdminUpdateAPIKeyInput) (*AdminUpdateAPIKeyResult, error) {
+	groupID := input.GroupID
+	if groupID != nil && *groupID < 0 {
+		return nil, infraerrors.BadRequest("INVALID_GROUP_ID", "group_id must be non-negative")
+	}
+	if input.Concurrency != nil && (*input.Concurrency < 0 || *input.Concurrency > 2147483647) {
+		return nil, infraerrors.BadRequest("INVALID_CONCURRENCY", "concurrency must be an integer between 0 and 2147483647")
+	}
 	apiKey, err := s.apiKeyRepo.GetByID(ctx, keyID)
 	if err != nil {
 		return nil, err
 	}
 
-	if groupID == nil {
-		// nil 表示不修改，直接返回
-		return &AdminUpdateAPIKeyGroupIDResult{APIKey: apiKey}, nil
+	fields := APIKeyUpdateFields{GroupID: groupID != nil, Concurrency: input.Concurrency != nil, RateLimitUsage: input.ResetRateLimitUsage}
+	if fields.IsEmpty() {
+		return &AdminUpdateAPIKeyResult{APIKey: apiKey}, nil
+	}
+	if input.Concurrency != nil {
+		apiKey.Concurrency = *input.Concurrency
+	}
+	if input.ResetRateLimitUsage {
+		apiKey.Usage5h = 0
+		apiKey.Usage1d = 0
+		apiKey.Usage7d = 0
+		apiKey.Window5hStart = nil
+		apiKey.Window1dStart = nil
+		apiKey.Window7dStart = nil
+	}
+	result := &AdminUpdateAPIKeyResult{}
+	invalidate := func() {
+		if s.authCacheInvalidator != nil {
+			s.authCacheInvalidator.InvalidateAuthCacheByKey(ctx, apiKey.Key)
+		}
+		if input.ResetRateLimitUsage && s.billingCacheService != nil {
+			_ = s.billingCacheService.InvalidateAPIKeyRateLimit(ctx, apiKey.ID)
+		}
 	}
 
-	if *groupID < 0 {
-		return nil, infraerrors.BadRequest("INVALID_GROUP_ID", "group_id must be non-negative")
-	}
-
-	result := &AdminUpdateAPIKeyGroupIDResult{}
-
-	if *groupID == 0 {
+	if groupID != nil && *groupID == 0 {
 		// 0 表示解绑分组（不修改 user_allowed_groups，避免影响用户其他 Key）
 		apiKey.GroupID = nil
 		apiKey.Group = nil
-	} else {
+	} else if groupID != nil {
 		// 验证目标分组存在且状态为 active
 		group, err := s.groupRepo.GetByID(ctx, *groupID)
 		if err != nil {
@@ -1384,7 +1404,7 @@ func (s *adminServiceImpl) AdminUpdateAPIKeyGroupID(ctx context.Context, keyID i
 			if addErr := s.userRepo.AddGroupToAllowedGroups(opCtx, apiKey.UserID, gid); addErr != nil {
 				return nil, fmt.Errorf("add group to user allowed groups: %w", addErr)
 			}
-			if err := s.apiKeyRepo.Update(opCtx, apiKey, APIKeyUpdateFields{GroupID: true}); err != nil {
+			if err := s.apiKeyRepo.Update(opCtx, apiKey, fields); err != nil {
 				return nil, fmt.Errorf("update api key: %w", err)
 			}
 			if tx != nil {
@@ -1398,51 +1418,23 @@ func (s *adminServiceImpl) AdminUpdateAPIKeyGroupID(ctx context.Context, keyID i
 			result.GrantedGroupName = group.Name
 
 			// 失效认证缓存（在事务提交后执行）
-			if s.authCacheInvalidator != nil {
-				s.authCacheInvalidator.InvalidateAuthCacheByKey(ctx, apiKey.Key)
-			}
+			invalidate()
 
 			result.APIKey = apiKey
 			return result, nil
 		}
 	}
 
-	// 非专属分组 / 解绑：无需事务，单步更新即可
-	if err := s.apiKeyRepo.Update(ctx, apiKey, APIKeyUpdateFields{GroupID: true}); err != nil {
+	// A single selective write also covers concurrency-only and reset-only updates.
+	if err := s.apiKeyRepo.Update(ctx, apiKey, fields); err != nil {
 		return nil, fmt.Errorf("update api key: %w", err)
 	}
 
 	// 失效认证缓存
-	if s.authCacheInvalidator != nil {
-		s.authCacheInvalidator.InvalidateAuthCacheByKey(ctx, apiKey.Key)
-	}
+	invalidate()
 
 	result.APIKey = apiKey
 	return result, nil
-}
-
-// AdminResetAPIKeyRateLimitUsage resets all API key rate-limit usage windows.
-func (s *adminServiceImpl) AdminResetAPIKeyRateLimitUsage(ctx context.Context, keyID int64) (*APIKey, error) {
-	apiKey, err := s.apiKeyRepo.GetByID(ctx, keyID)
-	if err != nil {
-		return nil, err
-	}
-	apiKey.Usage5h = 0
-	apiKey.Usage1d = 0
-	apiKey.Usage7d = 0
-	apiKey.Window5hStart = nil
-	apiKey.Window1dStart = nil
-	apiKey.Window7dStart = nil
-	if err := s.apiKeyRepo.Update(ctx, apiKey, APIKeyUpdateFields{RateLimitUsage: true}); err != nil {
-		return nil, fmt.Errorf("reset api key rate limit usage: %w", err)
-	}
-	if s.authCacheInvalidator != nil {
-		s.authCacheInvalidator.InvalidateAuthCacheByKey(ctx, apiKey.Key)
-	}
-	if s.billingCacheService != nil {
-		_ = s.billingCacheService.InvalidateAPIKeyRateLimit(ctx, apiKey.ID)
-	}
-	return apiKey, nil
 }
 
 // ReplaceUserGroup 替换用户的专属分组
