@@ -24,17 +24,20 @@
 ### 判定规则
 
 ```
+月额度已满（≥ 阈值）            → 按【月窗口重置时间】停调（Kimi 5h + 月额度套餐，2026-10-16 补）
 周额度已满（≥ 阈值）            → 按【周窗口重置时间】停调
-周额度未满 且 5h 额度已满        → 按【5h 窗口重置时间】停调
-两者都未满                      → 正常调度
+周/月未满 且 5h 额度已满         → 按【5h 窗口重置时间】停调
+都未满                          → 正常调度
 快照缺失/过期/无未来重置点       → 60s 短冷却 + 等下轮周期额度探测刷新；【绝不】落回 403 计数
 ```
 
 ### 实现要点
 
+- **2026-10-16 更新：生产判满线已改为 100%**（`quota_exhausted_percent: 100`、`account_scheduling_thresholds.kimi=100` 即阈值停调关闭），用满才停，撞到额度 403 时按重置点停调；文案点名的窗口（月/周/5h）在快照里有未来重置点时也作为停调依据，补快照滞后。月窗口判满线代码写死 100。下面 85% 的论述为原始设计，仅作历史参考
 - **阈值 85% 是缓冲线不是用尽线**（`gateway.cn_providers.quota_exhausted_percent` 与 `account_scheduling_thresholds.kimi`，均可配置）：额度快照 10 分钟一刷是滞后的，等 100% 再停必裸撞 403；而撞一次的代价是账号数天受限，远大于 15% 的额度余量
 - **调度快照白名单已补 15 个 CN 额度键**（kimi/zhipu/minimax × 5h/weekly/updated，`repository/scheduler_cache.go`），否则阈值停调在选号链路上根本不生效
-- **窗口分档用独立函数 `cnQuotaPauseWindow`**（周满优先）：不能复用旧的"取最早重置点"辅助函数（语义相反）
+- **Kimi 两种套餐**（2026-10-16）：5h + 周额度 / 5h + 月额度，按 `/coding/v1/usages` 的 `usages.limit_7d` 与 `usages.limit_month_total`/`limit_month_code` 区分，一个账号只会有周、月其中一个长窗口；换套餐时另一个旧快照置 null。白名单另补 `kimi_monthly_used_percent` / `kimi_monthly_reset_at`
+- **窗口分档用独立函数 `cnQuotaPauseWindow`**（月/周满优先）：不能复用旧的"取最早重置点"辅助函数（语义相反）
 - 额度文案命中即**早退**，永不进入 `handleOpenAI403` 连续计数
 
 ## 三、功能 2：历史账号自动归队

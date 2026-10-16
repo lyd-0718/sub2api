@@ -4,7 +4,7 @@
     data-test="cn-provider-quota"
     class="min-w-[220px] space-y-1"
   >
-    <!-- Tier rows: 5h + weekly utilization bars (snapshot renders on mount).
+    <!-- Tier rows: 5h + weekly/monthly utilization bars (snapshot renders on mount).
          复用账号页 UsageProgressBar：同阈值配色、同倒计时格式。 -->
     <div v-if="data?.success && data.tiers?.length" class="space-y-1">
       <UsageProgressBar
@@ -12,7 +12,7 @@
         :key="tier.window"
         data-test="cn-provider-quota-tier"
         :label="windowLabel(tier.window)"
-        :color="tier.window === 'weekly' ? 'emerald' : 'indigo'"
+        :color="tierColor(tier.window)"
         :utilization="tier.used_percent"
         :resets-at="tier.reset_at"
       />
@@ -164,6 +164,12 @@ const truncatedError = computed(() => {
   if (!error.value) return ''
   return error.value.length > 80 ? `${error.value.slice(0, 80)}...` : error.value
 })
+
+const tierColor = (window: string) => {
+  if (window === 'weekly') return 'emerald'
+  if (window === 'monthly') return 'purple'
+  return 'indigo'
+}
 
 const windowLabel = (window: string) => {
   if (window === 'weekly') return t('admin.accounts.cnProviders.windowWeekly')

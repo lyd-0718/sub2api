@@ -57,7 +57,8 @@ func (s *RateLimitService) handleCNProviderConcurrencyLimit403(
 }
 
 // handleCNProviderQuotaExhausted403 处理「额度耗尽」文案命中的 403（HTTP 与流内同口径）：
-// 按窗口分档停调到真实重置点（周满按周、否则 5h）；快照缺失/无未来重置点时退化为
+// 按窗口分档停调到真实重置点（月满按月、周满按周、否则 5h；文案点名的窗口有未来重置点时
+// 一并参与，取较晚者）；快照缺失/无未来重置点时退化为
 // 60s 短冷却 + 等下一轮周期额度探测刷新快照。
 //
 // 本函数是「额度类命中即早退」的落点：调用方必须 return，绝不能再进入 handleOpenAI403
@@ -65,7 +66,16 @@ func (s *RateLimitService) handleCNProviderConcurrencyLimit403(
 // 那正是本方案要消除的永久卡死。
 func (s *RateLimitService) handleCNProviderQuotaExhausted403(ctx context.Context, account *Account, body []byte) {
 	wordingWindow := cnQuotaWordingWindow(body)
-	if window, resumeAt, ok := s.cnQuotaPauseWindow(account); ok {
+	window, resumeAt, ok := s.cnQuotaPauseWindow(account)
+	// 【二开】上游文案已明说哪个窗口用满：判满线是 100%，周期探测的快照可能还停在 99.x%，
+	// 只看快照会退化成 60s 短冷却、反复撞 403。文案窗口在快照里有未来重置点时也作为停调
+	// 依据，与快照分档结果取较晚者（两个约束同时成立，较晚的重置点才是真正可用的时刻）。
+	if w, found := cnQuotaWindowByName(wordingWindow); found {
+		if reset, has := cnQuotaWindowFutureReset(account, w.resetSuffix, time.Now()); has && (!ok || reset.After(resumeAt)) {
+			window, resumeAt, ok = w.window, reset, true
+		}
+	}
+	if ok {
 		s.notifyAccountSchedulingBlocked(account, resumeAt, cnQuotaExhaustedReasonPrefix)
 		if err := s.accountRepo.SetRateLimitedIfLater(ctx, account.ID, resumeAt); err != nil {
 			slog.Warn("cn_quota_exhausted_set_rate_limited_failed", "account_id", account.ID, "error", err)
@@ -193,7 +203,7 @@ func (s *RateLimitService) cn429QuotaExhaustedPercent() float64 {
 }
 
 // cnProviderQuotaSnapshotExhausted 判断账号快照是否给出「窗口耗尽」证据：
-// 5h 或 weekly 窗口用量 ≥ threshold 且该窗口尚未重置，且快照在 maxAge 内刷新过。
+// 5h / weekly / monthly 任一窗口用量 ≥ threshold 且该窗口尚未重置，且快照在 maxAge 内刷新过。
 // 快照缺失/过期时不认定耗尽——瞬时并发限流不应按窗口耗尽长停调。
 //
 // 消费方：历史账号恢复（account_error_recovery_service.go）用它判定「额度是否仍未恢复」。
@@ -207,15 +217,9 @@ func cnProviderQuotaSnapshotExhausted(account *Account, now time.Time, threshold
 		return false
 	}
 	provider := account.Platform
-	for _, w := range []struct {
-		usedSuffix  string
-		resetSuffix string
-	}{
-		{cnExtraSuffix5hUsed, cnExtraSuffix5hReset},
-		{cnExtraSuffixWeeklyUsed, cnExtraSuffixWeeklyReset},
-	} {
+	for _, w := range cnQuotaWindows {
 		used := schedulingPercentValue(account.Extra[cnExtraKey(provider, w.usedSuffix)])
-		if used < threshold {
+		if used < w.exhaustedPercent(threshold) {
 			continue
 		}
 		// 用量超阈值但窗口已重置 → 快照是旧窗口的，不算耗尽。
@@ -265,8 +269,8 @@ func cnProviderQuotaSnapshotReset(account *Account, now time.Time) *time.Time {
 // 返回 (冷却终点, 是否窗口耗尽, 是否可判定)。
 //
 // 可判定 = 快照里至少一个窗口带未来重置点（否则视同快照缺失，调用方走默认 429 逻辑）；
-// 窗口耗尽 = 周/5h 用量 ≥ threshold 且该窗口尚未重置 → 停到 cnQuotaPauseWindowAt 的
-// 分档结果（周满按周、周未满且 5h 满按 5h）；无耗尽证据（瞬时并发限流）→ 短冷却，
+// 窗口耗尽 = 月/周/5h 用量 ≥ threshold 且该窗口尚未重置 → 停到 cnQuotaPauseWindowAt 的
+// 分档结果（月满按月、周满按周、否则 5h 满按 5h）；无耗尽证据（瞬时并发限流）→ 短冷却，
 // 避免号池因误停而缩编。
 func cnCodingPlan429Cooldown(account *Account, now time.Time, threshold float64, maxAge, transient time.Duration) (time.Time, bool, bool) {
 	if !cnQuotaSnapshotHasFutureReset(account, now) {

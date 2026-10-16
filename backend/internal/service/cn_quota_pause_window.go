@@ -8,11 +8,12 @@ import (
 
 // Coding Plan 额度耗尽后的停调窗口判定。
 //
-// 需求方规则（周满优先，不是取最早重置点）：
+// 需求方规则（长窗口优先，不是取最早重置点）：
 //
+//	月额度用满（100%）          → 按【月窗口重置时间】停调（Kimi 5h + 月额度套餐，见 cnMonthlyQuotaExhaustedPercent）
 //	周额度已满（≥ 阈值）        → 按【周窗口重置时间】停调
-//	周未满 且 5h 额度已满        → 按【5h 窗口重置时间】停调
-//	两者都未满                   → 不停调
+//	周/月未满 且 5h 额度已满     → 按【5h 窗口重置时间】停调
+//	都未满                       → 不停调
 //
 // 注意不要把停调终点改回「5h/weekly 中取最早的未来重置点」：那是为「避免过度停调」
 // 的反向取舍，周满时会停到 5h 重置点 → 5h 重置后立刻再撞 403，形成停调/放行抖动。
@@ -29,6 +30,58 @@ const (
 	cnQuotaSnapshotMaxAge = 30 * time.Minute
 )
 
+// cnQuotaWindow 描述一个额度快照窗口在 account.Extra 中的键后缀。
+type cnQuotaWindow struct {
+	window      string
+	usedSuffix  string
+	resetSuffix string
+}
+
+// cnQuotaWindows 是 CN Coding Plan 额度快照的全部窗口，按停调优先级排序（周期越长越先判）。
+// 【二开】Kimi 两种套餐（5h + 周 / 5h + 月）各只写其中一个长窗口，缺失的窗口读出来是 0 用量、
+// 无重置点，自然跳过；zhipu/minimax 不写 monthly，行为不变。
+var cnQuotaWindows = []cnQuotaWindow{
+	{"monthly", cnExtraSuffixMonthlyUsed, cnExtraSuffixMonthlyReset},
+	{"weekly", cnExtraSuffixWeeklyUsed, cnExtraSuffixWeeklyReset},
+	{"5h", cnExtraSuffix5hUsed, cnExtraSuffix5hReset},
+}
+
+// cnMonthlyQuotaExhaustedPercent 是月窗口的判满阈值：用满 100% 才停调。
+// 【二开】需求方 2026-10-16 拍板：月额度按 85% 提前停调会白白浪费整月剩余额度；
+// 月额度撞 403 已被分类器识别为额度耗尽、按月重置点停调（不进 403 计数、不会永久 error），
+// 代价只是一次失败转移。5h / 周窗口仍用可配置阈值（默认 85）。
+const cnMonthlyQuotaExhaustedPercent = 100.0
+
+// exhaustedPercent 返回该窗口的判满阈值：月窗口固定 100，其它窗口用调用方传入的阈值。
+func (w cnQuotaWindow) exhaustedPercent(threshold float64) float64 {
+	if w.window == "monthly" {
+		return cnMonthlyQuotaExhaustedPercent
+	}
+	return threshold
+}
+
+// cnQuotaWindowByName 按窗口名（"monthly" / "weekly" / "5h"）查找快照窗口定义。
+func cnQuotaWindowByName(name string) (cnQuotaWindow, bool) {
+	for _, w := range cnQuotaWindows {
+		if w.window == name {
+			return w, true
+		}
+	}
+	return cnQuotaWindow{}, false
+}
+
+// cnQuotaWindowFutureReset 返回指定窗口仍在未来的重置点（缺失/已过返回 false）。
+func cnQuotaWindowFutureReset(account *Account, resetSuffix string, now time.Time) (time.Time, bool) {
+	if account == nil {
+		return time.Time{}, false
+	}
+	reset := parseSchedulingResetAt(account.Extra[cnExtraKey(account.Platform, resetSuffix)])
+	if reset == nil || !reset.After(now) {
+		return time.Time{}, false
+	}
+	return *reset, true
+}
+
 // cnQuotaPauseWindow 返回额度耗尽后的停调窗口与恢复时间（阈值取
 // gateway.cn_providers.quota_exhausted_percent，默认 85）。
 // ok=false 表示快照没有给出「已满且仍未重置」的窗口——调用方必须退化为短冷却，
@@ -39,23 +92,16 @@ func (s *RateLimitService) cnQuotaPauseWindow(account *Account) (window string, 
 
 // cnQuotaPauseWindowAt 是 cnQuotaPauseWindow 的纯函数内核（便于表驱动单测）。
 //
-// 分档顺序即优先级：周窗口先判。某窗口用量 ≥ 阈值但重置点缺失/已过期时立即停止下探
+// 分档顺序即优先级：月、周窗口先判。某窗口用量 ≥ 阈值但重置点缺失/已过期时立即停止下探
 // （而不是继续看 5h）：用量高 + 无未来重置点说明快照是旧窗口的，此时任何停调终点都
 // 没有依据——交给调用方短冷却 + 等快照刷新，避免用另一个窗口的重置点凑一个错误的终点。
 func cnQuotaPauseWindowAt(account *Account, now time.Time, thresholdPercent float64) (window string, resumeAt time.Time, ok bool) {
 	if account == nil || !account.IsCNProvider() || thresholdPercent <= 0 {
 		return "", time.Time{}, false
 	}
-	for _, candidate := range []struct {
-		window      string
-		usedSuffix  string
-		resetSuffix string
-	}{
-		{"weekly", cnExtraSuffixWeeklyUsed, cnExtraSuffixWeeklyReset},
-		{"5h", cnExtraSuffix5hUsed, cnExtraSuffix5hReset},
-	} {
+	for _, candidate := range cnQuotaWindows {
 		used := schedulingPercentValue(account.Extra[cnExtraKey(account.Platform, candidate.usedSuffix)])
-		if used < thresholdPercent {
+		if used < candidate.exhaustedPercent(thresholdPercent) {
 			continue
 		}
 		reset := parseSchedulingResetAt(account.Extra[cnExtraKey(account.Platform, candidate.resetSuffix)])
@@ -74,8 +120,8 @@ func cnQuotaSnapshotHasFutureReset(account *Account, now time.Time) bool {
 	if account == nil || !account.IsCNProvider() || !account.IsCodingPlan() {
 		return false
 	}
-	for _, suffix := range []string{cnExtraSuffix5hReset, cnExtraSuffixWeeklyReset} {
-		if reset := parseSchedulingResetAt(account.Extra[cnExtraKey(account.Platform, suffix)]); reset != nil && reset.After(now) {
+	for _, w := range cnQuotaWindows {
+		if reset := parseSchedulingResetAt(account.Extra[cnExtraKey(account.Platform, w.resetSuffix)]); reset != nil && reset.After(now) {
 			return true
 		}
 	}

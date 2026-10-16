@@ -284,7 +284,7 @@ func (s *AccountErrorRecoveryService) recoverOne(ctx context.Context, account *A
 	stats.restored++
 }
 
-// cnQuotaRecoveredFromSnapshot 用本地额度快照判定账号是否已恢复（周未满 且 5h 未满）。
+// cnQuotaRecoveredFromSnapshot 用本地额度快照判定账号是否已恢复（月/周/5h 均未满）。
 // reset_at 已过 = 窗口已重置，是确定事实（管理前端显示的「额度刷新倒计时」读的就是
 // 它），不需要再探测上游。快照新旧不影响判定：reset_at 是时间点事实，不是采样值。
 // 返回 known=false 表示快照里连窗口重置键都没有（从未探测过/数据缺失）——
@@ -294,8 +294,8 @@ func cnQuotaRecoveredFromSnapshot(account *Account, now time.Time, threshold flo
 		return false, false
 	}
 	hasResetKey := false
-	for _, suffix := range []string{cnExtraSuffixWeeklyReset, cnExtraSuffix5hReset} {
-		if _, ok := account.Extra[cnExtraKey(account.Platform, suffix)]; ok {
+	for _, w := range cnQuotaWindows {
+		if v, ok := account.Extra[cnExtraKey(account.Platform, w.resetSuffix)]; ok && v != nil {
 			hasResetKey = true
 			break
 		}
@@ -494,12 +494,9 @@ func cnQuotaNextResetAt(account *Account, now time.Time, threshold float64) time
 	}
 	var latest time.Time
 	provider := account.Platform
-	for _, w := range []struct{ usedSuffix, resetSuffix string }{
-		{cnExtraSuffix5hUsed, cnExtraSuffix5hReset},
-		{cnExtraSuffixWeeklyUsed, cnExtraSuffixWeeklyReset},
-	} {
+	for _, w := range cnQuotaWindows {
 		used := schedulingPercentValue(account.Extra[cnExtraKey(provider, w.usedSuffix)])
-		if used < threshold {
+		if used < w.exhaustedPercent(threshold) {
 			continue
 		}
 		reset := parseSchedulingResetAt(account.Extra[cnExtraKey(provider, w.resetSuffix)])

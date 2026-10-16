@@ -24,6 +24,8 @@ type accountSchedulingThresholdCandidate struct {
 	scope       string
 	usedPercent float64
 	until       *time.Time
+	// minThreshold 抬高该候选的生效阈值（0 = 用平台阈值）。【二开】CN 月窗口固定 100。
+	minThreshold int
 }
 
 const accountSchedulingThresholdCredentialKey = "account_scheduling_threshold"
@@ -353,7 +355,7 @@ func grokThresholdCandidates(account *Account) []*accountSchedulingThresholdCand
 	}
 }
 
-// cnProviderThresholdCandidates 读取国产供应商 Coding Plan 账号的 5h / weekly 滚动窗口
+// cnProviderThresholdCandidates 读取国产供应商 Coding Plan 账号的 5h / weekly / monthly 滚动窗口
 // 用量快照（由 CNProviderQuotaService 写入 account.Extra，键形如
 // <provider>_5h_used_percent / <provider>_weekly_reset_at）。payg 账号无此快照，
 // 候选为空 → 不触发阈值停调（余额型走余额检测）。与 openai 的快照驱动停调一致：
@@ -362,14 +364,17 @@ func cnProviderThresholdCandidates(account *Account, provider string) []*account
 	if account == nil || len(account.Extra) == 0 {
 		return nil
 	}
-	candidates := []*accountSchedulingThresholdCandidate{
+	// monthly：OpenCode Go 与 Kimi 5h + 月额度套餐写入；其它平台无该键 → nil 候选。
+	monthly := cnThresholdCandidate(account.Extra, provider, "monthly")
+	if monthly != nil && provider != PlatformOpenCodeGo {
+		// CN 月窗口用满才停（cnMonthlyQuotaExhaustedPercent）；OpenCode Go 保持上游平台阈值。
+		monthly.minThreshold = int(cnMonthlyQuotaExhaustedPercent)
+	}
+	return []*accountSchedulingThresholdCandidate{
 		cnThresholdCandidate(account.Extra, provider, "5h"),
 		cnThresholdCandidate(account.Extra, provider, "weekly"),
+		monthly,
 	}
-	if provider == PlatformOpenCodeGo {
-		candidates = append(candidates, cnThresholdCandidate(account.Extra, provider, "monthly"))
-	}
-	return candidates
 }
 
 func cnThresholdCandidate(extra map[string]any, provider, window string) *accountSchedulingThresholdCandidate {
@@ -388,7 +393,7 @@ func cnThresholdCandidate(extra map[string]any, provider, window string) *accoun
 		return nil
 	}
 	usedPercent, ok := extra[usedKey]
-	if !ok {
+	if !ok || usedPercent == nil {
 		return nil
 	}
 	return &accountSchedulingThresholdCandidate{
@@ -419,6 +424,9 @@ func pickLatestResetSchedulingCandidate(candidates []*accountSchedulingThreshold
 func candidateMatchesThreshold(candidate *accountSchedulingThresholdCandidate, threshold int, now time.Time) bool {
 	if candidate == nil || candidate.until == nil || !candidate.until.After(now) {
 		return false
+	}
+	if candidate.minThreshold > threshold {
+		threshold = candidate.minThreshold
 	}
 	return candidate.usedPercent >= float64(threshold)
 }

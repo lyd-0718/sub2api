@@ -21,7 +21,7 @@ import (
 // 国产供应商 Coding Plan 滚动窗口额度探测服务（Kimi For Coding / 智谱 GLM Coding Plan）。
 //
 // 与 grok_quota_service 不同：CN 供应商走数据面 API Key（无 OAuth token provider），
-// 额度端点为只读 GET，解析 5h + weekly 两档滚动窗口并落 account.Extra 快照，
+// 额度端点为只读 GET，解析 5h + weekly（Kimi 月额度套餐为 5h + monthly）滚动窗口并落 account.Extra 快照，
 // 供账号调度阈值评估（account_scheduling_threshold_eval.go）做主动停调。
 //
 // 解析逻辑对齐 cc-switch（farion1231/cc-switch）services/coding_plan.rs 的
@@ -358,57 +358,94 @@ func zhipuQuotaHost(baseURL string) string {
 
 // parseKimiUsageTiers 解析 Kimi For Coding 的 /usages 响应。
 //
-//   - limits[].detail.{limit,remaining,resetTime} → 5h 窗口（取首个 detail）
-//   - usage.{limit,remaining,resetTime} → 周窗口
+// 【二开】Kimi Token Plan 有两种套餐：5h + 周额度、5h + 月额度。响应里的 usages 对象
+// 按键名区分窗口（used_ratio 为 0-1 已用比例）：
+//   - usages.limit_5h → 5h 窗口
+//   - usages.limit_7d → 周窗口
+//   - usages.limit_month_total / limit_month_code → 月窗口（取较高者：任一用满都会被拒）
 //
-// utilization = (limit-remaining)/limit*100。
+// usages 缺少对应窗口时回落旧字段（utilization = (limit-remaining)/limit*100）：
+//   - limits[].detail.{limit,remaining,resetTime} → 5h 窗口（取首个 detail）
+//   - usage.{limit,remaining,resetTime} → 周窗口。月额度套餐不返回 usage；usages 已给出
+//     周或月窗口时不再读它，避免把月额度套餐误标成周额度。
 func parseKimiUsageTiers(body []byte) []CNQuotaTier {
-	var tiers []CNQuotaTier
+	usages := gjson.GetBytes(body, "usages")
 
-	if limits := gjson.GetBytes(body, "limits"); limits.IsArray() {
-		limits.ForEach(func(_, item gjson.Result) bool {
-			detail := item.Get("detail")
-			if !detail.Exists() {
-				return true
-			}
-			limit, _ := cnParseF64(detail.Get("limit").Value())
-			remaining, _ := cnParseF64(detail.Get("remaining").Value())
-			used := limit - remaining
-			if used < 0 {
-				used = 0
-			}
-			var util float64
-			if limit > 0 {
-				util = used / limit * 100
-			}
-			tiers = append(tiers, CNQuotaTier{
-				Window:      "5h",
-				UsedPercent: util,
-				ResetAt:     cnNormalizeResetTime(detail.Get("resetTime").Value()),
+	fiveHour, hasFiveHour := kimiUsedRatioTier(usages.Get("limit_5h"), "5h")
+	if !hasFiveHour {
+		if limits := gjson.GetBytes(body, "limits"); limits.IsArray() {
+			limits.ForEach(func(_, item gjson.Result) bool {
+				detail := item.Get("detail")
+				if !detail.Exists() {
+					return true
+				}
+				fiveHour, hasFiveHour = kimiRemainingTier(detail, "5h"), true
+				return false // 取首个 detail 作为 5h 窗口
 			})
-			return false // 取首个 detail 作为 5h 窗口
-		})
+		}
 	}
 
-	if usage := gjson.GetBytes(body, "usage"); usage.Exists() {
-		limit, _ := cnParseF64(usage.Get("limit").Value())
-		remaining, _ := cnParseF64(usage.Get("remaining").Value())
-		used := limit - remaining
-		if used < 0 {
-			used = 0
+	weekly, hasWeekly := kimiUsedRatioTier(usages.Get("limit_7d"), "weekly")
+	monthly, hasMonthly := kimiUsedRatioTier(usages.Get("limit_month_total"), "monthly")
+	if code, ok := kimiUsedRatioTier(usages.Get("limit_month_code"), "monthly"); ok && (!hasMonthly || code.UsedPercent > monthly.UsedPercent) {
+		monthly, hasMonthly = code, true
+	}
+	if !hasWeekly && !hasMonthly {
+		if usage := gjson.GetBytes(body, "usage"); usage.Exists() {
+			weekly, hasWeekly = kimiRemainingTier(usage, "weekly"), true
 		}
-		var util float64
-		if limit > 0 {
-			util = used / limit * 100
-		}
-		tiers = append(tiers, CNQuotaTier{
-			Window:      "weekly",
-			UsedPercent: util,
-			ResetAt:     cnNormalizeResetTime(usage.Get("resetTime").Value()),
-		})
 	}
 
+	var tiers []CNQuotaTier
+	if hasFiveHour {
+		tiers = append(tiers, fiveHour)
+	}
+	if hasWeekly {
+		tiers = append(tiers, weekly)
+	}
+	if hasMonthly {
+		tiers = append(tiers, monthly)
+	}
 	return tiers
+}
+
+// kimiUsedRatioTier 解析 usages.<window>.{used_ratio,reset_time}；缺节点或比例不可解析返回 false。
+func kimiUsedRatioTier(node gjson.Result, window string) (CNQuotaTier, bool) {
+	if !node.Exists() {
+		return CNQuotaTier{}, false
+	}
+	ratio, ok := cnParseF64(node.Get("used_ratio").Value())
+	if !ok {
+		return CNQuotaTier{}, false
+	}
+	used := ratio * 100
+	if used < 0 {
+		used = 0
+	}
+	return CNQuotaTier{
+		Window:      window,
+		UsedPercent: used,
+		ResetAt:     cnNormalizeResetTime(node.Get("reset_time").Value()),
+	}, true
+}
+
+// kimiRemainingTier 解析旧字段 {limit,remaining,resetTime}：utilization=(limit-remaining)/limit*100。
+func kimiRemainingTier(node gjson.Result, window string) CNQuotaTier {
+	limit, _ := cnParseF64(node.Get("limit").Value())
+	remaining, _ := cnParseF64(node.Get("remaining").Value())
+	used := limit - remaining
+	if used < 0 {
+		used = 0
+	}
+	var util float64
+	if limit > 0 {
+		util = used / limit * 100
+	}
+	return CNQuotaTier{
+		Window:      window,
+		UsedPercent: util,
+		ResetAt:     cnNormalizeResetTime(node.Get("resetTime").Value()),
+	}
 }
 
 // parseMiniMaxUsageTiers 解析 MiniMax Token Plan / Coding Plan remains 响应。
@@ -616,6 +653,23 @@ func parseZhipuTokenTiers(data gjson.Result) []CNQuotaTier {
 func cnQuotaExtraUpdates(provider string, tiers []CNQuotaTier, now time.Time) map[string]any {
 	updates := map[string]any{
 		cnExtraKey(provider, cnExtraSuffixUsageUpdated): now.Format(time.RFC3339),
+	}
+	// 【二开】Kimi 周额度 / 月额度两种套餐互斥：本次只给出其中一种时，把另一种的旧快照
+	// 置 null（读侧按缺失处理），避免换套餐后残留的旧窗口继续参与停调判定与前端展示。
+	if provider == PlatformKimi {
+		var hasWeekly, hasMonthly bool
+		for _, t := range tiers {
+			hasWeekly = hasWeekly || t.Window == "weekly"
+			hasMonthly = hasMonthly || t.Window == "monthly"
+		}
+		if hasMonthly && !hasWeekly {
+			updates[cnExtraKey(provider, cnExtraSuffixWeeklyUsed)] = nil
+			updates[cnExtraKey(provider, cnExtraSuffixWeeklyReset)] = nil
+		}
+		if hasWeekly && !hasMonthly {
+			updates[cnExtraKey(provider, cnExtraSuffixMonthlyUsed)] = nil
+			updates[cnExtraKey(provider, cnExtraSuffixMonthlyReset)] = nil
+		}
 	}
 	for _, t := range tiers {
 		switch t.Window {

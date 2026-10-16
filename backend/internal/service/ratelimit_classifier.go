@@ -9,7 +9,7 @@ import (
 //
 // 背景：国产供应商把两类「可恢复」的账号级限制都回成 403——
 //   - 并发超限（秒级瞬时，在途流结束即释放）；
-//   - 滚动窗口额度耗尽（周 / 5h，到窗口重置点必然恢复）。
+//   - 滚动窗口额度耗尽（月 / 周 / 5h，到窗口重置点必然恢复）。
 //
 // 二者若落进通用 403 路径（计数 → 3 次永久 SetError），账号会被永久卡死在 error，
 // 且在 failover 状态集里逐账号重放，足以把整组账号打下线。因此所有 403 落点
@@ -54,7 +54,9 @@ const cnConcurrentLimitLooseWording = "concurrent request limit"
 // 只命中窗口标识（请求日志里随便出现 "5h"）或只命中耗尽语义（普通 403 里的 "limit"）
 // 都不足以写成额度停调——那会把无关 403 停调到数天后的窗口重置点。
 var (
-	cnQuotaWordingWeeklyWindowTokens = []string{"weekly", "7-day", "7 day"}
+	// 【二开】Kimi 5h + 月额度套餐的文案："You've reached your monthly usage limit for this billing cycle."
+	cnQuotaWordingMonthlyWindowTokens = []string{"monthly", "billing cycle", "月额度", "月度"}
+	cnQuotaWordingWeeklyWindowTokens  = []string{"weekly", "7-day", "7 day"}
 	// 不含裸 "5h"：那是 3 字符子串，request_id/URL 片段都可能命中（真实文案用 "5-hour"）。
 	cnQuotaWordingFiveHourWindowTokens = []string{"5-hour", "5 hour", "five-hour"}
 	cnQuotaWordingExhaustionTokens     = []string{
@@ -68,7 +70,7 @@ var (
 // 判定顺序（互斥，并发优先）：
 //  1. 401 → 鉴权；
 //  2. 403/429：kimi 并发文案（精确 + 宽松兜底）→ 并发限流；
-//  3. 403/429：周（weekly/7-day）或 5h 额度文案 → 额度耗尽；
+//  3. 403/429：月（monthly/billing cycle）、周（weekly/7-day）或 5h 额度文案 → 额度耗尽；
 //  4. 403/429：凭据类文案 → 鉴权；
 //  5. 其余 → 未识别。
 //
@@ -110,10 +112,12 @@ func cnConcurrentLimitExactWording(upstreamMsg string) bool {
 }
 
 // cnQuotaWordingWindow 从响应体文案识别额度耗尽的窗口：
-// 命中周文案（weekly / 7-day / 7 day）→ "weekly"；否则命中 5h 文案 → "5h"；否则 ""。
+// 命中月文案（monthly / billing cycle）→ "monthly"；否则命中周文案（weekly / 7-day / 7 day）
+// → "weekly"；否则命中 5h 文案 → "5h"；否则 ""。
 //
-// 仅用于分类判定与日志观测：停调终点一律取快照分档结果（见 cnQuotaPauseWindowAt），
-// 文案只说「哪个窗口被拒」，不能说「窗口什么时候重置」。
+// 文案只说「哪个窗口被拒」，不能说「窗口什么时候重置」：重置点一律取快照（见
+// cnQuotaPauseWindowAt；【二开】handleCNProviderQuotaExhausted403 另把文案窗口在快照里的
+// 未来重置点作为停调依据，补判满线 100% 下快照滞后的情况）。
 func cnQuotaWordingWindow(body []byte) string {
 	if len(body) == 0 {
 		return ""
@@ -121,6 +125,9 @@ func cnQuotaWordingWindow(body []byte) string {
 	text := strings.ToLower(string(body))
 	if !cnTextContainsAny(text, cnQuotaWordingExhaustionTokens) {
 		return ""
+	}
+	if cnTextContainsAny(text, cnQuotaWordingMonthlyWindowTokens) {
+		return "monthly"
 	}
 	if cnTextContainsAny(text, cnQuotaWordingWeeklyWindowTokens) {
 		return "weekly"
