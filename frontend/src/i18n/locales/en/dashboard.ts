@@ -535,7 +535,7 @@ export default {
         '7dSonnet': '7d Sonnet',
         '7dFable': '7d Fable',
         weekly: 'Weekly',
-        monthly: 'Monthly',
+        monthly: '30d',
         daily: 'Daily',
         '30d': '30d',
         total: 'Total'

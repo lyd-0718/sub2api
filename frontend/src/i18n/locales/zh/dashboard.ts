@@ -540,7 +540,7 @@ export default {
         '7dSonnet': '7 天 Sonnet',
         '7dFable': '7 天 Fable',
         weekly: '周',
-        monthly: '月',
+        monthly: '30d',
         daily: '日',
         '30d': '30 天',
         total: '总量'

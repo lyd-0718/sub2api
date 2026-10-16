@@ -75,6 +75,8 @@ const windowI18nKeys: Record<string, string> = {
   '7d-sonnet': 'monitorCommon.quota.windows.7dSonnet',
   '7d-fable': 'monitorCommon.quota.windows.7dFable',
   weekly: 'monitorCommon.quota.windows.weekly',
+  // 【二开】CN Coding Plan 月窗口（Kimi 5h + 月额度套餐 / OpenCode Go），后端 tier.window = 'monthly'
+  monthly: 'monitorCommon.quota.windows.monthly',
   daily: 'monitorCommon.quota.windows.daily',
   '30d': 'monitorCommon.quota.windows.30d',
   total: 'monitorCommon.quota.windows.total',

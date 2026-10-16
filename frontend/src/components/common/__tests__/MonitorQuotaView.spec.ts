@@ -66,6 +66,21 @@ describe('MonitorQuotaView', () => {
     expect(html).toContain('bg-red-500')
   })
 
+  it('maps the CN coding plan monthly window through i18n', () => {
+    const wrapper = mount(MonitorQuotaView, {
+      props: {
+        snapshot: makeSnapshot({
+          source: 'cn_quota',
+          tiers: [
+            { window: '5h', used_percent: 1 },
+            { window: 'monthly', used_percent: 100 },
+          ],
+        }),
+      },
+    })
+    expect(wrapper.text()).toContain('monitorCommon.quota.windows.monthly')
+  })
+
   it('clamps the tier bar width into 0-100', () => {
     const wrapper = mount(MonitorQuotaView, {
       props: {
